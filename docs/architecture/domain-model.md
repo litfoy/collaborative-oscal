@@ -4,11 +4,16 @@ The API now has domain models under `apps/api/app/domain`, application services 
 `apps/api/app/application`, PostgreSQL records and tenant-scoped repositories under
 `apps/api/app/persistence`, and OSCAL document projection helpers under
 `packages/oscal`. These are logical modules in the existing modular monolith, not
-deployable services. No tenant-scoped HTTP endpoints or authentication are exposed.
+deployable services. The public health endpoint and protected `/api/v1/me` are the
+only HTTP routes; no tenant-scoped GRC endpoint is exposed.
 
 ## Entities and ownership
 
 - A **Tenant** is the isolation and ownership boundary. Its slug is globally unique.
+- A **UserIdentity** represents one external OIDC identity and is uniquely keyed by
+  `(issuer, subject)`. Email is optional profile data, not an identity key.
+- A **TenantMembership** relates one identity to one tenant with a tenant-specific
+  role and active/inactive status. Login does not create memberships.
 - A **Tenant** can own multiple **Organizations** and **Catalogs**.
 - An **Organization** belongs to exactly one tenant and may have one parent in that
   same tenant. Slugs are unique within a tenant. The create operation rejects
@@ -30,6 +35,8 @@ deployable services. No tenant-scoped HTTP endpoints or authentication are expos
 ```mermaid
 erDiagram
     TENANTS ||--o{ ORGANIZATIONS : owns
+    TENANTS ||--o{ TENANT_MEMBERSHIPS : grants
+    USER_IDENTITIES ||--o{ TENANT_MEMBERSHIPS : joins
     ORGANIZATIONS o|--o{ ORGANIZATIONS : parent_of
     TENANTS ||--o{ CATALOGS : owns
     CATALOGS ||--o{ CATALOG_REVISIONS : versions
@@ -45,6 +52,20 @@ erDiagram
         string slug UK
         timestamptz created_at
         timestamptz updated_at
+    }
+    USER_IDENTITIES {
+        uuid id PK
+        string issuer
+        string subject
+        string display_name
+        string email
+    }
+    TENANT_MEMBERSHIPS {
+        uuid id PK
+        uuid tenant_id FK
+        uuid user_id FK
+        string role
+        string status
     }
     ORGANIZATIONS {
         uuid id PK
@@ -100,8 +121,9 @@ Composite foreign keys include tenant identity for organization parentage, catal
 revisions, and index relationships. This makes cross-tenant or cross-revision links
 fail at the database boundary as well as in tenant-scoped service and repository
 operations. Catalog listing, revision lookup, and control lookup all require an
-explicit tenant ID. That ID must eventually come from authenticated identity and
-authorization context, never directly from an untrusted client.
+explicit tenant ID. Tenant-scoped HTTP adapters must obtain it from verified
+identity and active-membership authorization context, never directly from an
+untrusted tenant header or token claim. See [Identity and access](identity-and-access.md).
 
 Draft revisions are created in a single transaction with their group and control
 projections. Projection paths and UUIDv5 index identities are derived from the exact

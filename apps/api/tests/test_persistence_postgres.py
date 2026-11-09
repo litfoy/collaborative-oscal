@@ -11,12 +11,15 @@ from sqlalchemy.exc import IntegrityError
 
 from app.domain.catalogs.models import CatalogOriginType
 from app.domain.errors import EntityNotFoundError
+from app.persistence.identity import SQLIdentityRepository, SQLMembershipRepository
 from app.persistence.models import (
     CatalogControlIndexRecord,
     CatalogGroupIndexRecord,
     CatalogRecord,
     CatalogRevisionRecord,
     OrganizationRecord,
+    TenantMembershipRecord,
+    UserIdentityRecord,
 )
 
 pytestmark = pytest.mark.integration
@@ -254,4 +257,186 @@ def test_alembic_upgrade_and_downgrade(db_engine, postgres_url: str) -> None:
         "catalog_revisions",
         "catalog_group_indexes",
         "catalog_control_indexes",
+        "user_identities",
+        "tenant_memberships",
     } <= tables
+
+
+def test_identity_membership_constraints_and_tenant_isolation(grc_service, session_factory) -> None:
+    tenant_a = grc_service.create_tenant("Identity tenant A", f"identity-a-{uuid4().hex}")
+    tenant_b = grc_service.create_tenant("Identity tenant B", f"identity-b-{uuid4().hex}")
+    with session_factory.begin() as session:
+        identity = SQLIdentityRepository(session).get_or_create(
+            issuer="https://issuer.example.test",
+            subject="stable-subject",
+            display_name="Identity",
+            email=None,
+        )
+        membership = SQLMembershipRepository(session).assign(
+            tenant_id=tenant_a.id,
+            user_id=identity.id,
+            role="viewer",
+            status="active",
+        )
+
+    with session_factory() as session:
+        assert (
+            SQLMembershipRepository(session).get_for_tenant_and_user(tenant_a.id, identity.id)
+            == membership
+        )
+        assert (
+            SQLMembershipRepository(session).get_for_tenant_and_user(tenant_b.id, identity.id)
+            is None
+        )
+
+    with session_factory() as session:
+        session.add(
+            UserIdentityRecord(
+                id=uuid4(),
+                issuer="https://issuer.example.test",
+                subject="stable-subject",
+                display_name=None,
+                email=None,
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+    with session_factory() as session:
+        session.add(
+            TenantMembershipRecord(
+                id=uuid4(),
+                tenant_id=tenant_a.id,
+                user_id=identity.id,
+                role="viewer",
+                status="active",
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+    with session_factory() as session:
+        session.add(
+            TenantMembershipRecord(
+                id=uuid4(),
+                tenant_id=tenant_b.id,
+                user_id=identity.id,
+                role="unknown-role",
+                status="active",
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+
+def test_identity_and_membership_transaction_rolls_back(grc_service, session_factory) -> None:
+    tenant = grc_service.create_tenant("Identity rollback", f"identity-rollback-{uuid4().hex}")
+    with pytest.raises(RuntimeError, match="abort identity transaction"):
+        with session_factory.begin() as session:
+            identity = SQLIdentityRepository(session).get_or_create(
+                issuer="https://issuer.example.test",
+                subject=f"rollback-{uuid4().hex}",
+                display_name=None,
+                email=None,
+            )
+            SQLMembershipRepository(session).assign(
+                tenant_id=tenant.id,
+                user_id=identity.id,
+                role="tenant_admin",
+                status="active",
+            )
+            raise RuntimeError("abort identity transaction")
+
+    with session_factory() as session:
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(UserIdentityRecord)
+                .where(UserIdentityRecord.subject.like("rollback-%"))
+            )
+            == 0
+        )
+
+
+def test_membership_foreign_keys_reject_unknown_tenant_and_identity(session_factory) -> None:
+    now = datetime.now(UTC)
+    identity_id, tenant_id = uuid4(), uuid4()
+    with session_factory() as session:
+        session.add(
+            TenantMembershipRecord(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                user_id=identity_id,
+                role="viewer",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+
+def test_admin_bootstrap_is_idempotent_and_auditable(
+    monkeypatch, caplog, grc_service, session_factory
+) -> None:
+    import logging
+
+    from app import cli
+    from app.config import Settings
+
+    caplog.set_level(logging.INFO, logger=cli.__name__)
+    issuer = "https://issuer.example.test"
+    tenant = grc_service.create_tenant("Bootstrap", f"bootstrap-{uuid4().hex}")
+    monkeypatch.setattr(
+        cli,
+        "get_settings",
+        lambda: Settings(_env_file=None, oidc_issuer_url=issuer),
+    )
+    monkeypatch.setattr(cli, "create_session_factory", lambda: session_factory)
+
+    first_identity_id, first_membership_id = cli._bootstrap_tenant_admin(
+        issuer=issuer,
+        subject="bootstrap-subject",
+        tenant_id=tenant.id,
+    )
+    second_identity_id, second_membership_id = cli._bootstrap_tenant_admin(
+        issuer=issuer,
+        subject="bootstrap-subject",
+        tenant_id=tenant.id,
+    )
+
+    assert (second_identity_id, second_membership_id) == (
+        first_identity_id,
+        first_membership_id,
+    )
+    with session_factory() as session:
+        membership = session.scalar(
+            select(TenantMembershipRecord).where(
+                TenantMembershipRecord.tenant_id == tenant.id,
+                TenantMembershipRecord.user_id == first_identity_id,
+            )
+        )
+        identity_count = session.scalar(
+            select(func.count())
+            .select_from(UserIdentityRecord)
+            .where(
+                UserIdentityRecord.issuer == issuer,
+                UserIdentityRecord.subject == "bootstrap-subject",
+            )
+        )
+    assert membership is not None
+    assert membership.role == "tenant_admin"
+    assert membership.status == "active"
+    assert identity_count == 1
+    assert "tenant_admin_membership_bootstrapped" in caplog.text

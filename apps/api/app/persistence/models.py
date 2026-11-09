@@ -32,6 +32,58 @@ class TenantRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class UserIdentityRecord(Base):
+    __tablename__ = "user_identities"
+    __table_args__ = (
+        UniqueConstraint("issuer", "subject", name="uq_user_identities_issuer_subject"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    issuer: Mapped[str] = mapped_column(String(2048), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(255))
+    email: Mapped[str | None] = mapped_column(String(320))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class TenantMembershipRecord(Base):
+    __tablename__ = "tenant_memberships"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "user_id", name="uq_tenant_memberships_tenant_user"),
+        CheckConstraint(
+            "role IN ('tenant_admin', 'catalog_editor', 'viewer')",
+            name="ck_tenant_memberships_role",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'inactive')",
+            name="ck_tenant_memberships_status",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id"],
+            ["tenants.id"],
+            name="fk_tenant_memberships_tenant_id_tenants",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["user_id"],
+            ["user_identities.id"],
+            name="fk_tenant_memberships_user_id_user_identities",
+            ondelete="CASCADE",
+        ),
+        Index("ix_tenant_memberships_user", "user_id"),
+        Index("ix_tenant_memberships_tenant_status", "tenant_id", "status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class OrganizationRecord(Base):
     __tablename__ = "organizations"
     __table_args__ = (

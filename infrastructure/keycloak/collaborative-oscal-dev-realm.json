@@ -1,0 +1,60 @@
+{
+  "realm": "collaborative-oscal-dev",
+  "enabled": true,
+  "clients": [
+    {
+      "clientId": "collaborative-oscal-dev",
+      "name": "Collaborative OSCAL local development",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "oauth2DeviceAuthorizationGrantEnabled": true,
+      "redirectUris": [
+        "http://localhost:8000/*",
+        "http://localhost:8080/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "profile",
+        "email",
+        "roles",
+        "collaborative-oscal-api"
+      ]
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "collaborative-oscal-api",
+      "description": "Adds the Collaborative OSCAL API audience to access tokens.",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "Collaborative OSCAL API audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "collaborative-oscal-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ]
+}

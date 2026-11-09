@@ -5,8 +5,8 @@
 
 ## Context
 
-The application has no authentication yet, but its initial persistence model must
-not permit tenant-owned records to be associated across tenants. Organizations are
+The initial persistence model must not permit tenant-owned records to be associated
+across tenants. Organizations are
 hierarchical, and catalog query projections must identify the exact source revision.
 Future Profile and Control Mapping domains will depend on stable, tenant-scoped
 catalog identities.
@@ -19,11 +19,13 @@ Composite foreign keys enforce same-tenant organization parentage, catalog-to-re
 ownership, and same-tenant/same-revision group/control index relationships.
 Organization parent-chain validation belongs to the domain layer.
 
-Tenant context is to be established from a future authenticated principal, then
-passed explicitly through services and repositories. Client-supplied tenant IDs are
-not trusted without authorization. PostgreSQL row-level security is deferred until
-tenant context can be installed and removed transactionally and policies can be
-tested; it is defense in depth, not a substitute for application checks.
+Tenant context is established from a verified OIDC principal and active database
+membership, then passed explicitly through services and repositories. Client-selected
+tenant IDs are selectors only and are checked against membership; client-supplied
+tenant IDs and roles are never trusted without authorization. PostgreSQL row-level
+security is deferred until tenant context can be installed and removed transactionally
+and policies can be tested; it is defense in depth, not a substitute for application
+checks.
 
 Profiles and Control Mappings are future domain boundaries. They may refer to a
 catalog revision and its control index, but neither will be folded into catalog
@@ -33,5 +35,6 @@ content or inferred from a client-controlled tenant identifier.
 
 Database constraints reject invalid cross-tenant associations even if a future
 service has a bug, while tenant-scoped repository queries prevent cross-tenant
-retrieval through normal application operations. Authentication, RBAC, audit
-requirements, stronger tenant partitioning, and RLS policies remain unimplemented.
+retrieval through normal application operations. OIDC authentication and initial
+tenant RBAC are implemented at the API boundary. GRC HTTP routes, persistent audit
+events, stronger tenant partitioning, and RLS policies remain unimplemented.

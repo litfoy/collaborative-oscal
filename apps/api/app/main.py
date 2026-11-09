@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes import router as api_router
 from app.config import get_settings
 
 settings = get_settings()
@@ -15,8 +16,9 @@ app.add_middleware(
     allow_origins=settings.api_cors_origins,
     allow_credentials=False,
     allow_methods=["GET"],
-    allow_headers=["Accept", "Content-Type"],
+    allow_headers=["Accept", "Authorization", "Content-Type"],
 )
+app.include_router(api_router)
 
 
 @app.get("/health", tags=["health"])

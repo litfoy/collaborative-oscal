@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from functools import lru_cache
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -7,6 +8,7 @@ from app.config import get_settings
 from app.persistence.repositories import SQLAlchemyUnitOfWork
 
 
+@lru_cache(maxsize=1)
 def create_session_factory() -> sessionmaker[Session]:
     engine = create_engine(get_settings().get_database_url(), pool_pre_ping=True)
     return sessionmaker(bind=engine, expire_on_commit=False)

@@ -15,6 +15,8 @@ Treat tenant identity as trusted request context established after authenticatio
 
 Tenant-owned records and repository interfaces carry explicit tenant scope, and
 composite foreign keys reject cross-tenant associations. Tenant IDs must still come
-from a trusted authenticated identity before any future HTTP operation. Authentication
-and authorization are not implemented. PostgreSQL row-level security remains
-deferred until trusted context and policy lifecycle can be tested end to end.
+from a verified OIDC principal and active database membership before a tenant-scoped
+HTTP operation. The API now provides a reusable tenant-context dependency and
+centralized permission evaluation; no tenant-scoped GRC HTTP routes are exposed yet.
+PostgreSQL row-level security remains deferred until the context and policy lifecycle
+can be tested end to end.
