@@ -1,0 +1,24 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.config import get_settings
+
+settings = get_settings()
+
+app = FastAPI(
+    title="Collaborative OSCAL API",
+    version="0.1.0",
+    description="API foundation; GRC capabilities are not implemented.",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.api_cors_origins,
+    allow_credentials=False,
+    allow_methods=["GET"],
+    allow_headers=["Accept", "Content-Type"],
+)
+
+
+@app.get("/health", tags=["health"])
+def health() -> dict[str, str]:
+    return {"status": "ok"}

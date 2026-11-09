@@ -1,0 +1,11 @@
+{
+  "name": "collaborative-oscal",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0 <23",
+    "npm": ">=10 <11"
+  },
+  "workspaces": [
+    "apps/web"
+  ]
+}
