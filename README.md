@@ -1,12 +1,17 @@
 # Collaborative OSCAL
 
-Collaborative OSCAL is the foundation of a self-hostable, open-source Governance, Risk, and Compliance (GRC) platform. The project is licensed under Apache-2.0. The browser-facing product surface currently provides a backend health check. The API also contains an internal domain and PostgreSQL persistence foundation for tenants, organizations, catalog revisions, and query indexes; it does **not** expose GRC endpoints or implement catalog import/editing, authentication, workflow, or evidence features.
+Collaborative OSCAL is the foundation of a self-hostable, open-source Governance, Risk, and Compliance (GRC) platform. The project is licensed under Apache-2.0. The browser-facing product surface currently provides a backend health check. The API also contains an internal domain and PostgreSQL persistence foundation for tenants, organizations, catalog revisions, query indexes, and an application-service Catalog import pipeline; it does **not** expose GRC HTTP endpoints or implement catalog editing, authentication, workflow, or evidence features.
 
 ## Architecture at a glance
 
 The initial deployment is a modular monolith: a Next.js web app calls a FastAPI API, with PostgreSQL persistence behind tenant-scoped application services and repositories. OSCAL JSON documents are authoritative revision snapshots, while relational group/control indexes are rebuildable projections. HTTP controllers, domain rules, OSCAL handling, and optional IBM compliance-trestle integration stay at separate boundaries. A worker is reserved for future background jobs; there is no worker process or queue yet.
 
 See [System architecture](docs/architecture/overview.md) for module boundaries, data ownership, OSCAL integration, tenant isolation, and authentication strategy. [Architecture Decision Records](docs/adr/) capture the initial choices and the questions that remain open.
+
+The internal OSCAL Catalog import service accepts JSON or YAML and currently
+validates Catalog documents declared as OSCAL 1.2.1. It is not a public endpoint.
+See the [Catalog import guide](docs/catalog-import.md) for compatibility,
+validation limitations, security boundaries, and a development example.
 
 ## Prerequisites
 

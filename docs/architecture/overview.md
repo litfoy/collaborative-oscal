@@ -4,7 +4,7 @@
 
 The initial system is a self-hostable modular monolith with a Next.js/React/TypeScript browser application, a Python/FastAPI/Pydantic API, and PostgreSQL. The browser calls the API health endpoint. The API has an internal tenant-aware domain and PostgreSQL persistence foundation, but it exposes no GRC endpoints and does not connect to the database during health checks or startup. A future worker belongs in the same deployment boundary until workload and operational evidence justify separation.
 
-The implemented product surface remains health reporting only. Internal persistence operations cover initial tenant, organization, catalog revision, and derived index records; they are not user-facing capabilities. In particular, catalog import/editing, OSCAL validation, control mapping, workflow, authentication, evidence management, and continuous compliance are future work.
+The implemented product surface remains health reporting only. Internal application services support tenant, organization, catalog revision, derived index, and OSCAL Catalog import/validation operations; none are exposed as user-facing GRC endpoints. Catalog editing, control mapping, workflow, authentication, evidence management, and continuous compliance are future work.
 
 ## Module boundaries
 
@@ -15,7 +15,7 @@ The implemented product surface remains health reporting only. Internal persiste
 | `apps/api/app/domain` | Tenant, organization, catalog/revision entities and domain invariants | Initial entities and repository interfaces |
 | `apps/api/app/persistence` | PostgreSQL mappings, transactions, and tenant-scoped repositories | SQLAlchemy and Alembic foundation |
 | `packages/domain` | Future cross-application domain package boundary | No separately packaged domain library |
-| `packages/oscal` | OSCAL digest and catalog projections; future validation, import/export, and Trestle adapter | No full parser or schema validator |
+| `packages/oscal` | OSCAL digest, catalog projections, safe JSON/YAML parser, and Trestle Catalog model validation | Internal Catalog import validation for OSCAL 1.2.1 |
 | `packages/collaboration` | Collaboration concepts and application services | Reserved |
 | `packages/automation` | Future scheduled/event-triggered jobs and policy automation | Reserved |
 | `packages/authorization` | Identity integration, permissions, and tenant-scoped access decisions | Reserved |
@@ -31,7 +31,7 @@ Schema and migrations exist for the initial domain records. Database credentials
 
 ## OSCAL and compliance-trestle
 
-OSCAL is the interoperability format, not the domain model. The OSCAL boundary owns the current deterministic digest and group/control index projection and is intended to own import/export, validation, version compatibility, and canonicalization. Domain services consume stable application concepts and do not depend on generated OSCAL structures. An adapter may invoke IBM compliance-trestle behind this boundary; the adapter must remain optional so that the platform's core can be self-hosted without proprietary services. Trestle's exact supported operations, version policy, and packaging approach remain open.
+OSCAL is the interoperability format, not the domain model. The OSCAL boundary owns deterministic digests, group/control index projections, safe JSON/YAML parsing, and Trestle model validation. The internal import application service coordinates tenant-scoped persistence without exposing an HTTP route. It validates OSCAL Catalog 1.2.1 only. Trestle model validation does not claim exhaustive NIST Metaschema semantic validation; see [Catalog import](../catalog-import.md). Domain services consume stable application concepts and do not depend on generated OSCAL structures.
 
 ## Tenant isolation
 

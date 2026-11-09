@@ -109,8 +109,9 @@ revision UUID and source ordering, so rebuilding from the stored document produc
 the same index identities. Revision numbers are serialized by locking the owning
 catalog row and also protected by a unique constraint. A published revision cannot be updated or
 deleted by the database trigger; changing a draft into published is allowed only
-when a future publishing workflow also sets `published_at`. OSCAL schema validation
-and that workflow are intentionally deferred.
+when a future publishing workflow also sets `published_at`. Catalog import
+validation is implemented as an internal application service; it does not expose a
+publishing workflow.
 
 The digest uses UTF-8 JSON with recursively sorted object keys, compact separators,
 Unicode preserved, and non-finite numeric values rejected. This makes the current
@@ -121,11 +122,12 @@ must follow OSCAL UUID and `last-modified` requirements.
 
 ## OSCAL and future domain boundaries
 
-`packages/oscal` currently computes a digest and projects group/control query
-indexes; it does not parse or validate the complete OSCAL model. The JSONB revision remains
-authoritative for metadata, parameters, parts, links, back matter, and extensions.
-The installed compliance-trestle version and supported OSCAL revisions must be
-evaluated before adding validation or import behavior.
+`packages/oscal` computes a digest, projects group/control query indexes, safely
+parses JSON/YAML, and validates Catalogs with compliance-trestle. The JSONB revision
+remains authoritative for metadata, parameters, parts, links, back matter, and
+extensions. The import service accepts OSCAL 1.2.1 only; Pydantic model validation
+does not claim exhaustive NIST Metaschema semantic validation. See
+[Catalog import](../catalog-import.md) for details.
 
 Future domains are documented but not implemented: **Profiles** will resolve against
 catalog revisions; **Control Mappings** will relate controls across revisions without
@@ -137,8 +139,8 @@ and control-index identities as appropriate, not copy or flatten OSCAL documents
 
 Planned integration seams:
 
-- **compliance-trestle:** an optional adapter behind `packages/oscal` for supported
-  model handling and validation; no version support is assumed here.
+- **compliance-trestle:** the `packages/oscal` adapter currently pins its supported
+  range to 5.2.x and accepts Catalog 1.2.1 only; other model versions are rejected.
 - **OSCAL Profile resolution and Control Mapping:** independent application services
   that consume immutable catalog revisions and retain their own source/output
   artifacts.

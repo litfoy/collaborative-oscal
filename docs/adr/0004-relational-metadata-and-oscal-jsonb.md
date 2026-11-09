@@ -31,10 +31,11 @@ published revisions are immutable at the database boundary.
 
 Unknown OSCAL fields and nested content remain preserved in JSONB while relational
 queries use indexed fields and paths. Control identifiers are unique only within a
-specific revision, so they can repeat across catalogs and revisions. Future editing,
-import, full schema validation, and Profile/Mapping models must use the OSCAL adapter
-boundary and must not treat projections as authoritative.
+specific revision, so they can repeat across catalogs and revisions. Import and
+editing must use the OSCAL adapter boundary and must not treat projections as
+authoritative. Full NIST Metaschema semantic validation remains future work.
 
 The digest is deterministic for the JSON values handled here, but it does not claim
-RFC 8785 number canonicalization. Full OSCAL validation and supported-version policy
-remain future work.
+RFC 8785 number canonicalization. The internal Catalog importer accepts OSCAL 1.2.1
+with compliance-trestle 5.2.x model validation; see the
+[Catalog import guide](../catalog-import.md) for validation limitations.

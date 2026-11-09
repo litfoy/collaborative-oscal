@@ -44,6 +44,7 @@ class CatalogRevision:
     oscal_document_uuid: UUID
     oscal_version: str
     source_version: str | None
+    source_format: str | None
     content_sha256: str
     content: JsonObject
     created_at: datetime

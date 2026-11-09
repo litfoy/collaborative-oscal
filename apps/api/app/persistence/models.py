@@ -11,6 +11,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -105,6 +106,14 @@ class CatalogRevisionRecord(Base):
             "id",
             name="uq_catalog_revisions_tenant_catalog_id",
         ),
+        Index(
+            "uq_catalog_revisions_catalog_digest",
+            "tenant_id",
+            "catalog_id",
+            "content_sha256",
+            unique=True,
+            postgresql_where=text("source_format IS NOT NULL"),
+        ),
         ForeignKeyConstraint(
             ["tenant_id", "catalog_id"],
             ["catalogs.tenant_id", "catalogs.id"],
@@ -112,6 +121,10 @@ class CatalogRevisionRecord(Base):
             ondelete="RESTRICT",
         ),
         CheckConstraint("revision_number > 0", name="ck_catalog_revisions_positive_number"),
+        CheckConstraint(
+            "source_format IS NULL OR source_format IN ('json', 'yaml')",
+            name="ck_catalog_revisions_source_format",
+        ),
         CheckConstraint(
             "content_sha256 ~ '^[0-9a-f]{64}$'",
             name="ck_catalog_revisions_sha256_format",
@@ -133,6 +146,7 @@ class CatalogRevisionRecord(Base):
     oscal_document_uuid: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     oscal_version: Mapped[str] = mapped_column(String(32), nullable=False)
     source_version: Mapped[str | None] = mapped_column(String(255))
+    source_format: Mapped[str | None] = mapped_column(String(16))
     content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     content: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

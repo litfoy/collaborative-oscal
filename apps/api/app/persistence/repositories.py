@@ -69,6 +69,7 @@ def _revision(record: CatalogRevisionRecord) -> CatalogRevision:
         record.oscal_document_uuid,
         record.oscal_version,
         record.source_version,
+        record.source_format,
         record.content_sha256,
         record.content,
         record.created_at,
@@ -218,6 +219,17 @@ class SQLCatalogRevisionRepository:
         )
         return (self._session.scalar(statement) or 0) + 1
 
+    def find_by_digest(
+        self, tenant_id: UUID, catalog_id: UUID, content_sha256: str
+    ) -> CatalogRevision | None:
+        statement = select(CatalogRevisionRecord).where(
+            CatalogRevisionRecord.tenant_id == tenant_id,
+            CatalogRevisionRecord.catalog_id == catalog_id,
+            CatalogRevisionRecord.content_sha256 == content_sha256,
+        )
+        record = self._session.scalar(statement)
+        return _revision(record) if record is not None else None
+
     def add(
         self,
         revision: CatalogRevision,
@@ -234,6 +246,7 @@ class SQLCatalogRevisionRepository:
                 oscal_document_uuid=revision.oscal_document_uuid,
                 oscal_version=revision.oscal_version,
                 source_version=revision.source_version,
+                source_format=revision.source_format,
                 content_sha256=revision.content_sha256,
                 content=revision.content,
                 created_at=revision.created_at,

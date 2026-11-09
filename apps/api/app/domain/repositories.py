@@ -42,6 +42,10 @@ class CatalogRepository(Protocol):
 class CatalogRevisionRepository(Protocol):
     def next_revision_number(self, tenant_id: UUID, catalog_id: UUID) -> int: ...
 
+    def find_by_digest(
+        self, tenant_id: UUID, catalog_id: UUID, content_sha256: str
+    ) -> CatalogRevision | None: ...
+
     def add(
         self,
         revision: CatalogRevision,
