@@ -243,6 +243,13 @@ class CatalogGroupIndexRecord(Base):
             "catalog_revision_id",
             "display_order",
         ),
+        Index(
+            "ix_group_indexes_revision_parent",
+            "tenant_id",
+            "catalog_revision_id",
+            "parent_group_id",
+            "display_order",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
@@ -306,6 +313,20 @@ class CatalogControlIndexRecord(Base):
             "ix_control_indexes_revision_order",
             "tenant_id",
             "catalog_revision_id",
+            "display_order",
+        ),
+        Index(
+            "ix_control_indexes_revision_parent",
+            "tenant_id",
+            "catalog_revision_id",
+            "parent_control_id",
+            "display_order",
+        ),
+        Index(
+            "ix_control_indexes_revision_group",
+            "tenant_id",
+            "catalog_revision_id",
+            "group_id",
             "display_order",
         ),
     )

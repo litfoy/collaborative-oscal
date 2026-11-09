@@ -53,3 +53,14 @@ class AuthorizedTenantContext:
 
     def permits(self, permission: Permission) -> bool:
         return permission in self.permissions
+
+
+@dataclass(frozen=True, slots=True)
+class TenantAccess:
+    """A tenant the user may access, derived only from persisted active memberships."""
+
+    tenant_id: UUID
+    name: str
+    slug: str
+    role: TenantRole
+    permissions: frozenset[Permission]

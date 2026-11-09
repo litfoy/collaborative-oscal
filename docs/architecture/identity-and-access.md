@@ -214,3 +214,7 @@ uv run pytest tests/test_authentication.py tests/test_authorization.py tests/tes
 PostgreSQL persistence and migration tests require `TEST_DATABASE_URL` for a
 dedicated database whose name ends in `_test`; they use local signing fixtures and
 do not contact an external identity provider.
+
+## Browser sign-in and catalog access
+
+The Next.js BFF authenticates users with Authorization Code + PKCE and forwards only the access token to FastAPI, which still verifies it independently. `GET /api/v1/tenants` lists active memberships; catalog routes require `catalog:read` in the requested tenant. See [Catalog Explorer](catalog-explorer.md) and ADR 0007.

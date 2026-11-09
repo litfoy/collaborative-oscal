@@ -1,6 +1,6 @@
 # Collaborative OSCAL
 
-Collaborative OSCAL is the foundation of a self-hostable, open-source Governance, Risk, and Compliance (GRC) platform. The project is licensed under Apache-2.0. The browser-facing product surface currently provides a backend health check. The API also provides OIDC bearer-token authentication and a minimal protected identity endpoint, backed by internal identities, tenant memberships, and a tenant-scoped RBAC foundation. It contains an internal domain and PostgreSQL persistence foundation for tenants, organizations, catalog revisions, query indexes, and an application-service Catalog import pipeline; it does **not** expose GRC/catalog HTTP endpoints or implement catalog editing, workflow, or evidence features.
+Collaborative OSCAL is the foundation of a self-hostable, open-source Governance, Risk, and Compliance (GRC) platform. The project is licensed under Apache-2.0. The product surface includes OIDC browser sign-in through a Next.js Backend-for-Frontend and a read-only, tenant-scoped **Catalog Explorer** (tenants, catalogs, revisions, lazy control hierarchy, search, control details). The API provides OIDC bearer-token authentication, internal identities, tenant memberships, tenant-scoped RBAC, and read-only catalog endpoints protected by `catalog:read`. Catalog import remains an internal application service (CLI for local development); there is no public import endpoint, and catalog editing, profiles, workflow, and evidence features are not implemented. See [Catalog Explorer](docs/architecture/catalog-explorer.md) for setup, sample data and Keycloak instructions.
 
 ## Architecture at a glance
 
@@ -58,7 +58,7 @@ The application pins compatible dependency ranges in `apps/api/pyproject.toml` a
    npm --workspace apps/web run dev
    ```
 
-   Open `http://localhost:3000`. The page requests the backend health endpoint. Set `NEXT_PUBLIC_API_BASE_URL` in `.env` to override the default `http://localhost:8000`; the web scripts load this root environment file.
+   Open `http://localhost:3000`. Signing in requires the OIDC and session variables from `.env.example` (see [Catalog Explorer](docs/architecture/catalog-explorer.md#local-setup)). `API_BASE_URL` points the Next.js server at the API; the web scripts load this root environment file.
 
 Stop PostgreSQL with `docker compose --env-file .env -f infrastructure/docker/compose.yaml down`. Add `-v` only when intentionally deleting the local database volume.
 
@@ -91,6 +91,7 @@ Run frontend lint and type checking from the repository root:
 ```sh
 npm --workspace apps/web run lint
 npm --workspace apps/web run typecheck
+npm --workspace apps/web run test
 ```
 
 GitHub Actions runs the PostgreSQL integration tests against a dedicated PostgreSQL

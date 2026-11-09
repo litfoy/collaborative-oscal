@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     oidc_access_token_profile: Literal["custom", "rfc9068"] = "custom"
     oidc_access_token_type_claim: str = Field(default="typ", min_length=1, max_length=255)
     oidc_access_token_type_value: str = Field(default="Bearer", min_length=1, max_length=255)
+    api_page_size_default: int = Field(default=50, ge=1, le=500)
+    api_page_size_max: int = Field(default=200, ge=1, le=500)
 
     @field_validator("oidc_issuer_url", "oidc_jwks_url")
     @classmethod
@@ -72,6 +74,12 @@ class Settings(BaseSettings):
         if not value or len(value) != len(set(value)) or not set(value) <= supported:
             raise ValueError("Configure one or more supported asymmetric JWT algorithms.")
         return value
+
+    @model_validator(mode="after")
+    def validate_page_sizes(self) -> Settings:
+        if self.api_page_size_default > self.api_page_size_max:
+            raise ValueError("API_PAGE_SIZE_DEFAULT must not exceed API_PAGE_SIZE_MAX.")
+        return self
 
     @model_validator(mode="after")
     def validate_custom_access_token_profile(self) -> Settings:

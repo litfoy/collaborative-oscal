@@ -5,6 +5,7 @@ from app.domain.identity.models import (
     AuthorizedTenantContext,
     MembershipStatus,
     Permission,
+    TenantAccess,
     TenantMembership,
     TenantRole,
 )
@@ -54,3 +55,18 @@ class AuthorizationService:
             return None
 
         return AuthorizedTenantContext(tenant_id, membership, permissions)
+
+
+class ActiveTenantLookup(Protocol):
+    def list_active_for_user(self, user_id: UUID) -> list[tuple[UUID, str, str, str]]: ...
+
+
+def list_accessible_tenants(memberships: ActiveTenantLookup, user_id: UUID) -> list[TenantAccess]:
+    """List tenants where the user has an active membership granting tenant:read."""
+    accessible = []
+    for tenant_id, name, slug, role in memberships.list_active_for_user(user_id):
+        permissions = permissions_for_role(role)
+        if Permission.TENANT_READ not in permissions:
+            continue
+        accessible.append(TenantAccess(tenant_id, name, slug, TenantRole(role), permissions))
+    return accessible

@@ -20,4 +20,4 @@
 
 ## Current scope
 
-The API exposes public `/health` and bearer-protected `GET /api/v1/me`. OIDC access-token verification, internal identity/membership persistence, tenant-scoped roles, and trusted tenant-context dependencies are implemented. The Next.js page only displays health. GRC routes, catalog APIs/UI, public user management, and machine identities are not implemented.
+The API exposes public `/health`, bearer-protected `GET /api/v1/me`, `GET /api/v1/tenants`, and read-only tenant-scoped catalog endpoints requiring `catalog:read`. OIDC access-token verification, identity/membership persistence, tenant-scoped roles, and trusted tenant-context dependencies are implemented. The Next.js app is an OIDC Backend-for-Frontend (openid-client, encrypted HttpOnly cookie session; tokens never reach the browser) hosting the read-only Catalog Explorer. Catalog import has no public endpoint (use `python -m app.cli`). GRC routes, catalog editing, profiles, public user management, and machine identities are not implemented. Control references use `catalog_id + revision_id + oscal_control_id`. See ADR 0007.

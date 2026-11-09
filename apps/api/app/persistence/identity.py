@@ -1,12 +1,12 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.domain.identity.models import MembershipStatus, TenantMembership, UserIdentity
-from app.persistence.models import TenantMembershipRecord, UserIdentityRecord
+from app.persistence.models import TenantMembershipRecord, TenantRecord, UserIdentityRecord
 
 
 def _identity(record: UserIdentityRecord) -> UserIdentity:
@@ -119,3 +119,17 @@ class SQLMembershipRepository:
         if record is None:
             raise RuntimeError("Membership upsert did not return a persisted membership.")
         return _membership(record)
+
+    def list_active_for_user(self, user_id: UUID) -> list[tuple[UUID, str, str, str]]:
+        statement = (
+            select(
+                TenantRecord.id, TenantRecord.name, TenantRecord.slug, TenantMembershipRecord.role
+            )
+            .join(TenantMembershipRecord, TenantMembershipRecord.tenant_id == TenantRecord.id)
+            .where(
+                TenantMembershipRecord.user_id == user_id,
+                TenantMembershipRecord.status == MembershipStatus.ACTIVE.value,
+            )
+            .order_by(func.lower(TenantRecord.name), TenantRecord.id)
+        )
+        return [(row[0], row[1], row[2], row[3]) for row in self._session.execute(statement)]

@@ -135,3 +135,7 @@ print(result.catalog.id, result.revision.id, result.control_count)
 
 Set `target_catalog_id` to import a new revision into an existing tenant-owned
 logical catalog. Without it, each call creates a new logical catalog.
+
+## Local sample data
+
+Two self-authored OSCAL 1.2.1 catalogs live in `examples/catalogs/`. Import them with `python -m app.cli create-tenant` and `import-catalog` (run from `apps/api`); see [Catalog Explorer](architecture/catalog-explorer.md#local-setup). The CLI uses the same import service and validation as every other caller.
