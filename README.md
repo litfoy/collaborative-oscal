@@ -1,10 +1,10 @@
 # Collaborative OSCAL
 
-Collaborative OSCAL is the foundation of a self-hostable, open-source Governance, Risk, and Compliance (GRC) platform. The project is licensed under Apache-2.0. This repository currently contains only a runnable application foundation and a backend health check; it does **not** implement GRC, OSCAL catalog management, authentication, workflow, or evidence features.
+Collaborative OSCAL is the foundation of a self-hostable, open-source Governance, Risk, and Compliance (GRC) platform. The project is licensed under Apache-2.0. The browser-facing product surface currently provides a backend health check. The API also contains an internal domain and PostgreSQL persistence foundation for tenants, organizations, catalog revisions, and query indexes; it does **not** expose GRC endpoints or implement catalog import/editing, authentication, workflow, or evidence features.
 
 ## Architecture at a glance
 
-The initial deployment is a modular monolith: a Next.js web app calls a FastAPI API, with PostgreSQL available as the persistence service. Business capabilities are intended to remain in independent domain modules, while HTTP controllers, OSCAL serialization, and optional IBM compliance-trestle integration stay at their respective boundaries. A worker is reserved for future background jobs; there is no worker process or queue yet.
+The initial deployment is a modular monolith: a Next.js web app calls a FastAPI API, with PostgreSQL persistence behind tenant-scoped application services and repositories. OSCAL JSON documents are authoritative revision snapshots, while relational group/control indexes are rebuildable projections. HTTP controllers, domain rules, OSCAL handling, and optional IBM compliance-trestle integration stay at separate boundaries. A worker is reserved for future background jobs; there is no worker process or queue yet.
 
 See [System architecture](docs/architecture/overview.md) for module boundaries, data ownership, OSCAL integration, tenant isolation, and authentication strategy. [Architecture Decision Records](docs/adr/) capture the initial choices and the questions that remain open.
 
@@ -38,7 +38,13 @@ The application pins compatible dependency ranges in `apps/api/pyproject.toml` a
    uv run uvicorn app.main:app --reload
    ```
 
-   The health endpoint is `http://localhost:8000/health`; interactive API documentation is at `http://localhost:8000/docs`. PostgreSQL is provisioned for future persistence; the health endpoint does not connect to it yet.
+   Apply the initial schema from `apps/api`:
+
+   ```sh
+   uv run alembic -c ../../alembic.ini upgrade head
+   ```
+
+   The health endpoint is `http://localhost:8000/health`; interactive API documentation is at `http://localhost:8000/docs`. Database configuration uses `DATABASE_URL` when provided, otherwise the `POSTGRES_*` variables from `.env`. The health endpoint does not depend on the database.
 
 4. In another terminal, install the web dependencies and start Next.js:
 
@@ -53,13 +59,27 @@ Stop PostgreSQL with `docker compose --env-file .env -f infrastructure/docker/co
 
 ## Tests and checks
 
-Run backend tests and lint:
+Run backend unit tests and lint:
 
 ```sh
 cd apps/api
 uv run pytest
 uv run ruff check .
 ```
+
+PostgreSQL integration tests require a dedicated PostgreSQL database whose name ends
+with `_test`; they never use SQLite. With the local Compose database running, create
+the test database with:
+
+```sh
+docker compose --env-file .env -f infrastructure/docker/compose.yaml exec -T db \
+  sh -c 'createdb -U "$POSTGRES_USER" collaborative_oscal_test'
+```
+
+Export `TEST_DATABASE_URL` with the same connection details as `DATABASE_URL` (or
+the `POSTGRES_*` settings) but with the database name `collaborative_oscal_test`,
+then run `uv run pytest` from `apps/api`. The migration integration test upgrades,
+downgrades, and reapplies the schema in that test database.
 
 Run frontend lint and type checking from the repository root:
 
@@ -68,7 +88,8 @@ npm --workspace apps/web run lint
 npm --workspace apps/web run typecheck
 ```
 
-The GitHub Actions workflow runs these same checks and verifies the API tests. It does not require PostgreSQL because no database behavior is implemented yet.
+GitHub Actions runs the PostgreSQL integration tests against a dedicated PostgreSQL
+service as well as the health/unit and lint checks.
 
 ## Repository layout
 
@@ -78,8 +99,8 @@ apps/
   web/                 Next.js application
   worker/              Reserved; background processing is not implemented
 packages/
-  domain/              Domain boundary
-  oscal/               OSCAL and Trestle adapter boundary
+  domain/              Domain boundary documentation
+  oscal/               Installable OSCAL document/projection boundary
   collaboration/       Collaboration boundary
   automation/          Automation boundary
   authorization/       Tenant-aware authorization boundary
@@ -90,4 +111,7 @@ docs/adr/              Initial architecture decisions
 tests/                 Reserved for future cross-module integration tests
 ```
 
-Package boundary documents describe intended ownership; they are not implemented product features. See [Copilot repository instructions](.github/copilot-instructions.md) for coding and architecture conventions.
+Remaining package boundary documents describe future ownership and are not implemented
+product features. The OSCAL package currently contains only digest and projection
+helpers. See [Copilot repository instructions](.github/copilot-instructions.md) for
+coding and architecture conventions.

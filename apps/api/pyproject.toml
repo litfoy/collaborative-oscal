@@ -4,8 +4,12 @@ version = "0.1.0"
 description = "FastAPI foundation for Collaborative OSCAL"
 requires-python = ">=3.12,<3.14"
 dependencies = [
+    "alembic>=1.15,<2",
+    "collaborative-oscal-oscal",
     "fastapi>=0.162,<0.163",
+    "psycopg[binary]>=3.2,<4",
     "pydantic-settings>=2.16,<3",
+    "sqlalchemy>=2.0,<3",
     "uvicorn[standard]>=0.54,<0.55",
 ]
 
@@ -19,6 +23,7 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = ["integration: tests requiring a dedicated PostgreSQL database"]
 
 [tool.ruff]
 line-length = 100
@@ -26,3 +31,6 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+
+[tool.uv.sources]
+collaborative-oscal-oscal = { path = "../../packages/oscal", editable = true }

@@ -10,6 +10,22 @@ permissions:
 jobs:
   api:
     runs-on: ubuntu-latest
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://collaborative_oscal:ci-only-password@localhost:5432/collaborative_oscal_test
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_DB: collaborative_oscal_test
+          POSTGRES_USER: collaborative_oscal
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U collaborative_oscal -d collaborative_oscal_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

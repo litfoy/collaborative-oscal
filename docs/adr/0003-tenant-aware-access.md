@@ -13,4 +13,8 @@ Treat tenant identity as trusted request context established after authenticatio
 
 ## Consequences
 
-Future tenant-owned entities and repository interfaces must make tenant scope explicit and test cross-tenant denial. The tenant partitioning strategy, identity integration, and database policies remain undecided. This foundation implements none of them.
+Tenant-owned records and repository interfaces carry explicit tenant scope, and
+composite foreign keys reject cross-tenant associations. Tenant IDs must still come
+from a trusted authenticated identity before any future HTTP operation. Authentication
+and authorization are not implemented. PostgreSQL row-level security remains
+deferred until trusted context and policy lifecycle can be tested end to end.

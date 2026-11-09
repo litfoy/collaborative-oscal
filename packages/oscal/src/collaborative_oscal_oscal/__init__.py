@@ -1,0 +1,1 @@
+"""OSCAL artifact handling boundary."""

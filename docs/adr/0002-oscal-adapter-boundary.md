@@ -13,4 +13,8 @@ Place OSCAL parsing, validation, canonical JSON representation, import/export, a
 
 ## Consequences
 
-The domain can evolve independently of OSCAL schemas and Trestle releases. The adapter needs explicit compatibility tests and a version support policy when implemented. No OSCAL functionality or Trestle dependency is included in this foundation.
+The domain can evolve independently of OSCAL schemas and Trestle releases. The
+package currently provides only deterministic document digests and query index
+projections; it does not validate or import OSCAL. The adapter needs explicit
+compatibility tests and a version support policy before full artifact handling is
+implemented. No Trestle dependency is included.
