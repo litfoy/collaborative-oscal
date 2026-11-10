@@ -14,15 +14,33 @@ export async function backendFetch(
 ): Promise<Response> {
   const url = new URL(`${getConfig().apiBaseUrl}${path}`);
   if (search) url.search = search.toString();
+  let response: Response;
   try {
-    return await fetch(url, {
+    response = await fetch(url, {
       headers: { Authorization: `Bearer ${session.accessToken}`, Accept: "application/json" },
       cache: "no-store",
       signal: AbortSignal.timeout(15_000),
     });
-  } catch {
+  } catch (error) {
+    const cause = error instanceof Error ? error.cause : undefined;
+    const code = cause && typeof cause === "object" && "code" in cause ? cause.code : undefined;
+    const knownCodes = ["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT"];
+    console.error("[backend] Request failed", {
+      origin: url.origin,
+      path: url.pathname,
+      reason: error instanceof Error && error.name === "TimeoutError" ? "timeout" : "connection_error",
+      code: typeof code === "string" && knownCodes.includes(code) ? code : "unknown",
+    });
     throw new ApiError("unavailable", 503, ERROR_MESSAGES.unavailable);
   }
+  if (!response.ok) {
+    console.error("[backend] Unsuccessful response", {
+      origin: url.origin,
+      path: url.pathname,
+      status: response.status,
+    });
+  }
+  return response;
 }
 
 async function getJson<T>(path: string, returnTo: string, query?: Record<string, string | number | undefined>): Promise<T> {
