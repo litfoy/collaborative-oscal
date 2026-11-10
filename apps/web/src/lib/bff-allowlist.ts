@@ -7,6 +7,7 @@ const READ_PATHS = [
   new RegExp(`^tenants/${UUID}/catalogs/${UUID}/revisions$`),
   new RegExp(`^tenants/${UUID}/catalogs/${UUID}/revisions/${UUID}$`),
   new RegExp(`^tenants/${UUID}/catalogs/${UUID}/revisions/${UUID}/outline$`),
+  new RegExp(`^tenants/${UUID}/catalogs/${UUID}/revisions/${UUID}/profile-browser$`),
   new RegExp(`^tenants/${UUID}/catalogs/${UUID}/revisions/${UUID}/controls$`),
   new RegExp(`^tenants/${UUID}/catalogs/${UUID}/revisions/${UUID}/controls/${OSCAL_ID}$`),
   new RegExp(`^tenants/${UUID}/profiles$`),

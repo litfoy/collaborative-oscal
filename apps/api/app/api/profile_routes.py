@@ -104,6 +104,7 @@ def create_profile(
             request.revision_id,
             request.title,
             request.control_ids,
+            request.description,
         )
     except EntityNotFoundError as error:
         raise _not_found(error) from error
@@ -164,7 +165,9 @@ def update_profile(
     request: ProfileUpdateRequest,
 ) -> ProfileResponse:
     try:
-        profile = service.update(context.tenant_id, profile_id, request.title, request.control_ids)
+        profile = service.update(
+            context.tenant_id, profile_id, request.title, request.control_ids, request.description
+        )
     except EntityNotFoundError as error:
         raise _not_found(error) from error
     except InvalidProfileSelection as error:

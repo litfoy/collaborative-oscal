@@ -15,7 +15,8 @@ class ProfileCreateRequest(BaseModel):
     catalog_id: UUID
     revision_id: UUID
     title: str = Field(min_length=1, max_length=255)
-    control_ids: list[ControlId] = Field(min_length=1, max_length=1000)
+    description: str = Field(default="", max_length=10000)
+    control_ids: list[ControlId] = Field(min_length=1, max_length=10000)
 
     @field_validator("title")
     @classmethod
@@ -35,7 +36,8 @@ class ProfileCreateRequest(BaseModel):
 
 class ProfileUpdateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=255)
-    control_ids: list[ControlId] = Field(min_length=1, max_length=1000)
+    description: str | None = Field(default=None, max_length=10000)
+    control_ids: list[ControlId] = Field(min_length=1, max_length=10000)
 
     @field_validator("title")
     @classmethod
@@ -59,6 +61,7 @@ class ProfileResponse(BaseModel):
     catalog_id: UUID
     revision_id: UUID
     title: str
+    description: str
     control_ids: list[str]
     created_at: datetime
     updated_at: datetime
@@ -71,6 +74,7 @@ class ProfileResponse(BaseModel):
             catalog_id=profile.catalog_id,
             revision_id=profile.revision_id,
             title=profile.title,
+            description=profile.document["profile"]["metadata"].get("remarks", ""),
             control_ids=profile.document["profile"]["imports"][0]["include-controls"][0][
                 "with-ids"
             ],

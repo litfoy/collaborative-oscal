@@ -33,6 +33,7 @@ class ProfileService:
         revision_id: UUID,
         title: str,
         control_ids: Sequence[str],
+        description: str = "",
     ) -> Profile:
         now = datetime.now(UTC)
         profile_id = uuid4()
@@ -46,6 +47,7 @@ class ProfileService:
                 catalog_href=self._catalog_href(tenant_id, catalog_id, revision_id),
                 control_ids=control_ids,
                 last_modified=now,
+                description=description,
             )
             profile = Profile(
                 profile_id,
@@ -74,7 +76,12 @@ class ProfileService:
             )
 
     def update(
-        self, tenant_id: UUID, profile_id: UUID, title: str, control_ids: Sequence[str]
+        self,
+        tenant_id: UUID,
+        profile_id: UUID,
+        title: str,
+        control_ids: Sequence[str],
+        description: str | None = None,
     ) -> Profile:
         now = datetime.now(UTC)
         with self._session_scope() as session:
@@ -97,6 +104,7 @@ class ProfileService:
                 control_ids=control_ids,
                 version=metadata["version"],
                 last_modified=now,
+                description=description if description is not None else metadata.get("remarks", ""),
             )
             updated = Profile(
                 existing.id,

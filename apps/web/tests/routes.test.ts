@@ -161,4 +161,35 @@ describe("BFF proxy", () => {
     );
     expect(wrongMethod.status).toBe(404);
   });
+
+  it("allows the revision-pinned profile browser through the authenticated proxy", async () => {
+    mocks.readSession.mockResolvedValue(session);
+    mocks.backendFetch.mockResolvedValue(
+      new Response('{"nodes":[]}', { headers: { "content-type": "application/json" } }),
+    );
+    const path = ["tenants", U, "catalogs", U, "revisions", U, "profile-browser"];
+    const response = await bff(new NextRequest(`http://localhost:3000/bff/${path.join("/")}`), ctx(path));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ nodes: [] });
+    expect(mocks.backendFetch).toHaveBeenCalledWith(session, `/api/v1/${path.join("/")}`, expect.any(URLSearchParams));
+  });
+
+  it("accepts large explicit selections but still enforces a bounded mutation body", async () => {
+    mocks.readSession.mockResolvedValue(session);
+    mocks.backendFetch.mockResolvedValue(
+      new Response("{}", { headers: { "content-type": "application/json" } }),
+    );
+    const path = ["tenants", U, "profiles"];
+    const request = (body: string) => new NextRequest(`http://localhost:3000/bff/${path.join("/")}`, {
+      method: "POST",
+      headers: { origin: "http://localhost:3000", "content-type": "application/json" },
+      body,
+    });
+    const body = JSON.stringify({ title: "Large scope", control_ids: Array.from({ length: 10_000 }, (_, i) => `control-${i}`) });
+    expect(body.length).toBeGreaterThan(16_384);
+    expect((await bffPost(request(body), ctx(path))).status).toBe(200);
+    mocks.backendFetch.mockClear();
+    expect((await bffPost(request(" ".repeat(3 * 1024 * 1024 + 1)), ctx(path))).status).toBe(413);
+    expect(mocks.backendFetch).not.toHaveBeenCalled();
+  });
 });

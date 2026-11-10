@@ -14,7 +14,6 @@ describe("ControlDetailView", () => {
     expect(screen.getByText("Policy template")).toBeInTheDocument();
     expect(screen.getByText(/Source:/)).toHaveTextContent("revision 1");
     expect(screen.getByText("ac-1", { selector: "dd" })).toBeInTheDocument();
-    expect(screen.getByText(/Add to Profile — coming later/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /add to profile/i })).toBeNull();
   });
 

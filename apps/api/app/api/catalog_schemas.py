@@ -217,6 +217,26 @@ class PropertyResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ProfileBrowserPropertyResponse(BaseModel):
+    name: str
+    value: str
+    ns: str | None = None
+
+
+class ProfileBrowserNodeResponse(BaseModel):
+    key: str
+    parent_key: str | None
+    kind: Literal["group", "control"]
+    id: str | None
+    title: str
+    text: str
+    properties: list[ProfileBrowserPropertyResponse]
+
+
+class ProfileBrowserResponse(BaseModel):
+    nodes: list[ProfileBrowserNodeResponse]
+
+
 class LinkResponse(BaseModel):
     href: str
     rel: str | None = None
@@ -323,6 +343,7 @@ class ControlDetailResponse(BaseModel):
     properties: list[PropertyResponse]
     links: list[LinkResponse]
     references: list[ReferenceResponse]
+    raw_control: dict[str, Any]
     source_catalog: ControlSourceCatalog
     source_revision: ControlSourceRevision
     model_config = ConfigDict(populate_by_name=True)
@@ -368,6 +389,7 @@ class ControlDetailResponse(BaseModel):
             properties=content["props"],
             links=content["links"],
             references=view.resources,
+            raw_control=record.raw_control,
             source_catalog=ControlSourceCatalog(
                 id=view.catalog.id,
                 name=view.catalog.name,

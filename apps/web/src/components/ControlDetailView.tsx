@@ -17,7 +17,12 @@ function Props({ items }: { items: Property[] }) {
         {items.map((item, index) => (
           <tr key={`${item.name}-${index}`}>
             <td>{item.name}</td>
-            <td>{item.value}</td>
+            <td>
+              <span className="prose">{item.value}</span>
+              {item.remarks ? <p className="prose">{item.remarks}</p> : null}
+              {item.ns ? <div className="muted mono">Namespace: {item.ns}</div> : null}
+              {item.class ? <div className="muted">Class: {item.class}</div> : null}
+            </td>
           </tr>
         ))}
       </tbody>
@@ -52,6 +57,7 @@ function PartView({ part, labels }: { part: Part; labels: Record<string, string 
         ) : null,
       )}
       {part.prose ? <p className="prose">{renderProse(part.prose, labels)}</p> : null}
+      <Props items={part.props.filter((prop) => prop.name !== "label")} />
       <Links items={part.links} />
       {part.parts.map((child, index) => (
         <PartView key={child.id ?? index} part={child} labels={labels} />
@@ -87,12 +93,6 @@ export function ControlDetailView({ control }: { control: ControlDetail }) {
           Location: {location.join(" › ")} › <span className="mono">{control.oscal_control_id}</span>
         </p>
       ) : null}
-      <p>
-        <span className="planned" aria-label="Add to Profile is planned for a later release">
-          Add to Profile — coming later
-        </span>
-      </p>
-
       {control.parts.length > 0 ? (
         <section aria-labelledby="control-content">
           <h2 id="control-content">Control content</h2>
@@ -129,6 +129,21 @@ export function ControlDetailView({ control }: { control: ControlDetail }) {
               ))}
             </tbody>
           </table>
+          {control.parameters.map((parameter) => (
+            <details key={parameter.id}>
+              <summary>Parameter details: {parameter.id}</summary>
+              {parameter.usage ? <p className="prose">{parameter.usage}</p> : null}
+              {parameter.depends_on ? <p>Depends on: {parameter.depends_on}</p> : null}
+              <Props items={parameter.props} />
+              {parameter.constraints.map((constraint, index) => <div key={index}>
+                {constraint.description ? <p className="prose">{constraint.description}</p> : null}
+                {constraint.tests.map((test, i) => <p className="prose" key={i}>{test.expression}{test.remarks ? ` — ${test.remarks}` : ""}</p>)}
+              </div>)}
+              {parameter.guidelines.map((guideline, index) => <p className="prose" key={index}>{guideline}</p>)}
+              <Links items={parameter.links} />
+            </details>
+          ))}
+          <p className="muted">Parameter references are shown in brackets; original insertion syntax is preserved in the technical view.</p>
         </section>
       ) : null}
 
@@ -145,7 +160,7 @@ export function ControlDetailView({ control }: { control: ControlDetail }) {
           <Links items={control.links} />
           <ul>
             {control.references.map((reference) => (
-              <li key={reference.uuid}>
+              <li key={reference.uuid} id={reference.uuid}>
                 <strong>{reference.title ?? "Untitled reference"}</strong>
                 {reference.citation ? <span> — {reference.citation}</span> : null}
                 {reference.description ? <p className="prose">{reference.description}</p> : null}
@@ -188,6 +203,10 @@ export function ControlDetailView({ control }: { control: ControlDetail }) {
           redistribution rights.
         </p>
       </section>
+      {control.raw_control ? <details>
+        <summary>Advanced technical view: source OSCAL JSON</summary>
+        <pre className="raw-oscal">{JSON.stringify(control.raw_control, null, 2)}</pre>
+      </details> : null}
     </article>
   );
 }

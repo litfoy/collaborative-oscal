@@ -24,6 +24,7 @@ def build_profile_document(
     control_ids: Sequence[str],
     version: str = "1.0.0",
     last_modified: datetime | None = None,
+    description: str = "",
 ) -> dict:
     if oscal_version not in SUPPORTED_OSCAL_VERSIONS:
         raise ProfileDocumentValidationError("Unsupported OSCAL version.")
@@ -46,6 +47,8 @@ def build_profile_document(
             ],
         }
     }
+    if description:
+        document["profile"]["metadata"]["remarks"] = description
 
     try:
         Model.model_validate_json(json.dumps(document, allow_nan=False), strict=True)

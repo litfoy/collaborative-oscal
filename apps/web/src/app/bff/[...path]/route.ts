@@ -7,6 +7,7 @@ import { filterBffQuery, isAllowedBffPath, isAllowedBffRequest } from "@/lib/bff
 import { readSession } from "@/lib/session";
 
 const NO_STORE = { "Cache-Control": "no-store" };
+const MAX_PROFILE_BODY_BYTES = 3 * 1024 * 1024;
 
 function json(body: unknown, status: number): NextResponse {
   return NextResponse.json(body, { status, headers: NO_STORE });
@@ -68,7 +69,7 @@ async function mutate(
     return json({ error: "invalid_content_type" }, 415);
   }
   const declaredLength = Number(request.headers.get("content-length") ?? 0);
-  if (declaredLength > 16_384) return json({ error: "request_too_large" }, 413);
+  if (declaredLength > MAX_PROFILE_BODY_BYTES) return json({ error: "request_too_large" }, 413);
 
   const session = await readSession(await cookies());
   if (!session || session.accessTokenExpiresAt <= Math.floor(Date.now() / 1000)) {
@@ -87,7 +88,7 @@ async function mutate(
     }
     if (result.done) break;
     totalBytes += result.value.byteLength;
-    if (totalBytes > 16_384) {
+    if (totalBytes > MAX_PROFILE_BODY_BYTES) {
       await reader.cancel();
       return json({ error: "request_too_large" }, 413);
     }

@@ -68,13 +68,14 @@ All paths are prefixed with `/api/v1` and require a bearer access token.
 | `GET …/revisions/{r}` | Revision metadata, counts, source document info |
 | `GET …/revisions/{r}/export` | Original OSCAL Catalog JSON for the immutable revision |
 | `GET …/revisions/{r}/outline?parent_kind&parent_id` | One hierarchy level (groups and controls) in display order |
+| `GET …/revisions/{r}/profile-browser` | Compact read-only hierarchy, requirement text and namespaced properties for profile selection |
 | `GET …/revisions/{r}/controls?q&limit&offset` | Flat search by ID or title |
 | `GET …/revisions/{r}/controls/{oscal_control_id}` | Full control detail |
 | `POST /tenants/{t}/profiles` | Create a Profile from one catalog revision and selected control IDs (`catalog:write`) |
 | `GET /tenants/{t}/profiles` | List tenant Profiles (`catalog:read`) |
 | `GET /tenants/{t}/profiles/{p}` | Read Profile metadata (`catalog:read`) |
 | `GET /tenants/{t}/profiles/{p}/export` | Export a valid OSCAL Profile JSON document (`catalog:read`) |
-| `PUT /tenants/{t}/profiles/{p}` | Update its title and selected control IDs (`catalog:write`) |
+| `PUT /tenants/{t}/profiles/{p}` | Update its title, optional description and selected control IDs (`catalog:write`) |
 
 Errors use `{"detail": …}`: 401 (no/invalid token), 403 (no membership or
 permission, identical for unknown tenants), 404 (missing within the tenant),
@@ -91,7 +92,11 @@ oscal_control_id}` plus the OSCAL document UUID and source OSCAL version. Profil
 persist the source catalog/revision and place selected control IDs in OSCAL
 `imports[].include-controls`. The OSCAL `href` points to the authenticated Catalog
 revision export endpoint. Profile resolution is not implemented, and the browser UI
-provides basic Profile creation, editing by OSCAL control ID, and OSCAL JSON export.
+provides a Profile Builder with hierarchy navigation, text search, catalog-derived
+property filters, explicit individual/descendant selection, grouped selection
+summaries, and OSCAL JSON export. Existing profiles open against their pinned
+revision, even after newer catalog revisions are imported. Purpose is optional
+and stored as profile metadata remarks. See ADR 0008 for selection semantics.
 
 ## Local setup
 

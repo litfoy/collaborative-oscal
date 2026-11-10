@@ -288,10 +288,17 @@ def test_profiles_reference_catalogs_and_select_controls_without_mutating_source
 ) -> None:
     source_path = _revision_path(world) + "/export"
     source_before = client.get(source_path, headers=world.headers("alice")).json()
+    browser = client.get(_revision_path(world) + "/profile-browser", headers=world.headers("alice"))
+    assert browser.status_code == 200
+    nodes = browser.json()["nodes"]
+    parent = next(node for node in nodes if node["id"] == "ac-1")
+    child = next(node for node in nodes if node["id"] == "ac-1.1")
+    assert child["parent_key"] == parent["key"]
     payload = {
         "catalog_id": str(world.security.catalog.id),
         "revision_id": str(world.security.revision.id),
         "title": "Access review profile",
+        "description": "Annual review scope",
         "control_ids": ["ac-1", "ac-1.1"],
     }
     profiles_path = f"/api/v1/tenants/{world.tenant_a.id}/profiles"
@@ -304,6 +311,7 @@ def test_profiles_reference_catalogs_and_select_controls_without_mutating_source
     profile = created.json()
     assert profile["catalog_id"] == str(world.security.catalog.id)
     assert profile["revision_id"] == str(world.security.revision.id)
+    assert profile["description"] == "Annual review scope"
     listed = client.get(profiles_path, headers=world.headers("alice"))
     assert listed.status_code == 200
     assert listed.json()["items"][0]["control_ids"] == ["ac-1", "ac-1.1"]
@@ -329,6 +337,7 @@ def test_profiles_reference_catalogs_and_select_controls_without_mutating_source
     assert updated.status_code == 200
     updated_document = client.get(export_path, headers=world.headers("alice")).json()
     assert updated_document["profile"]["metadata"]["title"] == "Updated access profile"
+    assert updated_document["profile"]["metadata"]["remarks"] == "Annual review scope"
     assert updated_document["profile"]["imports"][0]["include-controls"] == [{"with-ids": ["ac-2"]}]
 
     invalid_control = client.post(
@@ -528,6 +537,10 @@ def test_openapi_documents_catalog_api() -> None:
     assert "/api/v1/tenants" in paths
     assert "/api/v1/tenants/{tenant_id}/profiles" in paths
     assert "/api/v1/tenants/{tenant_id}/profiles/{profile_id}/export" in paths
+    assert (
+        "/api/v1/tenants/{tenant_id}/catalogs/{catalog_id}/revisions/{revision_id}/profile-browser"
+        in paths
+    )
     assert (
         "/api/v1/tenants/{tenant_id}/catalogs/{catalog_id}/revisions/{revision_id}"
         "/controls/{control_id}" in paths

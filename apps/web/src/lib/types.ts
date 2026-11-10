@@ -54,9 +54,20 @@ export interface Profile {
   catalog_id: string;
   revision_id: string;
   title: string;
+  description?: string;
   control_ids: string[];
   created_at: string;
   updated_at: string;
+}
+
+export interface ProfileBrowserNode {
+  key: string;
+  parent_key: string | null;
+  kind: "group" | "control";
+  id: string | null;
+  title: string;
+  text: string;
+  properties: Property[];
 }
 
 export interface OutlineNode {
@@ -163,6 +174,7 @@ export interface ControlDetail {
   properties: Property[];
   links: Link[];
   references: Reference[];
+  raw_control?: Record<string, unknown>;
   source_catalog: {
     id: string;
     name: string;
