@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProfileManager } from "@/components/ProfileManager";
@@ -49,6 +50,24 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Profile Builder", () => {
+  it("hydrates timestamps consistently before applying the browser locale and timezone", async () => {
+    const datedProfile = { ...profile, updated_at: "2026-11-10T12:50:18.299166Z" };
+    const element = <ProfileManager tenantId={TENANT} profiles={[datedProfile]} catalogs={[catalog()]} canWrite />;
+    const format = vi.spyOn(Date.prototype, "toLocaleString").mockReturnValue("11/10/2026, 12:50:18 PM");
+    const html = renderToString(element);
+    expect(format).not.toHaveBeenCalled();
+    expect(html).toContain("2026-11-10 12:50:18.299 UTC");
+    format.mockReturnValue("10.11.2026, 13:50:18");
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.appendChild(container);
+    const onRecoverableError = vi.fn();
+    render(element, { container, hydrate: true, onRecoverableError });
+    await waitFor(() => expect(container.querySelector("time")).toHaveTextContent("10.11.2026, 13:50:18"));
+    expect(container.querySelector("time")).toHaveAttribute("datetime", datedProfile.updated_at);
+    expect(onRecoverableError).not.toHaveBeenCalled();
+  });
+
   it("uses a structured overview instead of editable ID forms", () => {
     renderManager([profile]);
     expect(screen.getByText("Access baseline")).toBeInTheDocument();

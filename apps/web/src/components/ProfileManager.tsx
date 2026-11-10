@@ -1,10 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 
 import type { Catalog, Profile } from "@/lib/types";
 
 import { ProfileWorkspace } from "./ProfileWorkspace";
+
+const subscribe = () => () => {};
+const clientSnapshot = () => true;
+const serverSnapshot = () => false;
 
 export function ProfileManager({
   tenantId, profiles: initialProfiles, catalogs, canWrite,
@@ -14,6 +18,7 @@ export function ProfileManager({
   catalogs: Catalog[];
   canWrite: boolean;
 }) {
+  const hydrated = useSyncExternalStore(subscribe, clientSnapshot, serverSnapshot);
   const [profiles, setProfiles] = useState(initialProfiles);
   const [catalogId, setCatalogId] = useState(catalogs.find((item) => item.latest_revision)?.id ?? "");
   const [workspace, setWorkspace] = useState<{ profile: Profile; isNew: boolean } | null>(null);
@@ -80,7 +85,9 @@ export function ProfileManager({
                 {" · "}{profile.control_ids.length} selected requirements
               </p>
               <p className="muted">Pinned revision: <span className="mono">{profile.revision_id}</span></p>
-              <p className="muted">Last modified: <time dateTime={profile.updated_at}>{new Date(profile.updated_at).toLocaleString()}</time></p>
+              <p className="muted">Last modified: <time dateTime={profile.updated_at}>{hydrated
+                ? new Date(profile.updated_at).toLocaleString()
+                : new Date(profile.updated_at).toISOString().replace("T", " ").replace("Z", " UTC")}</time></p>
               <div className="workspace-actions">
                 <button type="button" onClick={() => setWorkspace({ profile, isNew: false })}>
                   {canWrite ? "Edit profile" : "View profile"}
