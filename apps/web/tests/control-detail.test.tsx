@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ControlDetailView } from "@/components/ControlDetailView";
@@ -57,5 +57,33 @@ describe("ControlDetailView", () => {
     );
     expect(screen.queryByRole("heading", { name: "Parameters" })).toBeNull();
     expect(screen.getByRole("heading", { name: "Source identity" })).toBeInTheDocument();
+  });
+
+  it("prioritizes source statements and available compliance facts in the profile presentation", () => {
+    const source = control();
+    const { rerender } = render(<ControlDetailView presentation="profile" control={{
+      ...source,
+      properties: [{ name: "sec_level", value: "normal", ns: "https://example.com/ns" }],
+      parts: [
+        { name: "guidance", title: "Implementation guidance", prose: "Keep review records.", props: [], links: [], parts: [] },
+        { ...source.parts[0], props: [{ name: "modal_verb", value: "MUSS" }, { name: "target_object_categories", value: "Applications" }] },
+      ],
+    }} />);
+    const statement = screen.getByRole("region", { name: "Requirement statement" });
+    expect(within(statement).getByText("Review every [frequency].")).toBeVisible();
+    const classification = screen.getByText("Classification");
+    const guidance = screen.getByRole("region", { name: "Guidance and additional information" });
+    expect(screen.getByText("MUSS", { selector: "dd" })).toBeVisible();
+    expect(screen.getByText("normal", { selector: "dd" })).toBeVisible();
+    expect(screen.getByText("Applications", { selector: "dd" })).toBeVisible();
+    expect(statement.compareDocumentPosition(classification) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(classification.compareDocumentPosition(guidance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(guidance).getByText("Keep review records.")).toBeVisible();
+    expect(screen.getByText("Namespace: https://example.com/ns")).not.toBeVisible();
+    expect(screen.getByText("Catalog ID")).not.toBeVisible();
+    rerender(<ControlDetailView presentation="profile" control={control({ properties: [], parts: [] })} />);
+    expect(screen.queryByText("Classification")).not.toBeInTheDocument();
+    expect(screen.queryByText("Security level")).not.toBeInTheDocument();
+    expect(screen.queryByText("Target object categories")).not.toBeInTheDocument();
   });
 });

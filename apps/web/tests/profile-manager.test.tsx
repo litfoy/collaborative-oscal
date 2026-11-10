@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,7 +21,7 @@ const child = `${parent}/controls/0`;
 const nodes: ProfileBrowserNode[] = [
   { key: root, parent_key: null, kind: "group", id: "ac", title: "Access domain", text: "", properties: [] },
   { key: parent, parent_key: root, kind: "control", id: "ac-1", title: "Access policy", text: "Review policy annually.", properties: [{ name: "sec_level", value: "normal" }, { name: "modal_verb", value: "MUSS" }] },
-  { key: child, parent_key: parent, kind: "control", id: "ac-1.1", title: "Policy exceptions", text: "Record exceptional approvals.", properties: [{ name: "sec_level", value: "high" }, { name: "modal_verb", value: "SOLLTE" }] },
+  { key: child, parent_key: parent, kind: "control", id: "ac-1.1", title: "Policy exceptions", text: "Record exceptional approvals.", properties: [{ name: "sec_level", value: "high" }, { name: "modal_verb", value: "SOLLTE" }, { name: "audience", ns: "https://example.com/ns", value: "Auditors" }] },
   { key: "/catalog/controls/0", parent_key: null, kind: "control", id: "ir-1", title: "Response policy", text: "Handle incidents.", properties: [] },
 ];
 
@@ -90,15 +90,24 @@ describe("Profile Builder", () => {
     expect(screen.getByRole("checkbox", { name: "ac-1.1 Policy exceptions" })).not.toBeChecked();
     await user.selectOptions(screen.getByRole("combobox", { name: "Security level" }), "high");
     await user.click(screen.getByRole("button", { name: "Select all 1 matches" }));
-    expect(screen.getByRole("heading", { name: "Selected requirements (2)" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Selected Requirements (2)" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Deselect matches" }));
-    expect(screen.getByRole("heading", { name: "Selected requirements (1)" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Selected Requirements (1)" })).toBeInTheDocument();
+    await user.click(screen.getByText("Advanced filters (0 active)"));
+    await user.selectOptions(screen.getByRole("combobox", { name: "audience" }), "Auditors");
+    expect(screen.getByText("audience: Auditors")).toBeInTheDocument();
+    expect(screen.getByText("Advanced filters (1 active)")).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Clear search and filters" }));
+    expect(screen.getByRole("checkbox", { name: "ac-1 Access policy" })).toBeChecked();
   });
 
   it("includes descendants only explicitly and saves a unique, revision-pinned selection", async () => {
     const user = await createWorkspace();
+    await user.click(screen.getByRole("tab", { name: "Profile Settings" }));
     await user.type(screen.getByRole("textbox", { name: "Profile title" }), "Annual scope");
     await user.type(screen.getByRole("textbox", { name: "Description or purpose" }), "Annual audit");
+    await user.click(screen.getByRole("tab", { name: "Catalog Browser" }));
     await user.click(screen.getByRole("checkbox", { name: "ac-1 Access policy" }));
     expect(screen.getByRole("checkbox", { name: "ac-1.1 Policy exceptions" })).not.toBeChecked();
     await user.click(screen.getByRole("button", { name: "Select ac-1 and all descendants" }));
@@ -138,40 +147,74 @@ describe("Profile Builder", () => {
     await screen.findByText("Profile “Access baseline” saved.");
   });
 
-  it("navigates to selected requirements and removes them from the summary", async () => {
+  it("preserves selections across keyboard workspace navigation and reviews their original hierarchy", async () => {
     const user = await createWorkspace();
     await user.click(screen.getByRole("checkbox", { name: "ac-1 Access policy" }));
-    await user.click(screen.getByText("Access domain (1)", { selector: "summary" }));
-    const summary = screen.getByRole("complementary", { name: "Selection and requirement details" });
-    await user.click(within(summary).getByRole("button", { name: "ac-1 Access policy" }));
-    expect(screen.getByRole("button", { name: "Collapse ac" })).toBeInTheDocument();
-    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
-    await user.click(within(summary).getByRole("button", { name: "Remove ac-1" }));
-    expect(screen.getByRole("heading", { name: "Selected requirements (0)" })).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "ac-1.1 Policy exceptions" }));
+    screen.getByRole("tab", { name: "Catalog Browser" }).focus();
+    await user.keyboard("{ArrowRight}");
+    const selection = screen.getByRole("tabpanel", { name: "Selected Requirements (2)" });
+    expect(screen.getByRole("tab", { name: "Selected Requirements (2)" })).toHaveFocus();
+    expect(within(selection).getByRole("heading", { name: "ac · Access domain" })).toBeInTheDocument();
+    expect(within(selection).getByRole("heading", { name: "ac · Access domain › ac-1 · Access policy" })).toBeInTheDocument();
+    await user.type(screen.getByRole("searchbox", { name: "Search selected requirements" }), "exceptional");
+    expect(within(selection).queryByRole("button", { name: "Remove ac-1" })).not.toBeInTheDocument();
+    await user.click(within(selection).getByRole("button", { name: "ac-1.1 Policy exceptions" }));
+    expect(screen.getByRole("checkbox", { name: "ac-1.1 Policy exceptions" })).toBeChecked();
+    expect(screen.getByRole("complementary", { name: "Requirement details" })).toHaveFocus();
+    await user.click(screen.getByRole("tab", { name: "Selected Requirements (2)" }));
+    await user.click(screen.getByRole("button", { name: "Remove ac-1.1" }));
+    await user.click(screen.getByRole("button", { name: "Clear selection search" }));
+    expect(screen.getByRole("heading", { name: "Selected requirements (1)" })).toBeInTheDocument();
+    expect(within(selection).getByRole("button", { name: "ac-1 Access policy" })).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Catalog Browser" }));
+    await user.click(screen.getByRole("button", { name: "Clear search and filters" }));
+    expect(screen.getByRole("checkbox", { name: "ac-1 Access policy" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "ac-1.1 Policy exceptions" })).not.toBeChecked();
+    screen.getByRole("tab", { name: "Catalog Browser" }).focus();
+    await user.keyboard("{End}{Home}");
+    expect(screen.getByRole("tab", { name: "Catalog Browser" })).toHaveFocus();
   });
 
   it("shows full requirement details and original OSCAL insertion text", async () => {
     const user = await createWorkspace();
     await user.click(screen.getByRole("button", { name: "Details for ac-1" }));
-    expect(await screen.findByText("Review every [frequency].")).toBeInTheDocument();
+    const statement = await screen.findByRole("region", { name: "Requirement statement" });
+    expect(within(statement).getByText("Review every [frequency].")).toBeVisible();
+    expect(within(statement).getByText("Nested item")).toBeVisible();
+    expect(screen.getByText("Catalog ID")).not.toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Hide details" }));
+    expect(screen.queryByRole("complementary", { name: "Requirement details" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Show details" }));
+    expect(within(statement).getByText("Nested item")).toBeVisible();
+    await user.click(screen.getByText("Technical OSCAL details"));
     await user.click(screen.getByText("Advanced technical view: source OSCAL JSON"));
-    expect(screen.getByText(/insert: param, frequency/)).toBeInTheDocument();
+    expect(screen.getByText(/insert: param, frequency/)).toBeVisible();
   });
 
   it("protects unsaved changes and retains the draft on save failure", async () => {
     const user = await createWorkspace();
+    await user.click(screen.getByRole("tab", { name: "Profile Settings" }));
     await user.type(screen.getByRole("textbox", { name: "Profile title" }), "Draft");
+    await user.click(screen.getByRole("tab", { name: "Catalog Browser" }));
     await user.click(screen.getByRole("checkbox", { name: "ac-1 Access policy" }));
     vi.mocked(window.confirm).mockReturnValue(false);
     await user.click(screen.getByRole("button", { name: "Back to profiles" }));
     expect(window.confirm).toHaveBeenCalled();
-    expect(screen.getByDisplayValue("Draft")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Draft" })).toBeInTheDocument();
     const unload = new Event("beforeunload", { cancelable: true });
     fireEvent(window, unload);
     expect(unload.defaultPrevented).toBe(true);
-    mocks.bffWrite.mockRejectedValue(new Error("network"));
+    let rejectSave: (cause: Error) => void = () => { throw new Error("Save has not started"); };
+    mocks.bffWrite.mockImplementation(() => new Promise<Profile>((_resolve, reject) => { rejectSave = reject; }));
     await user.click(screen.getByRole("button", { name: "Save profile" }));
+    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+    expect(screen.getByText("Saving…", { selector: "[role=status]" })).toBeInTheDocument();
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+    await act(async () => rejectSave(new Error("network")));
     expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText("Save failed")).toBeInTheDocument();
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "ac-1 Access policy" })).toBeChecked();
     expect(screen.queryByRole("link", { name: "Export OSCAL JSON" })).not.toBeInTheDocument();
   });
@@ -219,11 +262,19 @@ describe("Profile Builder", () => {
     await user.click(screen.getByRole("button", { name: `Select all ${count} matches` }));
     if (count === 10_001) {
       expect(screen.getByRole("alert")).toHaveTextContent(/up to 10,000/);
-      expect(screen.getByRole("heading", { name: "Selected requirements (0)" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Selected Requirements (0)" })).toBeInTheDocument();
     } else {
-      expect(screen.getByRole("heading", { name: "Selected requirements (10000)" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Selected Requirements (10000)" })).toBeInTheDocument();
       expect(screen.getAllByRole("checkbox")).toHaveLength(50);
       expect(screen.queryByRole("button", { name: "Remove c-0" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("tab", { name: "Selected Requirements (10000)" }));
+      expect(screen.getByText("10000 matching selected requirements · 10000 total selected")).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: /^Remove c-/ })).toHaveLength(50);
+      await user.click(screen.getByRole("button", { name: "Next selected" }));
+      expect(screen.getByRole("button", { name: "Remove c-50" })).toBeInTheDocument();
+      await user.type(screen.getByRole("searchbox", { name: "Search selected requirements" }), "Requirement 9999");
+      expect(screen.getByRole("button", { name: "Remove c-9999" })).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: /^Remove c-/ })).toHaveLength(1);
     }
   });
 });

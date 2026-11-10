@@ -1,4 +1,5 @@
 import { renderProse } from "@/lib/safe";
+import { propertyLabel } from "@/lib/profile-browser";
 import type { ControlDetail, Link, Part, Property } from "@/lib/types";
 
 import { SafeLink } from "./SafeLink";
@@ -44,10 +45,10 @@ function Links({ items }: { items: Link[] }) {
   );
 }
 
-function PartView({ part, labels }: { part: Part; labels: Record<string, string | undefined> }) {
+function PartView({ part, labels, readable = false }: { part: Part; labels: Record<string, string | undefined>; readable?: boolean }) {
   return (
     <div className="part">
-      <div className="part-label">{part.name}</div>
+      {!readable ? <div className="part-label">{part.name}</div> : null}
       {part.title ? <strong>{part.title}</strong> : null}
       {part.props.map((prop, index) =>
         prop.name === "label" ? (
@@ -57,22 +58,81 @@ function PartView({ part, labels }: { part: Part; labels: Record<string, string 
         ) : null,
       )}
       {part.prose ? <p className="prose">{renderProse(part.prose, labels)}</p> : null}
-      <Props items={part.props.filter((prop) => prop.name !== "label")} />
+      {!readable ? <Props items={part.props.filter((prop) => prop.name !== "label")} /> : null}
       <Links items={part.links} />
       {part.parts.map((child, index) => (
-        <PartView key={child.id ?? index} part={child} labels={labels} />
+        <PartView key={child.id ?? index} part={child} labels={labels} readable={readable} />
       ))}
     </div>
   );
 }
 
-export function ControlDetailView({ control }: { control: ControlDetail }) {
+function References({ control, anchorIds = true }: { control: ControlDetail; anchorIds?: boolean }) {
+  if (control.links.length === 0 && control.references.length === 0) return null;
+  return <section aria-label="References">
+    <h2>References</h2>
+    <Links items={control.links} />
+    <ul>{control.references.map((reference) => <li key={reference.uuid} id={anchorIds ? reference.uuid : undefined}>
+      <strong>{reference.title ?? "Untitled reference"}</strong>
+      {reference.citation ? <span> — {reference.citation}</span> : null}
+      {reference.description ? <p className="prose">{reference.description}</p> : null}
+      {reference.rlinks.map((rlink, index) => <div key={index}><SafeLink href={rlink.href}>{rlink.href}</SafeLink></div>)}
+    </li>)}</ul>
+  </section>;
+}
+
+export function ControlDetailView({ control, presentation = "catalog" }: { control: ControlDetail; presentation?: "catalog" | "profile" | "technical" }) {
   const labels: Record<string, string | undefined> = {};
   for (const parameter of control.parameters) {
     labels[parameter.id] = parameter.label ?? undefined;
   }
   const { source_catalog: catalog, source_revision: revision } = control;
   const location = control.ancestors.map((ancestor) => ancestor.oscal_id ?? ancestor.title);
+
+  if (presentation === "profile") {
+    const properties = [...control.properties, ...control.parameters.flatMap((parameter) => parameter.props)];
+    function collectProperties(parts: Part[]) {
+      for (const part of parts) {
+        properties.push(...part.props);
+        collectProperties(part.parts);
+      }
+    }
+    collectProperties(control.parts);
+    const statements = control.parts.filter((part) => part.name === "statement");
+    const guidance = control.parts.filter((part) => part.name !== "statement");
+    return <article className="panel control-detail readable-detail" aria-label={`${control.oscal_control_id} ${control.title}`}>
+      <h2><span className="mono">{control.oscal_control_id}</span> {control.title}</h2>
+      {statements.length > 0 ? <section aria-label="Requirement statement">
+        <h3>Requirement statement</h3>
+        {statements.map((part, index) => <PartView key={index} part={part} labels={labels} readable />)}
+      </section> : null}
+      <dl className="meta-list">
+        {["modal_verb", "sec_level", "target_object_categories"].map((name) => {
+          const values = [...new Set(properties.filter((prop) => prop.name === name).map((prop) => prop.value))];
+          return values.length ? <div className="requirement-fact" key={name}><dt>{propertyLabel(name)}</dt><dd>{values.join(", ")}</dd></div> : null;
+        })}
+      </dl>
+      {guidance.length > 0 ? <section aria-label="Guidance and additional information">
+        <h3>Guidance and additional information</h3>
+        {guidance.map((part, index) => <PartView key={index} part={part} labels={labels} readable />)}
+      </section> : null}
+      {control.parameters.length > 0 ? <section aria-label="Requirement parameters">
+        <h3>Requirement parameters</h3>
+        {control.parameters.map((parameter) => <div key={parameter.id}>
+          <strong>{parameter.label ?? parameter.id}</strong>
+          {parameter.values.length > 0 ? <p className="prose">{parameter.values.join(", ")}</p> : null}
+          {parameter.select ? <p className="prose">{parameter.select.how_many ? `${parameter.select.how_many}: ` : ""}{parameter.select.choices.join(" | ")}</p> : null}
+          {parameter.usage ? <p className="prose">{parameter.usage}</p> : null}
+          {parameter.guidelines.map((text, index) => <p key={index} className="prose">{text}</p>)}
+        </div>)}
+      </section> : null}
+      <References control={control} />
+      <details className="technical-details">
+        <summary>Technical OSCAL details</summary>
+        <ControlDetailView control={control} presentation="technical" />
+      </details>
+    </article>;
+  }
 
   return (
     <article className="panel control-detail" aria-labelledby="control-title">
@@ -154,26 +214,7 @@ export function ControlDetailView({ control }: { control: ControlDetail }) {
         </section>
       ) : null}
 
-      {control.links.length > 0 || control.references.length > 0 ? (
-        <section aria-labelledby="control-refs">
-          <h2 id="control-refs">References</h2>
-          <Links items={control.links} />
-          <ul>
-            {control.references.map((reference) => (
-              <li key={reference.uuid} id={reference.uuid}>
-                <strong>{reference.title ?? "Untitled reference"}</strong>
-                {reference.citation ? <span> — {reference.citation}</span> : null}
-                {reference.description ? <p className="prose">{reference.description}</p> : null}
-                {reference.rlinks.map((rlink, index) => (
-                  <div key={index}>
-                    <SafeLink href={rlink.href}>{rlink.href}</SafeLink>
-                  </div>
-                ))}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      <References control={control} anchorIds={presentation !== "technical"} />
 
       <section aria-labelledby="control-source">
         <h2 id="control-source">Source identity</h2>

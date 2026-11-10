@@ -43,8 +43,9 @@ tenant-scoped identities and indexed OSCAL control IDs.
   in `packages/oscal`; no new database representation is maintained. The browser
   indexes this compact projection once, filters locally, paginates requirement
   results (50 per page), and requests full control details only when opened.
-  Navigation loads 100 siblings at a time; grouped selection summaries render
-  their entries only when expanded, also in batches of 100.
+  Navigation loads 100 siblings at a time. A dedicated Selected Requirements view
+  searches all selected controls locally and paginates them (50 per page), grouped
+  by their full original catalog location, including parent controls.
 - Filters reflect actual namespaced properties, including properties on parts and
   parameters. BSI `modal_verb`, `sec_level`, `effort_level`, `tags`, and
   `target_object_categories` receive readable labels, without requiring these
@@ -63,3 +64,13 @@ tenant-scoped identities and indexed OSCAL control IDs.
 - Protect dirty drafts on exit and browser unload, retain them on failed writes,
   and expose export only for the last saved state. Selecting requirements defines
   scope and is never represented as a compliance assessment.
+- Keep metadata and selections in one workspace state across Catalog Browser,
+  Selected Requirements, and Profile Settings. Saving remains manual and writes
+  both metadata and selection together. The compact header reports one save state
+  and keeps the source revision and export action accessible.
+- Use independently scrolling browser panels on desktop, with collapsible hierarchy
+  and details and keyboard-accessible width sliders on wide screens. Smaller
+  screens stack panels. The Profile Builder detail presentation prioritizes the
+  statement, available classification/security/target properties, guidance, and
+  references; original source metadata and JSON remain in Technical OSCAL details.
+  The standalone Catalog Explorer presentation is unchanged.

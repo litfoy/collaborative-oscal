@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import { bffGet, bffWrite } from "@/lib/bff-client";
 import { ApiError, ERROR_MESSAGES } from "@/lib/errors";
@@ -10,6 +10,8 @@ import type { ControlDetail, Profile, ProfileBrowserNode, RevisionDetail } from 
 import { ControlDetailView } from "./ControlDetailView";
 
 const PAGE_SIZE = 50;
+const VIEWS = ["Catalog Browser", "Selected Requirements", "Profile Settings"] as const;
+type WorkspaceView = typeof VIEWS[number];
 
 export function ProfileWorkspace({
   tenantId, initialProfile, isNew, catalogName, canWrite, onClose, onSaved,
@@ -31,16 +33,24 @@ export function ProfileWorkspace({
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<WorkspaceView>("Catalog Browser");
+  const [showNavigation, setShowNavigation] = useState(true);
+  const [showDetails, setShowDetails] = useState(true);
+  const [navigationWidth, setNavigationWidth] = useState(18);
+  const [detailWidth, setDetailWidth] = useState(26);
+  const [selectionQuery, setSelectionQuery] = useState("");
+  const deferredSelectionQuery = useDeferredValue(selectionQuery.trim().toLocaleLowerCase());
+  const [selectionPage, setSelectionPage] = useState(0);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query.trim().toLocaleLowerCase());
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [branch, setBranch] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [navigationLimits, setNavigationLimits] = useState<Record<string, number>>({});
-  const [summaryLimits, setSummaryLimits] = useState<Record<string, number>>({});
-  const [openSummaries, setOpenSummaries] = useState<Set<string>>(new Set());
   const [active, setActive] = useState<string | null>(null);
+  const [detailFocusRequest, setDetailFocusRequest] = useState(0);
   const [page, setPage] = useState(0);
   const base = `tenants/${tenantId}/catalogs/${initialProfile.catalog_id}/revisions/${initialProfile.revision_id}`;
   const dirty = saved
@@ -95,19 +105,29 @@ export function ProfileWorkspace({
   const pageCount = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount - 1);
   const visible = results.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
+  const selectedResults = useMemo(() => index.controls.filter((node) =>
+    node.id && selected.has(node.id) && (index.search.get(node.key) ?? "").includes(deferredSelectionQuery),
+  ), [index, selected, deferredSelectionQuery]);
+  const selectionPageCount = Math.max(1, Math.ceil(selectedResults.length / PAGE_SIZE));
+  const currentSelectionPage = Math.min(selectionPage, selectionPageCount - 1);
   const selectedGroups = useMemo(() => {
     const groups = new Map<string, { title: string; nodes: ProfileBrowserNode[] }>();
-    for (const node of index.controls) {
-      if (!node.id || !selected.has(node.id)) continue;
-      let root = node;
-      while (root.parent_key) root = index.byKey.get(root.parent_key) ?? root;
-      const key = root.kind === "group" ? root.key : "root";
-      const group = groups.get(key) ?? { title: root.kind === "group" ? root.title : "Catalog requirements", nodes: [] };
+    for (const node of selectedResults.slice(currentSelectionPage * PAGE_SIZE, (currentSelectionPage + 1) * PAGE_SIZE)) {
+      const path: string[] = [];
+      let parent = node.parent_key;
+      while (parent) {
+        const ancestor = index.byKey.get(parent);
+        if (!ancestor) break;
+        path.unshift(`${ancestor.id ? `${ancestor.id} · ` : ""}${ancestor.title}`);
+        parent = ancestor.parent_key;
+      }
+      const key = node.parent_key ?? "root";
+      const group = groups.get(key) ?? { title: path.join(" › ") || "Catalog requirements", nodes: [] };
       group.nodes.push(node);
       groups.set(key, group);
     }
     return [...groups];
-  }, [index, selected]);
+  }, [index, selectedResults, currentSelectionPage]);
   const knownIds = useMemo(() => new Set(index.controls.map((node) => node.id)), [index]);
   const unknownIds = data ? [...selected].filter((id) => !knownIds.has(id)) : [];
 
@@ -127,8 +147,9 @@ export function ProfileWorkspace({
   }
 
   function navigateTo(node: ProfileBrowserNode) {
+    setView("Catalog Browser");
+    openDetails(node.id);
     setBranch(node.key);
-    setActive(node.id);
     setQuery("");
     setFilters({});
     setPage(0);
@@ -149,13 +170,23 @@ export function ProfileWorkspace({
     }
     setExpanded(next);
     setNavigationLimits(limits);
-    document.getElementById("requirement-results")?.focus();
   }
+
+  function openDetails(id: string | null) {
+    setActive(id);
+    setShowDetails(true);
+    setDetailFocusRequest((request) => request + 1);
+  }
+
+  useEffect(() => {
+    if (detailFocusRequest > 0) document.getElementById("requirement-details")?.focus();
+  }, [detailFocusRequest]);
 
   async function save() {
     setBusy(true);
     setError(null);
     setStatus(null);
+    setSaveFailed(false);
     try {
       const body = { title: title.trim(), description, control_ids: [...selected] };
       const profile = saved
@@ -171,6 +202,7 @@ export function ProfileWorkspace({
       setStatus(`Profile “${profile.title}” saved.`);
     } catch (cause) {
       setError(messageFor(cause));
+      setSaveFailed(true);
     } finally {
       setBusy(false);
     }
@@ -194,7 +226,7 @@ export function ProfileWorkspace({
                 return next;
               })}>{open ? "−" : "+"}</button> : null}
             <button type="button" className="tree-location" aria-current={branch === node.key ? "location" : undefined}
-              onClick={() => { setBranch(node.key); setPage(0); if (node.kind === "control") setActive(node.id); }}>
+              onClick={() => { setBranch(node.key); setPage(0); if (node.kind === "control") openDetails(node.id); }}>
               {node.id ? <><span className="mono">{node.id}</span>{" "}</> : null}{node.title}
               {node.kind === "control" && node.id && selected.has(node.id) ? <span className="badge">Selected</span> : null}
             </button>
@@ -211,38 +243,90 @@ export function ProfileWorkspace({
 
   return (
     <div className="profile-workspace">
-      <header className="panel">
+      <header className="panel profile-workspace-header">
         <div className="workspace-actions">
           <button type="button" className="secondary" disabled={busy} onClick={() => {
             if (!dirty || window.confirm("Discard unsaved profile changes?")) onClose();
           }}>Back to profiles</button>
-          <span role="status">{dirty ? "Unsaved changes" : saved ? "All changes saved" : "New profile"}</span>
+          <h2>{title || "Untitled profile"}</h2>
+          <span className="badge">{selected.size} selected</span>
+          <span role="status" className="save-status">{busy ? "Saving…" : saveFailed ? "Save failed" : dirty ? "Unsaved changes" : status ?? (saved ? "All changes saved" : "New profile")}</span>
+          {canWrite ? <button type="button" disabled={busy || !data || !title.trim() || selected.size === 0 || unknownIds.length > 0}
+            onClick={() => void save()}>{busy ? "Saving…" : "Save profile"}</button> : null}
+          {saved && !dirty && !busy ? <a className="button secondary" href={`/bff/tenants/${tenantId}/profiles/${saved.id}/export`}>Export OSCAL JSON</a> : <span className="muted">Save changes before exporting.</span>}
         </div>
-        <h2>{saved ? "Profile workspace" : "Build a profile"}</h2>
+        <p className="workspace-source">{catalogName} · {data ? `Pinned revision ${data.revision.revision_number} · OSCAL ${data.revision.oscal_version}` : "Pinned revision"} · <span className="mono">{initialProfile.revision_id}</span></p>
+        <div className="workspace-tabs" role="tablist" aria-label="Profile workspace views">
+          {VIEWS.map((name, i) => <button key={name} type="button" role="tab" id={`workspace-tab-${i}`}
+            aria-selected={view === name} aria-controls={`workspace-view-${i}`} tabIndex={view === name ? 0 : -1}
+            onClick={() => setView(name)} onKeyDown={(event) => {
+              const next = event.key === "ArrowRight" ? (i + 1) % VIEWS.length
+                : event.key === "ArrowLeft" ? (i + VIEWS.length - 1) % VIEWS.length
+                  : event.key === "Home" ? 0 : event.key === "End" ? VIEWS.length - 1 : null;
+              if (next === null) return;
+              event.preventDefault();
+              setView(VIEWS[next]);
+              document.getElementById(`workspace-tab-${next}`)?.focus();
+            }}>{name}{name === "Selected Requirements" ? ` (${selected.size})` : ""}</button>)}
+        </div>
+        {error ? <p role="alert" className="alert">{error}</p> : null}
+      </header>
+      {loadError ? <div role="alert" className="alert">{loadError} <button type="button" onClick={() => setLoadAttempt((value) => value + 1)}>Retry catalog loading</button></div> : null}
+      {!data && !loadError ? <p role="status">Loading pinned catalog requirements…</p> : null}
+      {unknownIds.length > 0 ? <p role="alert" className="alert">These saved IDs are missing from the pinned catalog: {unknownIds.join(", ")}. Saving is disabled; the original selection has been preserved.</p> : null}
+      <section role="tabpanel" id="workspace-view-2" aria-labelledby="workspace-tab-2" hidden={view !== "Profile Settings"} className="panel workspace-settings" tabIndex={0}>
+        <h2>Profile settings</h2>
         <fieldset className="profile-form" disabled={!canWrite || busy}>
           <label className="field">Profile title
             <input maxLength={255} value={title} onChange={(event) => { setTitle(event.target.value); setStatus(null); }} />
           </label>
           <label className="field">Description or purpose
-            <textarea rows={2} maxLength={10000} value={description} onChange={(event) => { setDescription(event.target.value); setStatus(null); }} />
+            <textarea rows={5} maxLength={10000} value={description} onChange={(event) => { setDescription(event.target.value); setStatus(null); }} />
           </label>
         </fieldset>
-        <p className="source-banner">{catalogName} · {data ? `revision ${data.revision.revision_number} · OSCAL ${data.revision.oscal_version}` : "Pinned revision"}
-          <br /><span className="mono">{initialProfile.revision_id}</span></p>
-        <p className="muted">Selection defines profile scope, not assessment or compliance status. Each checkbox includes only that requirement, never its children automatically.</p>
-        <div className="workspace-actions">
-          {canWrite ? <button type="button" disabled={busy || !data || !title.trim() || selected.size === 0 || unknownIds.length > 0}
-            onClick={() => void save()}>{busy ? "Saving…" : "Save profile"}</button> : null}
-          {saved && !dirty && !busy ? <a className="button secondary" href={`/bff/tenants/${tenantId}/profiles/${saved.id}/export`}>Export OSCAL JSON</a> : <span className="muted">Save changes before exporting.</span>}
+        <p className="muted">Save profile to apply metadata and selection changes together. The source catalog revision cannot be changed.</p>
+      </section>
+      <section role="tabpanel" id="workspace-view-1" aria-labelledby="workspace-tab-1" hidden={view !== "Selected Requirements"} className="panel workspace-selection" tabIndex={0}>
+        <h2>Selected requirements ({selected.size})</h2>
+        <p className="muted">Profile scope only, not implementation or compliance status. Selections reference {catalogName}, pinned revision {data?.revision.revision_number ?? initialProfile.revision_id}.</p>
+        <label className="field">Search selected requirements
+          <input type="search" value={selectionQuery} placeholder="ID, title or requirement text"
+            onChange={(event) => { setSelectionQuery(event.target.value); setSelectionPage(0); }} />
+        </label>
+        {selectionQuery ? <button type="button" className="secondary" onClick={() => { setSelectionQuery(""); setSelectionPage(0); }}>Clear selection search</button> : null}
+        <p role="status">{selectedResults.length} matching selected requirements · {selected.size} total selected</p>
+        {!data ? <p>Load the pinned catalog to review selected requirements.</p> : selected.size === 0 ? <p className="empty">Select requirements in the Catalog Browser to define this profile’s scope.</p>
+          : selectedResults.length === 0 ? <p className="empty">No selected requirements match this search.</p> : null}
+        {selectedGroups.map(([key, group]) => <section key={key} className="selection-group">
+          <h3>{group.title}</h3>
+          <ul className="result-list">{group.nodes.map((node) => <li key={node.key} className="selection-row">
+            <button type="button" onClick={() => navigateTo(node)}><span className="mono">{node.id}</span> {node.title}</button>
+            <button type="button" className="secondary" disabled={!canWrite || busy} aria-label={`Remove ${node.id}`} onClick={() => changeSelection([node], false)}>Remove</button>
+          </li>)}</ul>
+        </section>)}
+        {selectionPageCount > 1 ? <nav className="pagination" aria-label="Selected requirement pages">
+          <button type="button" className="secondary" disabled={currentSelectionPage === 0} onClick={() => setSelectionPage(currentSelectionPage - 1)}>Previous selected</button>
+          <span>Page {currentSelectionPage + 1} of {selectionPageCount}</span>
+          <button type="button" className="secondary" disabled={currentSelectionPage >= selectionPageCount - 1} onClick={() => setSelectionPage(currentSelectionPage + 1)}>Next selected</button>
+        </nav> : null}
+      </section>
+      <section role="tabpanel" id="workspace-view-0" aria-labelledby="workspace-tab-0" hidden={view !== "Catalog Browser"} className="workspace-browser" tabIndex={0}>
+        <div className="workspace-actions builder-toolbar">
+          <button type="button" className="secondary" aria-expanded={showNavigation} aria-controls="catalog-navigation" onClick={() => setShowNavigation(!showNavigation)}>{showNavigation ? "Hide" : "Show"} hierarchy</button>
+          <button type="button" className="secondary" aria-expanded={showDetails} aria-controls="requirement-details" onClick={() => setShowDetails(!showDetails)}>{showDetails ? "Hide" : "Show"} details</button>
+          <details className="panel-widths"><summary>Panel widths</summary><div>
+            <label className="field">Hierarchy width
+              <input type="range" min={16} max={24} value={navigationWidth} onChange={(event) => setNavigationWidth(Number(event.target.value))} />
+            </label>
+            <label className="field">Details width
+              <input type="range" min={22} max={36} value={detailWidth} onChange={(event) => setDetailWidth(Number(event.target.value))} />
+            </label>
+          </div></details>
+          <span className="muted">Each checkbox selects one requirement, not its children.</span>
         </div>
-        {error ? <p role="alert" className="alert">{error}</p> : null}
-        {status ? <p role="status">{status}</p> : null}
-      </header>
-      {loadError ? <div role="alert" className="alert">{loadError} <button type="button" onClick={() => setLoadAttempt((value) => value + 1)}>Retry catalog loading</button></div> : null}
-      {!data && !loadError ? <p role="status">Loading pinned catalog requirements…</p> : null}
-      {unknownIds.length > 0 ? <p role="alert" className="alert">These saved IDs are missing from the pinned catalog: {unknownIds.join(", ")}. Saving is disabled; the original selection has been preserved.</p> : null}
-      {data ? <div className="builder-layout">
-        <aside className="panel builder-navigation" aria-label="Catalog navigation">
+      {data ? <div className={`builder-layout${showNavigation ? " has-navigation" : ""}${showDetails ? " has-details" : ""}`}
+        style={{ "--navigation-width": `${navigationWidth}rem`, "--detail-width": `${detailWidth}rem` } as CSSProperties}>
+        <aside id="catalog-navigation" hidden={!showNavigation} className="panel builder-navigation" aria-label="Catalog navigation">
           <h2>Catalog hierarchy</h2>
           <button type="button" className="secondary" onClick={() => { setBranch(null); setPage(0); }}>All requirements</button>
           {tree(null)}
@@ -255,9 +339,14 @@ export function ProfileWorkspace({
             </label>
             <p className="muted">Domain: {branch ? index.byKey.get(branch)?.title : "All domains"}</p>
             <div className="builder-filters">
-              {index.facets.slice(0, 5).map(facetField)}
+              {index.facets.slice(0, 2).map(facetField)}
             </div>
-            {index.facets.length > 5 ? <details><summary>More property filters</summary><div className="builder-filters">{index.facets.slice(5).map(facetField)}</div></details> : null}
+            {index.facets.length > 2 ? <details><summary>Advanced filters ({index.facets.slice(2).filter((facet) => filters[facet.key]).length} active)</summary><div className="builder-filters">{index.facets.slice(2).map(facetField)}</div></details> : null}
+            <div className="active-filters" aria-label="Active filters">
+              {query ? <span className="badge">Search: {query}</span> : null}
+              {branch ? <span className="badge">Domain: {index.byKey.get(branch)?.title}</span> : null}
+              {index.facets.filter((facet) => filters[facet.key]).map((facet) => <span className="badge" key={facet.key}>{facet.label}: {filters[facet.key]}</span>)}
+            </div>
             <button type="button" className="secondary" onClick={() => { setQuery(""); setFilters({}); setBranch(null); setPage(0); }}>Clear search and filters</button>
           </div>
           <div className="panel" id="requirement-results" tabIndex={-1}>
@@ -279,7 +368,7 @@ export function ProfileWorkspace({
                 <div className="requirement-badges">{node.properties.filter((prop) => ["modal_verb", "sec_level", "effort_level", "tags", "target_object_categories"].includes(prop.name)).map((prop, i) =>
                   <span className="badge" key={i} title={`${prop.name}${prop.ns ? ` (${prop.ns})` : ""}`}>{propertyLabel(prop.name)}: {prop.value}</span>)}</div>
                 <div className="workspace-actions">
-                  <button type="button" className="secondary" aria-expanded={active === node.id} onClick={() => setActive(active === node.id ? null : node.id)}>Details for {node.id}</button>
+                  <button type="button" className="secondary" aria-expanded={showDetails && active === node.id} aria-controls="requirement-details" onClick={() => openDetails(node.id)}>Details for {node.id}</button>
                   {(index.children.get(node.key)?.length ?? 0) > 0 ? <>
                     <button type="button" className="secondary" disabled={!canWrite || busy} onClick={() => changeSelection(index.controls.filter((item) => inBranch(item, node.key)), true)}>Select {node.id} and all descendants</button>
                     <button type="button" className="secondary" disabled={!canWrite || busy} onClick={() => changeSelection(index.controls.filter((item) => inBranch(item, node.key)), false)}>Deselect {node.id} and descendants</button>
@@ -294,34 +383,11 @@ export function ProfileWorkspace({
             </nav> : null}
           </div>
         </section>
-        <aside className="builder-inspector" aria-label="Selection and requirement details">
-          <section className="panel">
-            <h2>Selected requirements ({selected.size})</h2>
-            {selected.size === 0 ? <p className="muted">Select requirements to define this profile’s scope.</p> : null}
-            <div className="selection-summary">
-              {selectedGroups.map(([domain, group]) => <details key={domain} onToggle={(event) => {
-                const open = event.currentTarget.open;
-                setOpenSummaries((current) => {
-                  if (current.has(domain) === open) return current;
-                  const next = new Set(current);
-                  if (open) next.add(domain); else next.delete(domain);
-                  return next;
-                });
-              }}>
-                <summary>{group.title} ({group.nodes.length})</summary>
-                {openSummaries.has(domain) ? <ul className="result-list">{group.nodes.slice(0, summaryLimits[domain] ?? 100).map((node) => <li key={node.key} className="selection-row">
-                  <button type="button" onClick={() => navigateTo(node)}>{node.id} {node.title}</button>
-                  <button type="button" className="secondary" disabled={!canWrite || busy} aria-label={`Remove ${node.id}`} onClick={() => changeSelection([node], false)}>Remove</button>
-                </li>)}
-                  {group.nodes.length > (summaryLimits[domain] ?? 100) ? <li><button type="button" onClick={() =>
-                    setSummaryLimits((current) => ({ ...current, [domain]: (current[domain] ?? 100) + 100 }))}>Show more selected requirements</button></li> : null}
-                </ul> : null}
-              </details>)}
-            </div>
-          </section>
+        <aside hidden={!showDetails} id="requirement-details" tabIndex={-1} className="builder-inspector" aria-label="Requirement details">
           {active ? <RequirementDetails key={`${base}:${active}`} base={base} id={active} /> : <p className="empty">Open requirement details to read the full statement, guidance, properties and parameters.</p>}
         </aside>
       </div> : null}
+      </section>
     </div>
   );
 
@@ -351,7 +417,7 @@ function RequirementDetails({ base, id }: { base: string; id: string }) {
     return () => controller.abort();
   }, [base, id, attempt]);
   if (error) return <p role="alert" className="alert">{error} <button type="button" onClick={() => setAttempt((value) => value + 1)}>Retry details</button></p>;
-  return control ? <ControlDetailView control={control} /> : <p role="status">Loading requirement details…</p>;
+  return control ? <ControlDetailView control={control} presentation="profile" /> : <p role="status">Loading requirement details…</p>;
 }
 
 function messageFor(cause: unknown): string {
