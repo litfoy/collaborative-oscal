@@ -70,7 +70,10 @@ def _import_catalog(
     target_catalog_id: UUID | None,
 ) -> CatalogImportResult:
     # Operator-run local provisioning; uses the same validating service as any import.
-    service = CatalogImportService(create_unit_of_work_factory())
+    service = CatalogImportService(
+        create_unit_of_work_factory(),
+        max_input_bytes=get_settings().catalog_import_max_input_bytes,
+    )
     return service.import_catalog(
         tenant_id,
         path.read_bytes(),
@@ -94,7 +97,10 @@ def main() -> None:
     tenant.add_argument("--slug", required=True)
     importer = commands.add_parser(
         "import-catalog",
-        help="Validate and import an OSCAL 1.2.1 catalog file (JSON or YAML) into a tenant.",
+        help=(
+            "Validate and import an OSCAL 1.1.3 or 1.2.1 catalog file "
+            "(JSON or YAML) into a tenant."
+        ),
     )
     importer.add_argument("--tenant-id", required=True, type=UUID)
     importer.add_argument("--file", required=True, type=Path)

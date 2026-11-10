@@ -6,7 +6,7 @@ from uuid import UUID, uuid4, uuid5
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.domain.catalogs.models import CatalogOriginType
@@ -177,9 +177,7 @@ def test_invalid_references_and_failed_revision_write_roll_back(
         )
 
 
-def test_database_constraints_and_published_revision_immutability(
-    grc_service, session_factory
-) -> None:
+def test_database_constraints(grc_service, session_factory) -> None:
     tenant_a = grc_service.create_tenant("Constraint A", f"constraint-a-{uuid4().hex}")
     tenant_b = grc_service.create_tenant("Constraint B", f"constraint-b-{uuid4().hex}")
     parent = grc_service.create_organization(tenant_b.id, "Foreign parent", "foreign-parent")
@@ -218,28 +216,51 @@ def test_database_constraints_and_published_revision_immutability(
             session.commit()
         session.rollback()
 
-    catalog = grc_service.create_catalog(tenant_a.id, "Immutable", CatalogOriginType.CUSTOM)
-    revision = grc_service.create_draft_catalog_revision(
-        tenant_a.id, catalog.id, _catalog_document()
-    )
+
+@pytest.mark.parametrize("operation", ["update_content", "revert_to_draft", "delete"])
+def test_published_catalog_revision_is_immutable(
+    grc_service, session_factory, operation: str
+) -> None:
+    tenant = grc_service.create_tenant("Immutability", f"immutable-{uuid4().hex}")
+    catalog = grc_service.create_catalog(tenant.id, "Immutable", CatalogOriginType.CUSTOM)
+    document = _catalog_document()
+    revision = grc_service.create_draft_catalog_revision(tenant.id, catalog.id, document)
+    published_at = datetime.now(UTC)
     with session_factory() as session:
         session.execute(
             update(CatalogRevisionRecord)
             .where(CatalogRevisionRecord.id == revision.id)
             .values(
                 lifecycle_status="published",
-                published_at=datetime.now(UTC),
+                published_at=published_at,
             )
         )
         session.commit()
-        with pytest.raises(IntegrityError, match="Published catalog revisions are immutable"):
-            session.execute(
+        if operation == "delete":
+            statement = delete(CatalogRevisionRecord).where(CatalogRevisionRecord.id == revision.id)
+        else:
+            values = (
+                {"content": {"catalog": {}}}
+                if operation == "update_content"
+                else {"lifecycle_status": "draft", "published_at": None}
+            )
+            statement = (
                 update(CatalogRevisionRecord)
                 .where(CatalogRevisionRecord.id == revision.id)
-                .values(content={"catalog": {}})
+                .values(**values)
             )
+        with pytest.raises(IntegrityError, match="Published catalog revisions are immutable"):
+            session.execute(statement)
             session.commit()
         session.rollback()
+
+    with session_factory() as session:
+        stored = session.get(CatalogRevisionRecord, revision.id)
+        assert stored is not None
+        assert stored.content == document
+        assert stored.content_sha256 == revision.content_sha256
+        assert stored.lifecycle_status == "published"
+        assert stored.published_at == published_at
 
 
 def test_alembic_upgrade_and_downgrade(db_engine, postgres_url: str) -> None:

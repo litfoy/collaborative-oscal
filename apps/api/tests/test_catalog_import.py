@@ -9,7 +9,10 @@ from collaborative_oscal_oscal.catalog_import import (
     CatalogInputFormat,
     validate_catalog_bytes,
 )
-from collaborative_oscal_oscal.catalog_index import canonical_json_sha256
+from collaborative_oscal_oscal.catalog_index import (
+    canonical_json_sha256,
+    project_catalog_indexes,
+)
 from sqlalchemy import func, select
 
 from app.application.catalog_import import (
@@ -28,6 +31,9 @@ from app.persistence.models import (
 from app.persistence.repositories import SQLAlchemyUnitOfWork
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "oscal_catalog.json"
+BSI_CATALOG_PATH = (
+    Path(__file__).parents[3] / "examples" / "catalogs" / "Grundschutz++-resolved_catalog.json"
+)
 
 
 def _catalog_document() -> dict:
@@ -79,6 +85,40 @@ def test_yaml_catalog_parsing_preserves_semantics_and_uses_trestle() -> None:
     assert outcome.input_format is CatalogInputFormat.YAML
     assert outcome.document == document
     assert outcome.document["catalog"]["metadata"]["last-modified"] == "2026-11-09T12:00:00Z"
+
+
+def test_real_bsi_catalog_validates_as_oscal_1_1_3_without_data_loss() -> None:
+    content = BSI_CATALOG_PATH.read_bytes()
+    source_document = json.loads(content)
+
+    outcome = validate_catalog_bytes(content)
+
+    assert outcome.result.valid, outcome.result.errors
+    assert outcome.result.validator_name == "jsonschema"
+    assert outcome.result.declared_oscal_version == "1.1.3"
+    assert outcome.result.validation_schema_version == "OSCAL 1.1.3"
+    assert outcome.document == source_document
+    assert outcome.document["catalog"]["metadata"] == source_document["catalog"]["metadata"]
+    groups, controls = project_catalog_indexes(outcome.document)
+    assert len(groups) == 160
+    assert len(controls) == 1000
+    assert all(control.group_path is not None for control in controls)
+    assert any(group.parent_path is not None for group in groups)
+
+
+def test_oscal_1_1_3_schema_errors_are_reported_without_document_content() -> None:
+    document = _catalog_document()
+    document["catalog"]["metadata"]["oscal-version"] = "1.1.3"
+    del document["catalog"]["groups"][0]["title"]
+
+    outcome = validate_catalog_bytes(_json_bytes(document))
+
+    assert not outcome.result.valid
+    assert outcome.result.validator_name == "jsonschema"
+    assert outcome.result.errors[0].code == "OSCAL_SCHEMA_INVALID"
+    assert outcome.result.errors[0].path is not None
+    assert outcome.result.errors[0].diagnostic
+    assert all("Example Security Catalog" not in error.message for error in outcome.result.errors)
 
 
 @pytest.mark.parametrize(
@@ -292,6 +332,42 @@ def test_import_json_yaml_idempotency_updates_and_tenant_isolation(
         assert [control.oscal_control_id for control in controls] == ["ac-1", "ac-1.1", "ac-2"]
         assert controls[1].parent_control_id == controls[0].id
         assert controls[0].group_id == groups[0].id
+
+
+@pytest.mark.integration
+def test_import_real_bsi_catalog_preserves_document_and_relationships(
+    grc_service, session_factory
+) -> None:
+    tenant = grc_service.create_tenant("BSI import", f"bsi-import-{uuid4().hex}")
+    content = BSI_CATALOG_PATH.read_bytes()
+    document = json.loads(content)
+    service = CatalogImportService(lambda: SQLAlchemyUnitOfWork(session_factory))
+
+    imported = service.import_catalog(tenant.id, content)
+
+    assert imported.control_count == 1000
+    with session_factory() as session:
+        revision = session.get(CatalogRevisionRecord, imported.revision.id)
+        assert revision is not None
+        assert revision.content == document
+        groups = list(
+            session.scalars(
+                select(CatalogGroupIndexRecord).where(
+                    CatalogGroupIndexRecord.catalog_revision_id == imported.revision.id
+                )
+            )
+        )
+        controls = list(
+            session.scalars(
+                select(CatalogControlIndexRecord).where(
+                    CatalogControlIndexRecord.catalog_revision_id == imported.revision.id
+                )
+            )
+        )
+        assert len(groups) == 160
+        assert len(controls) == 1000
+        assert any(group.parent_group_id is not None for group in groups)
+        assert all(control.group_id is not None for control in controls)
 
 
 @pytest.mark.integration

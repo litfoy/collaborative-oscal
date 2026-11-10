@@ -15,7 +15,7 @@ The implemented HTTP product surface is public health reporting and a protected 
 | `apps/api/app/domain` | Tenant, organization, catalog/revision entities and domain invariants | Initial entities and repository interfaces |
 | `apps/api/app/persistence` | PostgreSQL mappings, transactions, and tenant-scoped repositories | SQLAlchemy and Alembic foundation |
 | `packages/domain` | Future cross-application domain package boundary | No separately packaged domain library |
-| `packages/oscal` | OSCAL digest, catalog projections, safe JSON/YAML parser, and Trestle Catalog model validation | Internal Catalog import validation for OSCAL 1.2.1 |
+| `packages/oscal` | OSCAL digest, catalog projections, safe JSON/YAML parser, versioned schema and Trestle Catalog model validation | Internal Catalog import validation for OSCAL 1.1.3 and 1.2.1 |
 | `packages/collaboration` | Collaboration concepts and application services | Reserved |
 | `packages/automation` | Future scheduled/event-triggered jobs and policy automation | Reserved |
 | `packages/authorization` | Future separately packaged authorization boundary | Documentation only; current implementation is in `apps/api/app` |
@@ -31,7 +31,7 @@ Schema and migrations exist for the initial domain records. Database credentials
 
 ## OSCAL and compliance-trestle
 
-OSCAL is the interoperability format, not the domain model. The OSCAL boundary owns deterministic digests, group/control index projections, safe JSON/YAML parsing, and Trestle model validation. The internal import application service coordinates tenant-scoped persistence without exposing an HTTP route. It validates OSCAL Catalog 1.2.1 only. Trestle model validation does not claim exhaustive NIST Metaschema semantic validation; see [Catalog import](../catalog-import.md). Domain services consume stable application concepts and do not depend on generated OSCAL structures.
+OSCAL is the interoperability format, not the domain model. The OSCAL boundary owns deterministic digests, group/control index projections, safe JSON/YAML parsing, and versioned Catalog validation. The internal import application service coordinates tenant-scoped persistence without exposing an HTTP route. It validates OSCAL Catalog 1.1.3 and 1.2.1. Trestle model validation does not claim exhaustive NIST Metaschema semantic validation; see [Catalog import](../catalog-import.md). Domain services consume stable application concepts and do not depend on generated OSCAL structures.
 
 ## Tenant isolation
 

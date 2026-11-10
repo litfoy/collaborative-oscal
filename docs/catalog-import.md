@@ -52,7 +52,7 @@ The structured validation result includes `valid`, document type, declared OSCAL
 version, validator name/version, validation schema version, errors, and warnings.
 Errors have a stable code, safe human-readable message, optional JSON Pointer, and
 optional diagnostic code. Parser errors do not include imported content. The
-default input limit is 5 MiB and the default maximum nesting depth is 64; both can
+default input limit is 10 MiB and the default maximum nesting depth is 64; both can
 be overridden on the internal service. YAML uses `SafeLoader`, rejects duplicate
 mapping keys and aliases, permits one document only, and does not resolve dates to
 Python objects. JSON duplicate object keys and non-finite numbers are rejected.
@@ -64,26 +64,32 @@ Both formats require UTF-8. No URLs or references are fetched.
 |---|---|
 | compliance-trestle | `5.2.0` (dependency range `>=5.2,<5.3`) |
 | Python | Trestle declares `>=3.11`; this repository targets Python 3.12–3.13 |
-| OSCAL versions accepted by this importer | Exactly `1.2.1` |
+| OSCAL versions accepted by this importer | `1.1.3` and `1.2.1` |
 | OSCAL documents | Catalog JSON model only |
 | Input formats | JSON and YAML; optional safe first-character auto-detection |
-| Trestle API used | `trestle.oscal.catalog.Model.model_validate_json(..., strict=True, extra="allow")` |
+| `1.1.3` schema | [Official NIST `oscal_catalog_schema.json`](https://github.com/usnistgov/OSCAL/releases/tag/v1.1.3), validated with JSON Schema Draft 7 |
+| OSCAL 1.2.1 validation | `trestle.oscal.catalog.Model.model_validate_json(..., strict=True, extra="allow")` |
+| OSCAL 1.1.3 validation | Bundled NIST Catalog schema, validated with JSON Schema Draft 7 |
 
-Trestle 5.x advertises support for OSCAL 1.2.1 and previous releases. This importer
-currently accepts only 1.2.1: support for any earlier minor version is not inferred
-from Trestle's general statement. The declared version is preserved and is never
-rewritten. Add a version only with an explicit compatibility fixture and test.
+OSCAL 1.1.3 and 1.2.1 Catalog schemas differ: 1.2.1 adds constraints for Markdown
+line and multiline fields, adds control-selection constructs, and relaxes some
+required fields in group, parameter, and party objects. The supplied BSI Catalog
+uses the common structures and validates against the official 1.1.3 schema. It also
+passes the existing group/control projection checks. The importer validates 1.1.3
+against its own bundled schema instead of applying 1.2.1 model assumptions; the
+existing Trestle model path for 1.2.1 is unchanged. The declared version is preserved
+and never rewritten. The 1.1.3 schema is bundled locally, so validation does not
+fetch schemas or references over the network.
 
-Trestle's generated Pydantic OSCAL models enforce required fields, types, and model
-constraints for the tested Catalog model. The adapter additionally checks that the
-existing index projector can represent all group/control structures and rejects
-duplicate control identifiers. Validation results intentionally carry a warning:
-Pydantic model validation is not a claim of exhaustive NIST Metaschema semantic
-validation. Full Metaschema/semantic coverage, including every cross-reference and
-constraint in the specification, remains a limitation. OSCAL `x-` extension fields
-and standard extension properties are preserved, but extension-specific constraints
-are not independently validated. Other unknown fields are rejected to catch
-misspellings. No Trestle CLI or remote schema download is used.
+The official NIST 1.1.3 JSON Schema enforces its Catalog structure, fields, and
+types. Trestle's generated Pydantic model enforces those constraints for 1.2.1.
+Both versions use the existing group/control projector and reject duplicate control
+identifiers. Validation results intentionally carry a warning: JSON Schema and model
+validation are not exhaustive NIST Metaschema semantic validation. Full semantic
+coverage, including every cross-reference and constraint in the specification,
+remains a limitation. OSCAL `x-` extension fields and standard extension properties
+are preserved, but extension-specific constraints are not independently validated.
+No Trestle CLI or remote schema download is used.
 
 ## Provenance and security boundary
 
@@ -137,5 +143,11 @@ Set `target_catalog_id` to import a new revision into an existing tenant-owned
 logical catalog. Without it, each call creates a new logical catalog.
 
 ## Local sample data
+
+The CLI defaults to a 10 MiB input limit, which accommodates the supplied 5,401,489-byte
+BSI catalog. For larger catalogs, set
+`CATALOG_IMPORT_MAX_INPUT_BYTES` (bytes, at most 100 MiB) in the environment or
+root `.env`. For example, `CATALOG_IMPORT_MAX_INPUT_BYTES=10485760` allows
+10 MiB inputs without disabling OSCAL validation.
 
 Two self-authored OSCAL 1.2.1 catalogs live in `examples/catalogs/`. Import them with `python -m app.cli create-tenant` and `import-catalog` (run from `apps/api`); see [Catalog Explorer](architecture/catalog-explorer.md#local-setup). The CLI uses the same import service and validation as every other caller.

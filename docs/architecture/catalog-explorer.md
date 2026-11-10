@@ -99,8 +99,8 @@ revision's JSONB. The UI reserves an "Add to Profile" slot that is non-interacti
    ```
 
    Use `--catalog-id <ID>` to add a further revision of an existing catalog. Any
-   OSCAL 1.2.1 JSON/YAML file can be imported the same way; do not commit content
-   you may not redistribute (for example ISO/IEC text).
+   OSCAL 1.1.3 or 1.2.1 JSON/YAML file can be imported the same way; do not commit
+   content you may not redistribute (for example ISO/IEC text).
 3. Start Keycloak (`--profile identity`, with `KEYCLOAK_ADMIN_USERNAME/PASSWORD`
    exported), then create a user without committing credentials:
 

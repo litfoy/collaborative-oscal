@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     oidc_access_token_type_value: str = Field(default="Bearer", min_length=1, max_length=255)
     api_page_size_default: int = Field(default=50, ge=1, le=500)
     api_page_size_max: int = Field(default=200, ge=1, le=500)
+    catalog_import_max_input_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        ge=1,
+        le=100 * 1024 * 1024,
+    )
 
     @field_validator("oidc_issuer_url", "oidc_jwks_url")
     @classmethod

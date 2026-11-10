@@ -3,12 +3,19 @@ from __future__ import annotations
 import json
 import math
 import types
+from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import lru_cache
 from importlib.metadata import version
+from importlib.resources import files
 from typing import Any, Union, get_args, get_origin
 
+import regex as unicode_regex
 import yaml
+from jsonschema import Draft7Validator
+from jsonschema import ValidationError as JsonSchemaValidationError
+from jsonschema import validators as jsonschema_validators
 from pydantic import ValidationError
 from yaml.events import (
     AliasEvent,
@@ -23,14 +30,30 @@ from yaml.nodes import MappingNode
 
 from collaborative_oscal_oscal.catalog_index import project_catalog_indexes
 
-SUPPORTED_OSCAL_VERSIONS = frozenset({"1.2.1"})
+SUPPORTED_OSCAL_VERSIONS = frozenset({"1.1.3", "1.2.1"})
 VALIDATOR_NAME = "compliance-trestle"
 VALIDATOR_VERSION = version("compliance-trestle")
-DEFAULT_MAX_INPUT_BYTES = 5 * 1024 * 1024
+JSON_SCHEMA_VALIDATOR_NAME = "jsonschema"
+JSON_SCHEMA_VALIDATOR_VERSION = version("jsonschema")
+DEFAULT_MAX_INPUT_BYTES = 10 * 1024 * 1024
 DEFAULT_MAX_NESTING_DEPTH = 64
 MODEL_VALIDATION_WARNING = (
-    "Trestle Pydantic model validation is not a claim of exhaustive NIST Metaschema "
-    "semantic validation."
+    "Schema validation is not a claim of exhaustive NIST Metaschema semantic validation."
+)
+
+
+def _validate_unicode_pattern(
+    validator: Any,
+    pattern: str,
+    instance: Any,
+    schema: Any,
+) -> Iterator[JsonSchemaValidationError]:
+    if validator.is_type(instance, "string") and unicode_regex.search(pattern, instance) is None:
+        yield JsonSchemaValidationError("String does not match the OSCAL schema pattern.")
+
+
+_OSCAL_DRAFT7_VALIDATOR = jsonschema_validators.extend(
+    Draft7Validator, {"pattern": _validate_unicode_pattern}
 )
 
 _OSCAL_MODELS = frozenset(
@@ -190,14 +213,16 @@ def _error(
     diagnostic: str | None = None,
     document_type: str | None = None,
     declared_version: str | None = None,
+    validator_name: str = VALIDATOR_NAME,
+    validator_version: str = VALIDATOR_VERSION,
 ) -> CatalogValidationOutcome:
     return CatalogValidationOutcome(
         CatalogValidationResult(
             valid=False,
             document_type=document_type,
             declared_oscal_version=declared_version,
-            validator_name=VALIDATOR_NAME,
-            validator_version=VALIDATOR_VERSION,
+            validator_name=validator_name,
+            validator_version=validator_version,
             validation_schema_version=(
                 f"OSCAL {declared_version}"
                 if declared_version in SUPPORTED_OSCAL_VERSIONS
@@ -206,6 +231,14 @@ def _error(
             errors=(CatalogValidationError(code, message, path, diagnostic),),
         )
     )
+
+
+@lru_cache(maxsize=1)
+def _oscal_1_1_3_catalog_schema() -> dict[str, Any]:
+    schema_path = files("collaborative_oscal_oscal").joinpath(
+        "schemas", "oscal_catalog_schema_v1.1.3.json"
+    )
+    return json.loads(schema_path.read_text(encoding="utf-8"))
 
 
 def _detect_format(content: bytes) -> CatalogInputFormat:
@@ -395,6 +428,71 @@ def _parse(
     return value, selected_format, None
 
 
+def _validate_oscal_1_2_1_model(
+    document: dict[str, Any],
+) -> CatalogValidationOutcome | None:
+    from trestle.oscal.catalog import Model
+
+    extension_errors = _unknown_model_fields(document, Model)
+    if extension_errors:
+        errors = tuple(
+            CatalogValidationError(
+                code="OSCAL_MODEL_INVALID",
+                message=message,
+                path=_pointer(error_path),
+                diagnostic="extra_forbidden",
+            )
+            for error_path, message in extension_errors
+        )
+        return CatalogValidationOutcome(
+            CatalogValidationResult(
+                valid=False,
+                document_type="catalog",
+                declared_oscal_version="1.2.1",
+                validator_name=VALIDATOR_NAME,
+                validator_version=VALIDATOR_VERSION,
+                validation_schema_version="OSCAL 1.2.1",
+                errors=errors,
+                warnings=(MODEL_VALIDATION_WARNING,),
+            )
+        )
+
+    try:
+        model_json = json.dumps(document, ensure_ascii=False, allow_nan=False).encode("utf-8")
+    except (TypeError, ValueError, RecursionError):
+        return _error(
+            "INVALID_DOCUMENT_STRUCTURE",
+            "Document values cannot be represented as OSCAL JSON.",
+            document_type="catalog",
+            declared_version="1.2.1",
+        )
+    try:
+        Model.model_validate_json(model_json, strict=True, extra="allow")
+    except ValidationError as exception:
+        errors = tuple(
+            CatalogValidationError(
+                code="OSCAL_MODEL_INVALID",
+                message=issue["msg"],
+                path=_pointer(tuple(issue["loc"])),
+                diagnostic=issue["type"],
+            )
+            for issue in exception.errors(include_input=False, include_context=False)
+        )
+        return CatalogValidationOutcome(
+            CatalogValidationResult(
+                valid=False,
+                document_type="catalog",
+                declared_oscal_version="1.2.1",
+                validator_name=VALIDATOR_NAME,
+                validator_version=VALIDATOR_VERSION,
+                validation_schema_version="OSCAL 1.2.1",
+                errors=errors,
+                warnings=(MODEL_VALIDATION_WARNING,),
+            )
+        )
+    return None
+
+
 def validate_catalog_bytes(
     content: bytes,
     input_format: CatalogInputFormat | str = CatalogInputFormat.AUTO,
@@ -440,71 +538,51 @@ def validate_catalog_bytes(
     if declared_version not in SUPPORTED_OSCAL_VERSIONS:
         return _error(
             "UNSUPPORTED_OSCAL_VERSION",
-            f"OSCAL version {declared_version!r} is not supported; supported version: 1.2.1.",
+            f"OSCAL version {declared_version!r} is not supported; "
+            "supported versions: 1.1.3 and 1.2.1.",
             path="/catalog/metadata/oscal-version",
             document_type="catalog",
             declared_version=declared_version,
         )
 
-    from trestle.oscal.catalog import Model
-
-    extension_errors = _unknown_model_fields(document, Model)
-    if extension_errors:
-        errors = tuple(
-            CatalogValidationError(
-                code="OSCAL_MODEL_INVALID",
-                message=message,
-                path=_pointer(error_path),
-                diagnostic="extra_forbidden",
+    validator_name = VALIDATOR_NAME
+    validator_version = VALIDATOR_VERSION
+    if declared_version == "1.1.3":
+        validator_name = JSON_SCHEMA_VALIDATOR_NAME
+        validator_version = JSON_SCHEMA_VALIDATOR_VERSION
+        schema_errors = sorted(
+            _OSCAL_DRAFT7_VALIDATOR(
+                _oscal_1_1_3_catalog_schema(),
+                format_checker=Draft7Validator.FORMAT_CHECKER,
+            ).iter_errors(document),
+            key=lambda issue: _pointer(tuple(issue.absolute_path)),
+        )
+        if schema_errors:
+            errors = tuple(
+                CatalogValidationError(
+                    code="OSCAL_SCHEMA_INVALID",
+                    message="Document does not conform to the OSCAL 1.1.3 Catalog schema.",
+                    path=_pointer(tuple(issue.absolute_path)),
+                    diagnostic=str(issue.validator),
+                )
+                for issue in schema_errors
             )
-            for error_path, message in extension_errors
-        )
-        return CatalogValidationOutcome(
-            CatalogValidationResult(
-                valid=False,
-                document_type="catalog",
-                declared_oscal_version=declared_version,
-                validator_name=VALIDATOR_NAME,
-                validator_version=VALIDATOR_VERSION,
-                validation_schema_version=f"OSCAL {declared_version}",
-                errors=errors,
-                warnings=(MODEL_VALIDATION_WARNING,),
+            return CatalogValidationOutcome(
+                CatalogValidationResult(
+                    valid=False,
+                    document_type="catalog",
+                    declared_oscal_version=declared_version,
+                    validator_name=validator_name,
+                    validator_version=validator_version,
+                    validation_schema_version="OSCAL 1.1.3",
+                    errors=errors,
+                    warnings=(MODEL_VALIDATION_WARNING,),
+                )
             )
-        )
-
-    try:
-        model_json = json.dumps(document, ensure_ascii=False, allow_nan=False).encode("utf-8")
-    except (TypeError, ValueError, RecursionError):
-        return _error(
-            "INVALID_DOCUMENT_STRUCTURE",
-            "Document values cannot be represented as OSCAL JSON.",
-            document_type="catalog",
-            declared_version=declared_version,
-        )
-    try:
-        Model.model_validate_json(model_json, strict=True, extra="allow")
-    except ValidationError as exception:
-        errors = tuple(
-            CatalogValidationError(
-                code="OSCAL_MODEL_INVALID",
-                message=issue["msg"],
-                path=_pointer(tuple(issue["loc"])),
-                diagnostic=issue["type"],
-            )
-            for issue in exception.errors(include_input=False, include_context=False)
-        )
-        return CatalogValidationOutcome(
-            CatalogValidationResult(
-                valid=False,
-                document_type="catalog",
-                declared_oscal_version=declared_version,
-                validator_name=VALIDATOR_NAME,
-                validator_version=VALIDATOR_VERSION,
-                validation_schema_version=f"OSCAL {declared_version}",
-                errors=errors,
-                warnings=(MODEL_VALIDATION_WARNING,),
-            )
-        )
+    else:
+        model_error = _validate_oscal_1_2_1_model(document)
+        if model_error is not None:
+            return model_error
 
     try:
         _, controls = project_catalog_indexes(document)
@@ -518,6 +596,8 @@ def validate_catalog_bytes(
             path=path,
             document_type="catalog",
             declared_version=declared_version,
+            validator_name=validator_name,
+            validator_version=validator_version,
         )
     seen_control_ids: set[str] = set()
     for control in controls:
@@ -528,6 +608,8 @@ def validate_catalog_bytes(
                 path=control.structural_path,
                 document_type="catalog",
                 declared_version=declared_version,
+                validator_name=validator_name,
+                validator_version=validator_version,
             )
         seen_control_ids.add(control.oscal_control_id)
 
@@ -536,8 +618,8 @@ def validate_catalog_bytes(
             valid=True,
             document_type="catalog",
             declared_oscal_version=declared_version,
-            validator_name=VALIDATOR_NAME,
-            validator_version=VALIDATOR_VERSION,
+            validator_name=validator_name,
+            validator_version=validator_version,
             validation_schema_version=f"OSCAL {declared_version}",
             warnings=(MODEL_VALIDATION_WARNING,),
         ),

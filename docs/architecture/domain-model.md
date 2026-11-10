@@ -147,8 +147,8 @@ must follow OSCAL UUID and `last-modified` requirements.
 `packages/oscal` computes a digest, projects group/control query indexes, safely
 parses JSON/YAML, and validates Catalogs with compliance-trestle. The JSONB revision
 remains authoritative for metadata, parameters, parts, links, back matter, and
-extensions. The import service accepts OSCAL 1.2.1 only; Pydantic model validation
-does not claim exhaustive NIST Metaschema semantic validation. See
+extensions. The import service accepts OSCAL 1.1.3 and 1.2.1; validation does not
+claim exhaustive NIST Metaschema semantic coverage. See
 [Catalog import](../catalog-import.md) for details.
 
 Future domains are documented but not implemented: **Profiles** will resolve against
@@ -162,7 +162,8 @@ and control-index identities as appropriate, not copy or flatten OSCAL documents
 Planned integration seams:
 
 - **compliance-trestle:** the `packages/oscal` adapter currently pins its supported
-  range to 5.2.x and accepts Catalog 1.2.1 only; other model versions are rejected.
+  range to 5.2.x; Catalog 1.1.3 uses the bundled NIST schema and Catalog 1.2.1 uses
+  the current Trestle model.
 - **OSCAL Profile resolution and Control Mapping:** independent application services
   that consume immutable catalog revisions and retain their own source/output
   artifacts.
