@@ -166,13 +166,15 @@ button:disabled {
   cursor: not-allowed;
 }
 input[type="search"],
-select {
+input:not([type]),
+select,
+textarea {
   font: inherit;
   padding: 0.45rem 0.7rem;
   border: 1px solid #9aa6b8;
   border-radius: 0.5rem;
   background: #fff;
-  min-width: 14rem;
+  min-width: min(100%, 20rem);
 }
 .search-form {
   display: flex;
@@ -200,6 +202,28 @@ select {
   border: 2px dashed var(--border);
   border-radius: 0.75rem;
   color: var(--muted);
+}
+.profile-manager {
+  display: grid;
+  gap: 1rem;
+}
+.profile-form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 42rem;
+}
+.profile-form textarea {
+  resize: vertical;
+  min-width: 100%;
+}
+.profile-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+.profile-list h3 {
+  margin-top: 0;
 }
 .pagination {
   display: flex;

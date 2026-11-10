@@ -340,3 +340,26 @@ class CatalogControlIndexRecord(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     structural_path: Mapped[str] = mapped_column(String(2048), nullable=False)
     display_order: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class ProfileRecord(Base):
+    __tablename__ = "profiles"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_profiles_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "catalog_id", "revision_id"],
+            ["catalog_revisions.tenant_id", "catalog_revisions.catalog_id", "catalog_revisions.id"],
+            name="fk_profiles_source_revision_same_tenant",
+            ondelete="RESTRICT",
+        ),
+        Index("ix_profiles_tenant_created", "tenant_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    catalog_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    revision_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    document: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

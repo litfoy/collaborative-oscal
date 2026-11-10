@@ -1,11 +1,11 @@
 # Initial GRC domain and persistence model
 
-The API now has domain models under `apps/api/app/domain`, application services under
+The API has domain models under `apps/api/app/domain`, application services under
 `apps/api/app/application`, PostgreSQL records and tenant-scoped repositories under
-`apps/api/app/persistence`, and OSCAL document projection helpers under
-`packages/oscal`. These are logical modules in the existing modular monolith, not
-deployable services. The public health endpoint and protected `/api/v1/me` are the
-only HTTP routes; no tenant-scoped GRC endpoint is exposed.
+`apps/api/app/persistence`, and OSCAL document helpers under `packages/oscal`. These
+are logical modules in the existing modular monolith, not deployable services.
+Tenant-scoped Catalog and basic Profile endpoints are exposed; broader GRC workflows
+are not implemented.
 
 ## Entities and ownership
 
@@ -31,6 +31,9 @@ only HTTP routes; no tenant-scoped GRC endpoint is exposed.
   tied to the exact revision. They retain source order, structural paths, hierarchy,
   optional OSCAL group identifiers, and OSCAL control identifiers. OSCAL IDs are
   not application primary keys and may recur in other catalogs and revisions.
+- A **Profile** belongs to one tenant and references an exact catalog revision.
+  Its separate OSCAL JSONB document contains `imports` and `include-controls`
+  selections by OSCAL control ID; the source catalog is neither copied nor changed.
 
 ```mermaid
 erDiagram
@@ -45,6 +48,7 @@ erDiagram
     CATALOG_REVISIONS ||--o{ CATALOG_CONTROL_INDEXES : projects
     CATALOG_CONTROL_INDEXES o|--o{ CATALOG_CONTROL_INDEXES : enhances
     CATALOG_GROUP_INDEXES o|--o{ CATALOG_CONTROL_INDEXES : contains
+    CATALOG_REVISIONS ||--o{ PROFILES : referenced_by
 
     TENANTS {
         uuid id PK
@@ -113,12 +117,20 @@ erDiagram
         string structural_path
         int display_order
     }
+    PROFILES {
+        uuid id PK
+        uuid tenant_id FK
+        uuid catalog_id FK
+        uuid revision_id FK
+        string title
+        jsonb document
+    }
 ```
 
 ## Integrity and lifecycle
 
 Composite foreign keys include tenant identity for organization parentage, catalog
-revisions, and index relationships. This makes cross-tenant or cross-revision links
+revisions, index relationships, and Profile source revisions. This makes cross-tenant or cross-revision links
 fail at the database boundary as well as in tenant-scoped service and repository
 operations. Catalog listing, revision lookup, and control lookup all require an
 explicit tenant ID. Tenant-scoped HTTP adapters must obtain it from verified
@@ -145,15 +157,18 @@ must follow OSCAL UUID and `last-modified` requirements.
 ## OSCAL and future domain boundaries
 
 `packages/oscal` computes a digest, projects group/control query indexes, safely
-parses JSON/YAML, and validates Catalogs with compliance-trestle. The JSONB revision
+parses JSON/YAML, and validates Catalog and Profile structures with compliance-trestle.
+The JSONB revision
 remains authoritative for metadata, parameters, parts, links, back matter, and
 extensions. The import service accepts OSCAL 1.1.3 and 1.2.1; validation does not
 claim exhaustive NIST Metaschema semantic coverage. See
 [Catalog import](../catalog-import.md) for details.
 
-Future domains are documented but not implemented: **Profiles** will resolve against
-catalog revisions; **Control Mappings** will relate controls across revisions without
-replacing their source artifacts; **Assets and Systems**, **Control
+Basic Profile creation, editing, and OSCAL JSON export are implemented. Profiles
+retain a stable reference to the source catalog revision and select controls using
+their OSCAL IDs. Profile resolution and catalog composition are not implemented.
+Future domains are documented but not implemented: **Control Mappings** will relate
+controls across revisions without replacing their source artifacts; **Assets and Systems**, **Control
 Implementations**, **Risks**, **Assessments**, **Evidence**, **Collaboration**,
 **Workflows**, **Automation**, and **AI Governance** will each own their own domain
 rules and tenant-scoped persistence. They should reference stable catalog/revision
@@ -164,8 +179,8 @@ Planned integration seams:
 - **compliance-trestle:** the `packages/oscal` adapter currently pins its supported
   range to 5.2.x; Catalog 1.1.3 uses the bundled NIST schema and Catalog 1.2.1 uses
   the current Trestle model.
-- **OSCAL Profile resolution and Control Mapping:** independent application services
-  that consume immutable catalog revisions and retain their own source/output
+- **OSCAL Profile resolution and Control Mapping:** future independent application
+  services that consume immutable catalog revisions and retain their own source/output
   artifacts.
 - **Git synchronization:** a future catalog-domain adapter that can compare source
   revisions and provenance; no remote fetching or Git operations exist now.

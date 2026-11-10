@@ -59,11 +59,11 @@ tokens, and FastAPI must keep verifying access tokens independently (ADR 0006).
   resolve.
 - `GET /api/v1/tenants` lists only tenants with active membership.
 - Browsing uses the relational group/control projections. Hierarchy is loaded
-  lazily one level at a time (`/outline`). Full OSCAL documents are never sent;
-  control detail is extracted from the revision JSONB (via
-  `packages/oscal/control_view.py`) without mutation. Free-text OSCAL content
-  is returned as inert strings; the UI renders it as text and only allows
-  `http`, `https` and `mailto` links.
+  lazily one level at a time (`/outline`). Full OSCAL documents are returned only
+  by the explicit immutable-revision export endpoint; control detail is otherwise
+  extracted from revision JSONB (via `packages/oscal/control_view.py`) without
+  mutation. Free-text OSCAL content is returned as inert strings; the UI renders
+  it as text and only allows `http`, `https` and `mailto` links.
 - The stable control reference for future Profile Composition is
   `catalog_id + revision_id + oscal_control_id`.
 - Search is `ILIKE` on control ID/title with escaped wildcards, bounded

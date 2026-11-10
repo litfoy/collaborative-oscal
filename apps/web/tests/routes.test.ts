@@ -22,7 +22,7 @@ vi.mock("@/lib/session", async (original) => ({
 
 import { GET as login } from "@/app/auth/login/route";
 import { POST as logout } from "@/app/auth/logout/route";
-import { GET as bff } from "@/app/bff/[...path]/route";
+import { GET as bff, POST as bffPost, PUT as bffPut } from "@/app/bff/[...path]/route";
 
 const session = { sub: "u", accessToken: "SECRET-TOKEN", idToken: "ID", accessTokenExpiresAt: 9e9, expiresAt: 9e9 };
 const U = "11111111-1111-4111-8111-111111111111";
@@ -109,5 +109,56 @@ describe("BFF proxy", () => {
     const res = await bff(new NextRequest("http://localhost:3000/bff/"+PATH.join("/")), ctx(PATH));
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "session_expired" });
+  });
+
+  it("proxies profile mutations only for same-origin, allowlisted requests", async () => {
+    mocks.readSession.mockResolvedValue(session);
+    mocks.backendFetch.mockResolvedValue(
+      new Response(JSON.stringify({ id: U }), { headers: { "content-type": "application/json" } }),
+    );
+    const path = ["tenants", U, "profiles"];
+    const denied = await bffPost(
+      new NextRequest(`http://localhost:3000/bff/${path.join("/")}`, {
+        method: "POST",
+        headers: {
+          origin: "https://evil.example",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Not sent" }),
+      }),
+      ctx(path),
+    );
+    expect(denied.status).toBe(403);
+    expect(mocks.backendFetch).not.toHaveBeenCalled();
+
+    const response = await bffPost(
+      new NextRequest(`http://localhost:3000/bff/${path.join("/")}`, {
+        method: "POST",
+        headers: {
+          origin: "http://localhost:3000",
+          "sec-fetch-site": "same-origin",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: "Allowed" }),
+      }),
+      ctx(path),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.backendFetch).toHaveBeenCalledWith(
+      session,
+      `/api/v1/${path.join("/")}`,
+      undefined,
+      { method: "POST", body: JSON.stringify({ title: "Allowed" }) },
+    );
+
+    const wrongMethod = await bffPut(
+      new NextRequest(`http://localhost:3000/bff/${path.join("/")}`, {
+        method: "PUT",
+        headers: { origin: "http://localhost:3000", "content-type": "application/json" },
+        body: "{}",
+      }),
+      ctx(path),
+    );
+    expect(wrongMethod.status).toBe(404);
   });
 });

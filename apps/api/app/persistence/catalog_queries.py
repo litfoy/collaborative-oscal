@@ -263,6 +263,17 @@ class SQLCatalogQueryRepository:
             ),
         )
 
+    def get_revision_document(
+        self, tenant_id: UUID, catalog_id: UUID, revision_id: UUID
+    ) -> dict | None:
+        return self._session.scalar(
+            select(CatalogRevisionRecord.content).where(
+                CatalogRevisionRecord.tenant_id == tenant_id,
+                CatalogRevisionRecord.catalog_id == catalog_id,
+                CatalogRevisionRecord.id == revision_id,
+            )
+        )
+
     def revision_exists(self, tenant_id: UUID, catalog_id: UUID, revision_id: UUID) -> bool:
         return (
             self._session.scalar(

@@ -52,11 +52,14 @@ class World:
         self.foreign = importer.import_catalog(
             self.tenant_b.id, json.dumps(other).encode(), metadata=None or _meta()
         )
-        self.subjects = {name: f"{name}-{suffix}" for name in ("alice", "bob", "carol", "dave")}
+        self.subjects = {
+            name: f"{name}-{suffix}" for name in ("alice", "bob", "carol", "dave", "editor")
+        }
         self._membership("alice", self.tenant_a.id, "viewer", "active")
         self._membership("bob", self.tenant_b.id, "tenant_admin", "active")
         self._membership("carol", self.tenant_a.id, "viewer", "inactive")
         self._membership("alice", self.tenant_b.id, "viewer", "inactive")
+        self._membership("editor", self.tenant_a.id, "catalog_editor", "active")
         self.identity_ids = {}
         with session_factory.begin() as session:
             for name, subject in self.subjects.items():
@@ -280,6 +283,71 @@ def _revision_path(world) -> str:
     )
 
 
+def test_profiles_reference_catalogs_and_select_controls_without_mutating_sources(
+    client, world
+) -> None:
+    source_path = _revision_path(world) + "/export"
+    source_before = client.get(source_path, headers=world.headers("alice")).json()
+    payload = {
+        "catalog_id": str(world.security.catalog.id),
+        "revision_id": str(world.security.revision.id),
+        "title": "Access review profile",
+        "control_ids": ["ac-1", "ac-1.1"],
+    }
+    profiles_path = f"/api/v1/tenants/{world.tenant_a.id}/profiles"
+
+    denied = client.post(profiles_path, headers=world.headers("alice"), json=payload)
+    assert denied.status_code == 403
+
+    created = client.post(profiles_path, headers=world.headers("editor"), json=payload)
+    assert created.status_code == 201
+    profile = created.json()
+    assert profile["catalog_id"] == str(world.security.catalog.id)
+    assert profile["revision_id"] == str(world.security.revision.id)
+    listed = client.get(profiles_path, headers=world.headers("alice"))
+    assert listed.status_code == 200
+    assert listed.json()["items"][0]["control_ids"] == ["ac-1", "ac-1.1"]
+
+    export_path = profiles_path + f"/{profile['id']}/export"
+    exported_response = client.get(export_path, headers=world.headers("alice"))
+    assert exported_response.status_code == 200
+    assert exported_response.headers["content-type"] == "application/json"
+    exported = exported_response.json()
+    from trestle.oscal.profile import Model
+
+    Model.model_validate_json(exported_response.content, strict=True)
+    assert exported["profile"]["metadata"]["title"] == "Access review profile"
+    imported = exported["profile"]["imports"][0]
+    assert imported["href"] == source_path
+    assert imported["include-controls"] == [{"with-ids": ["ac-1", "ac-1.1"]}]
+
+    updated = client.put(
+        profiles_path + f"/{profile['id']}",
+        headers=world.headers("editor"),
+        json={"title": "Updated access profile", "control_ids": ["ac-2"]},
+    )
+    assert updated.status_code == 200
+    updated_document = client.get(export_path, headers=world.headers("alice")).json()
+    assert updated_document["profile"]["metadata"]["title"] == "Updated access profile"
+    assert updated_document["profile"]["imports"][0]["include-controls"] == [{"with-ids": ["ac-2"]}]
+
+    invalid_control = client.post(
+        profiles_path,
+        headers=world.headers("editor"),
+        json={**payload, "control_ids": ["not-a-control"]},
+    )
+    assert invalid_control.status_code == 422
+    assert (
+        client.post(
+            profiles_path,
+            headers=world.headers("editor"),
+            json={**payload, "catalog_id": str(uuid4())},
+        ).status_code
+        == 404
+    )
+    assert client.get(source_path, headers=world.headers("alice")).json() == source_before
+
+
 def test_outline_navigates_nested_groups_and_controls(client, world) -> None:
     headers = world.headers("alice")
     path = _revision_path(world) + "/outline"
@@ -458,6 +526,8 @@ def test_openapi_documents_catalog_api() -> None:
     schema = app.openapi()
     paths = schema["paths"]
     assert "/api/v1/tenants" in paths
+    assert "/api/v1/tenants/{tenant_id}/profiles" in paths
+    assert "/api/v1/tenants/{tenant_id}/profiles/{profile_id}/export" in paths
     assert (
         "/api/v1/tenants/{tenant_id}/catalogs/{catalog_id}/revisions/{revision_id}"
         "/controls/{control_id}" in paths

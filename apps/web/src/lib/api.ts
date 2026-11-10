@@ -4,20 +4,26 @@ import { getConfig } from "./config";
 import { ApiError, ERROR_MESSAGES, kindForStatus } from "./errors";
 import { requireSession } from "./auth";
 import type { SessionData } from "./session-crypto";
-import type { Catalog, ControlDetail, Paged, OutlineNode, RevisionDetail, RevisionSummary, Tenant } from "./types";
+import type { Catalog, ControlDetail, Paged, OutlineNode, Profile, RevisionDetail, RevisionSummary, Tenant } from "./types";
 
 /** Server-side call to FastAPI using the session's API access token (never the ID token). */
 export async function backendFetch(
   session: SessionData,
   path: string,
   search?: URLSearchParams,
+  init?: { method: "POST" | "PUT"; body: string },
 ): Promise<Response> {
   const url = new URL(`${getConfig().apiBaseUrl}${path}`);
   if (search) url.search = search.toString();
   let response: Response;
   try {
     response = await fetch(url, {
-      headers: { Authorization: `Bearer ${session.accessToken}`, Accept: "application/json" },
+      ...init,
+      headers: {
+        Authorization: `Bearer ${session.accessToken}`,
+        Accept: "application/json",
+        ...(init ? { "Content-Type": "application/json" } : {}),
+      },
       cache: "no-store",
       signal: AbortSignal.timeout(15_000),
     });
@@ -90,4 +96,11 @@ export function getControl(tenantId: string, catalogId: string, revisionId: stri
     `/api/v1/tenants/${tenantId}/catalogs/${catalogId}/revisions/${revisionId}/controls/${encodeURIComponent(controlId)}`,
     returnTo,
   );
+}
+
+export function listProfiles(
+  tenantId: string,
+  returnTo: string,
+): Promise<Paged<Profile>> {
+  return getJson(`/api/v1/tenants/${tenantId}/profiles`, returnTo, { limit: 200 });
 }

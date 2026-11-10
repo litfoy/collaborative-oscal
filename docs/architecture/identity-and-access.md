@@ -218,3 +218,7 @@ do not contact an external identity provider.
 ## Browser sign-in and catalog access
 
 The Next.js BFF authenticates users with Authorization Code + PKCE and forwards only the access token to FastAPI, which still verifies it independently. `GET /api/v1/tenants` lists active memberships; catalog routes require `catalog:read` in the requested tenant. See [Catalog Explorer](catalog-explorer.md) and ADR 0007.
+
+Profile reads and exports also require `catalog:read`; Profile creation and updates
+require `catalog:write`. Both permissions are evaluated against the active
+membership in the tenant selected by the request path.

@@ -48,6 +48,17 @@ export interface Catalog {
   latest_revision: RevisionSummary | null;
 }
 
+export interface Profile {
+  id: string;
+  tenant_id: string;
+  catalog_id: string;
+  revision_id: string;
+  title: string;
+  control_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface OutlineNode {
   kind: "group" | "control";
   id: string;

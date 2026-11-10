@@ -28,6 +28,7 @@ export function AppShell({
           {current ? (
             <>
               <a href={`/t/${current.id}/catalogs`}>Catalogs</a>
+              <a href={`/t/${current.id}/profiles`}>Profiles</a>
               <span className="muted">Workspace: {current.name}</span>
               {tenants.length > 1 ? <Link href="/">Switch workspace</Link> : null}
             </>

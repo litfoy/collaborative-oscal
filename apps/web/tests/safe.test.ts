@@ -1,6 +1,7 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { filterBffQuery, isAllowedBffPath } from "@/lib/bff-allowlist";
+import { filterBffQuery, isAllowedBffPath, isAllowedBffRequest } from "@/lib/bff-allowlist";
 import { classifyHref, renderProse, safeReturnTo } from "@/lib/safe";
 
 const UUID = "11111111-2222-3333-4444-555555555555";
@@ -52,6 +53,19 @@ describe("BFF allowlist", () => {
     expect(isAllowedBffPath(["tenants", UUID, "catalogs", "..", "x"])).toBe(false);
     expect(isAllowedBffPath(["tenants", UUID, "catalogs", UUID, "revisions", UUID, "controls", "a/b"])).toBe(false);
     expect(isAllowedBffPath(["tenants", "not-a-uuid", "catalogs"])).toBe(false);
+  });
+
+  it("allows only explicit Profile methods and paths", () => {
+    const profiles = ["tenants", UUID, "profiles"];
+    const profile = [...profiles, UUID];
+    expect(isAllowedBffRequest(profiles, "GET")).toBe(true);
+    expect(isAllowedBffRequest(profiles, "POST")).toBe(true);
+    expect(isAllowedBffRequest(profile, "GET")).toBe(true);
+    expect(isAllowedBffRequest(profile, "PUT")).toBe(true);
+    expect(isAllowedBffRequest([...profile, "export"], "GET")).toBe(true);
+    expect(isAllowedBffRequest([...profile, "export"], "PUT")).toBe(false);
+    expect(isAllowedBffRequest(["tenants", UUID, "catalogs"], "POST")).toBe(false);
+    expect(isAllowedBffRequest(profile, "DELETE")).toBe(false);
   });
 
   it("drops unknown query parameters", () => {

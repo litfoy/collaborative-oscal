@@ -5,6 +5,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi.responses import JSONResponse
 
 from app.api.catalog_schemas import (
     CatalogListResponse,
@@ -178,6 +179,22 @@ def get_revision(
         )
     except EntityNotFoundError as error:
         raise _not_found(error) from error
+
+
+@router.get(
+    "/tenants/{tenant_id}/catalogs/{catalog_id}/revisions/{revision_id}/export",
+    responses={**AUTH_ERRORS, **NOT_FOUND},
+    tags=["catalogs"],
+    summary="Export one immutable catalog revision as OSCAL JSON",
+)
+def export_revision(
+    context: TenantContext, service: Service, catalog_id: CatalogId, revision_id: RevisionId
+) -> JSONResponse:
+    try:
+        document = service.get_revision_document(context.tenant_id, catalog_id, revision_id)
+    except EntityNotFoundError as error:
+        raise _not_found(error) from error
+    return JSONResponse(content=document)
 
 
 @router.get(

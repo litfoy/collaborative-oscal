@@ -90,6 +90,17 @@ class CatalogBrowsingService:
             raise EntityNotFoundError("Catalog revision not found.")
         return revision
 
+    def get_revision_document(
+        self, tenant_id: UUID, catalog_id: UUID, revision_id: UUID
+    ) -> dict[str, Any]:
+        with self._session_scope() as session:
+            document = SQLCatalogQueryRepository(session).get_revision_document(
+                tenant_id, catalog_id, revision_id
+            )
+        if document is None:
+            raise EntityNotFoundError("Catalog revision not found.")
+        return document
+
     def list_outline(
         self,
         tenant_id: UUID,
