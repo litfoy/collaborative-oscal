@@ -1,3 +1,5 @@
+import type { Parameter } from "./types";
+
 /** Returns a same-origin relative path or "/" — never an absolute or protocol-relative URL. */
 export function safeReturnTo(value: string | null | undefined): string {
   if (!value || value.length > 2048) return "/";
@@ -35,9 +37,29 @@ export function classifyHref(value: string): SafeHref {
 
 const INSERT = /\{\{\s*insert:\s*param\s*,\s*([^\s}]+)\s*\}\}/g;
 
-/** Replaces OSCAL parameter insertions with readable labels. Output is plain text only. */
-export function renderProse(text: string, labels: Record<string, string | undefined>): string {
-  return text.replace(INSERT, (_match, id: string) => `[${labels[id] ?? id}]`);
+/** Substitutes display text only; never interprets imported text as markup. */
+export function renderProse(text: string, parameters: ReadonlyMap<string, string>): string {
+  return text.replace(INSERT, (_match, id: string) => parameters.get(id) ?? `[${id}]`);
+}
+
+export function parameterText(parameters: Parameter[]): Map<string, string> {
+  const byId = new Map(parameters.map((parameter) => [parameter.id, parameter]));
+  const resolved = new Map<string, string>();
+
+  function resolve(id: string, visiting: Set<string>): string {
+    const cached = resolved.get(id);
+    if (cached !== undefined) return cached;
+    const parameter = byId.get(id);
+    if (!parameter || visiting.has(id)) return `[${id}]`;
+    const next = new Set(visiting).add(id);
+    const text = parameter.values.length > 0
+      ? parameter.values.join(", ")
+      : `[${parameter.label || id}]`;
+    return text.replace(INSERT, (_match, reference: string) => resolve(reference, next));
+  }
+
+  for (const id of byId.keys()) resolved.set(id, resolve(id, new Set()));
+  return resolved;
 }
 
 export function isUuid(value: string): boolean {

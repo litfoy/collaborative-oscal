@@ -70,7 +70,7 @@ describe("ControlDetailView", () => {
       ],
     }} />);
     const statement = screen.getByRole("region", { name: "Requirement statement" });
-    expect(within(statement).getByText("Review every [frequency].")).toBeVisible();
+    expect(within(statement).getByText("Review every annually.")).toBeVisible();
     const classification = screen.getByText("Classification");
     const guidance = screen.getByRole("region", { name: "Guidance and additional information" });
     expect(screen.getByText("MUSS", { selector: "dd" })).toBeVisible();
@@ -85,5 +85,27 @@ describe("ControlDetailView", () => {
     expect(screen.queryByText("Classification")).not.toBeInTheDocument();
     expect(screen.queryByText("Security level")).not.toBeInTheDocument();
     expect(screen.queryByText("Target object categories")).not.toBeInTheDocument();
+  });
+
+  it.each(["catalog", "profile"] as const)("substitutes parameters in %s details but preserves raw OSCAL", (presentation) => {
+    const source = control();
+    const insertion = "{{ insert: param, gc.1.1-prm1 }}";
+    const data = control({
+      parameters: [{ ...source.parameters[0], id: "gc.1.1-prm1", values: ["<b>annually</b>"], usage: `Review ${insertion}`, guidelines: [`Guidance ${insertion}`] }],
+      parts: [{ ...source.parts[0], prose: `Review ${insertion}.`, title: `Title ${insertion}` }],
+      properties: [{ name: "note", value: `Property ${insertion}` }],
+      references: [{ ...source.references[0], description: `Reference ${insertion}` }],
+      raw_control: { id: "gc.1.1", parts: [{ name: "statement", prose: insertion }] },
+    });
+    const original = JSON.stringify(data);
+    const { container } = render(<ControlDetailView presentation={presentation} control={data} />);
+    expect(screen.getAllByText("Review <b>annually</b>.")[0]).toBeVisible();
+    expect(screen.getAllByText("Title <b>annually</b>")[0]).toBeVisible();
+    expect(screen.getAllByText("Guidance <b>annually</b>")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("Property <b>annually</b>")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("Reference <b>annually</b>")[0]).toBeVisible();
+    expect(container.querySelector("b")).toBeNull();
+    expect(container.querySelector(".raw-oscal")).toHaveTextContent(insertion);
+    expect(JSON.stringify(data)).toBe(original);
   });
 });

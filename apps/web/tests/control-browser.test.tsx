@@ -74,7 +74,7 @@ describe("ControlBrowser", () => {
     await user.click(screen.getByRole("treeitem", { name: /ac-1.*Access Policy/ }));
     expect(await screen.findByRole("heading", { level: 1, name: /ac-1\s*Access Policy/ })).toBeInTheDocument();
     expect(await screen.findByRole("treeitem", { name: /ac-1\.1/ })).toBeInTheDocument();
-    expect(screen.getByText(/Review every \[frequency\]\./)).toBeInTheDocument();
+    expect(screen.getByText(/Review every annually\./)).toBeInTheDocument();
     expect(screen.getByText(/Source:/)).toHaveTextContent("Sample Security Practices");
 
     await user.click(screen.getByRole("treeitem", { name: /ac-1\.1/ }));

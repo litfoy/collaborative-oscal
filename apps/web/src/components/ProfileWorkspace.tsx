@@ -4,12 +4,14 @@ import { useDeferredValue, useEffect, useMemo, useState, type CSSProperties } fr
 
 import { bffGet, bffWrite } from "@/lib/bff-client";
 import { ApiError, ERROR_MESSAGES } from "@/lib/errors";
+import { renderProse } from "@/lib/safe";
 import { inBranch, indexBrowser, matchesProperties, MAX_PROFILE_CONTROLS, propertyLabel } from "@/lib/profile-browser";
 import type { ControlDetail, Profile, ProfileBrowserNode, RevisionDetail } from "@/lib/types";
 
 import { ControlDetailView } from "./ControlDetailView";
 
 const PAGE_SIZE = 50;
+const PREVIEW_PARAMETERS = new Map<string, string>();
 const VIEWS = ["Catalog Browser", "Selected Requirements", "Profile Settings"] as const;
 type WorkspaceView = typeof VIEWS[number];
 
@@ -364,7 +366,7 @@ export function ProfileWorkspace({
                     onChange={(event) => changeSelection([node], event.target.checked)} />
                   <span><span className="mono">{node.id}</span> <strong>{node.title}</strong></span>
                 </label>
-                <p className="requirement-summary">{node.text}</p>
+                <p className="requirement-summary">{renderProse(node.text, PREVIEW_PARAMETERS)}</p>
                 <div className="requirement-badges">{node.properties.filter((prop) => ["modal_verb", "sec_level", "effort_level", "tags", "target_object_categories"].includes(prop.name)).map((prop, i) =>
                   <span className="badge" key={i} title={`${prop.name}${prop.ns ? ` (${prop.ns})` : ""}`}>{propertyLabel(prop.name)}: {prop.value}</span>)}</div>
                 <div className="workspace-actions">

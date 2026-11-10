@@ -74,3 +74,9 @@ tenant-scoped identities and indexed OSCAL control IDs.
   statement, available classification/security/target properties, guidance, and
   references; original source metadata and JSON remain in Technical OSCAL details.
   The standalone Catalog Explorer presentation is unchanged.
+- Human-readable control details substitute assigned parameter values, including
+  references to other parameters supplied in the detail response. Unassigned or
+  unavailable parameters remain bracketed labels or IDs; choice lists are never
+  treated as assigned values. Preview projections do not contain parameter
+  definitions, so previews show bracketed IDs. These display-only substitutions
+  do not alter source JSON, selections, or exports.

@@ -2,7 +2,8 @@
 import { describe, expect, it } from "vitest";
 
 import { filterBffQuery, isAllowedBffPath, isAllowedBffRequest } from "@/lib/bff-allowlist";
-import { classifyHref, renderProse, safeReturnTo } from "@/lib/safe";
+import { classifyHref, parameterText, renderProse, safeReturnTo } from "@/lib/safe";
+import type { Parameter } from "@/lib/types";
 
 const UUID = "11111111-2222-3333-4444-555555555555";
 
@@ -37,10 +38,42 @@ describe("classifyHref", () => {
 
 describe("renderProse", () => {
   it("replaces parameter insertions and leaves markup as text", () => {
-    expect(renderProse("Review {{ insert: param, p1 }} and {{ insert: param, p2 }}", { p1: "frequency" })).toBe(
+    expect(renderProse("Review {{ insert: param, p1 }} and {{ insert: param, p2 }}", new Map([["p1", "[frequency]"]]))).toBe(
       "Review [frequency] and [p2]",
     );
-    expect(renderProse("<script>x</script>", {})).toBe("<script>x</script>");
+    expect(renderProse("<script>x</script>", new Map())).toBe("<script>x</script>");
+  });
+
+  it("uses assigned values, follows parameter references, and never chooses unassigned options", () => {
+    const parameter = (id: string, overrides: Partial<Parameter> = {}): Parameter => ({
+      id, values: [], props: [], links: [], constraints: [], guidelines: [], ...overrides,
+    });
+    const parameters = [
+      parameter("gc.1.1-prm1", { label: "frequency", values: ["annually"] }),
+      parameter("multi", { values: ["first", "second"] }),
+      parameter("nested", { values: ["Review {{ insert: param, gc.1.1-prm1 }}"] }),
+      parameter("unassigned", { label: "review period", select: { choices: ["monthly", "yearly"] } }),
+      parameter("unlabelled"),
+      parameter("self", { values: ["{{ insert: param, self }}"] }),
+      parameter("cycle-a", { values: ["{{ insert: param, cycle-b }}"] }),
+      parameter("cycle-b", { values: ["{{ insert: param, cycle-a }}"] }),
+      parameter("hostile", { values: ["<script>alert(1)</script>"] }),
+      parameter("__proto__", { values: ["literal parameter value"] }),
+    ];
+    const original = JSON.stringify(parameters);
+    const text = parameterText(parameters);
+    expect(renderProse("{{ insert: param, gc.1.1-prm1 }}", text)).toBe("annually");
+    expect(text.get("multi")).toBe("first, second");
+    expect(text.get("nested")).toBe("Review annually");
+    expect(text.get("unassigned")).toBe("[review period]");
+    expect(text.get("unlabelled")).toBe("[unlabelled]");
+    expect(text.get("self")).toBe("[self]");
+    expect(text.get("cycle-a")).not.toContain("{{");
+    expect(text.get("cycle-b")).not.toContain("{{");
+    expect(text.get("hostile")).toBe("<script>alert(1)</script>");
+    expect(renderProse("{{ insert: param, unknown }} {{ insert: param, constructor }}", text)).toBe("[unknown] [constructor]");
+    expect(text.get("__proto__")).toBe("literal parameter value");
+    expect(JSON.stringify(parameters)).toBe(original);
   });
 });
 

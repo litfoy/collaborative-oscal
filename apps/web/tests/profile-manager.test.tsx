@@ -20,7 +20,7 @@ const parent = `${root}/controls/0`;
 const child = `${parent}/controls/0`;
 const nodes: ProfileBrowserNode[] = [
   { key: root, parent_key: null, kind: "group", id: "ac", title: "Access domain", text: "", properties: [] },
-  { key: parent, parent_key: root, kind: "control", id: "ac-1", title: "Access policy", text: "Review policy annually.", properties: [{ name: "sec_level", value: "normal" }, { name: "modal_verb", value: "MUSS" }] },
+  { key: parent, parent_key: root, kind: "control", id: "ac-1", title: "Access policy", text: "Review policy {{ insert: param, gc.1.1-prm1 }}.", properties: [{ name: "sec_level", value: "normal" }, { name: "modal_verb", value: "MUSS" }] },
   { key: child, parent_key: parent, kind: "control", id: "ac-1.1", title: "Policy exceptions", text: "Record exceptional approvals.", properties: [{ name: "sec_level", value: "high" }, { name: "modal_verb", value: "SOLLTE" }, { name: "audience", ns: "https://example.com/ns", value: "Auditors" }] },
   { key: "/catalog/controls/0", parent_key: null, kind: "control", id: "ir-1", title: "Response policy", text: "Handle incidents.", properties: [] },
 ];
@@ -178,9 +178,10 @@ describe("Profile Builder", () => {
 
   it("shows full requirement details and original OSCAL insertion text", async () => {
     const user = await createWorkspace();
+    expect(screen.getByText("Review policy [gc.1.1-prm1].")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Details for ac-1" }));
     const statement = await screen.findByRole("region", { name: "Requirement statement" });
-    expect(within(statement).getByText("Review every [frequency].")).toBeVisible();
+    expect(within(statement).getByText("Review every annually.")).toBeVisible();
     expect(within(statement).getByText("Nested item")).toBeVisible();
     expect(screen.getByText("Catalog ID")).not.toBeVisible();
     await user.click(screen.getByRole("button", { name: "Hide details" }));
