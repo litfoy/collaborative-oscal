@@ -42,15 +42,38 @@ def test_new_profile_document_defaults_to_oscal_1_2_3() -> None:
     validate_profile_document(document)
 
 
-def test_profile_document_rejects_unsupported_oscal_versions() -> None:
+@pytest.mark.parametrize("oscal_version", ["0.9.9", "1.0.7", "1.1.4", "9.9.9"])
+def test_profile_document_rejects_unsupported_oscal_versions(oscal_version: str) -> None:
     with pytest.raises(ProfileDocumentValidationError, match="Unsupported OSCAL version"):
         build_profile_document(
             profile_uuid=uuid4(),
             title="Selected controls",
-            oscal_version="9.9.9",
+            oscal_version=oscal_version,
             catalog_href="/api/v1/catalogs/catalog/export",
             control_ids=["ac-1"],
         )
+
+
+def test_legacy_profile_validation_uses_its_own_schema_not_trestle() -> None:
+    document = {
+        "profile": {
+            "uuid": "11111111-0000-4000-8000-000000000001",
+            "metadata": {
+                "title": "Legacy profile",
+                "last-modified": "2022-06-01T00:00:00Z",
+                "version": "1.0",
+                "oscal-version": "1.0.0",
+            },
+            "imports": [{"href": "some-catalog.json", "include-all": {}}],
+            "merge": {"combine": {"method": "use-first"}},
+        }
+    }
+    validate_profile_document(document)
+    assert document["profile"]["merge"] == {"combine": {"method": "use-first"}}
+
+    document["profile"]["metadata"]["oscal-version"] = "1.2.1"
+    with pytest.raises(ProfileDocumentValidationError):
+        validate_profile_document(document)
 
 
 @pytest.mark.parametrize("selection", [["parent"], ["parent.child"], ["parent", "parent.child"]])

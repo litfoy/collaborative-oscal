@@ -31,8 +31,8 @@ The legacy top-level source and control fields in responses describe only the
 first import; clients that support multi-import Profiles must use `imports`.
 
 Each export preserves the declared Profile OSCAL version and validates through
-compliance-trestle for versions through 1.2.1 or the matching bundled official NIST
-JSON Schema for 1.2.2 and 1.2.3. New Profiles default to 1.2.3. Imported Catalog
+compliance-trestle for 1.1.3, 1.2.0, and 1.2.1 or the matching bundled official NIST
+JSON Schema for the other supported versions. New Profiles default to 1.2.3. Imported Catalog
 versions remain independent of the Profile version. See
 [ADR 0012](0012-oscal-versioned-schemas.md) for the version registry, schema
 provenance, and dependency boundary. Selections are explicit; selecting a parent

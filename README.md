@@ -9,7 +9,7 @@ The initial deployment is a modular monolith: a Next.js web app calls a FastAPI 
 See [System architecture](docs/architecture/overview.md) for module boundaries and [Identity and access](docs/architecture/identity-and-access.md) for OIDC configuration, tenant authorization, Keycloak development setup, and trusted membership bootstrap. [Architecture Decision Records](docs/adr/) capture the initial choices and the questions that remain open.
 
 The internal OSCAL Catalog import service accepts JSON or YAML and validates
-Catalog documents declared as OSCAL 1.1.3, 1.2.0, 1.2.1, 1.2.2, or 1.2.3. The
+Catalog documents declared as OSCAL 1.0.0–1.0.6, 1.1.0–1.1.3, or 1.2.0–1.2.3. The
 authorized browser and HTTP import adapter accept JSON; the CLI also accepts YAML.
 See the [Catalog import guide](docs/catalog-import.md) for compatibility,
 validation limitations, security boundaries, and a development example.

@@ -163,10 +163,11 @@ must follow OSCAL UUID and `last-modified` requirements.
 
 `packages/oscal` computes a digest, projects group/control query indexes, safely
 parses JSON/YAML, and validates Catalog and Profile structures with Trestle models
-through OSCAL 1.2.1 and version-specific NIST JSON Schemas for 1.2.2 and 1.2.3.
+for OSCAL 1.1.3, 1.2.0, and 1.2.1 and version-specific NIST JSON Schemas for
+1.0.0–1.0.6, 1.1.0–1.1.2, 1.2.2, and 1.2.3.
 The JSONB revision remains authoritative for
 metadata, parameters, parts, links, back matter, and extensions. The import service
-accepts OSCAL 1.1.3, 1.2.0, 1.2.1, 1.2.2, and 1.2.3; validation does not claim
+accepts OSCAL 1.0.0–1.0.6, 1.1.0–1.1.3, and 1.2.0–1.2.3; validation does not claim
 exhaustive NIST Metaschema semantic coverage. See
 [Catalog import](../catalog-import.md) for details.
 
@@ -184,9 +185,9 @@ and control-index identities as appropriate, not copy or flatten OSCAL documents
 Planned integration seams:
 
 - **compliance-trestle:** the dependency remains pinned to 5.2.x, whose generated
-  models target the OSCAL 1.2.1 boundary. They validate Catalogs and Profiles through
-  1.2.1; documents are never serialized back through those models. Versions 1.2.2
-  and 1.2.3 use the corresponding official NIST JSON Schemas.
+  models target the OSCAL 1.2.1 boundary. They validate Catalogs and Profiles for
+  1.1.3, 1.2.0, and 1.2.1; documents are never serialized back through those models.
+  Other supported versions use their corresponding official NIST JSON Schemas.
 - **OSCAL Profile resolution and Control Mapping:** future independent application
   services that consume immutable catalog revisions and retain their own source/output
   artifacts.

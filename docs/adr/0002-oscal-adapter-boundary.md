@@ -14,8 +14,8 @@ Place OSCAL parsing, validation, canonical JSON representation, import/export, a
 ## Consequences
 
 The domain can evolve independently of OSCAL schemas and Trestle releases. The
-package retains compliance-trestle 5.2.x as a dependency, but its generated models
-are not used to validate or serialize Catalog and Profile documents. Version-specific
+package uses compliance-trestle 5.2.x generated models to validate selected Catalog
+and Profile versions, but does not serialize source documents through them. Version-specific
 support and bundled-schema selection are defined in
 [ADR 0012](0012-oscal-versioned-schemas.md). The adapter does not expose Trestle
 types outside `packages/oscal`; JSON Schema validation does not claim exhaustive

@@ -7,28 +7,30 @@
 
 Catalog import and Profile generation previously supported OSCAL 1.1.3 and 1.2.1
 through different validation paths. Trestle 5.2.0 generated models target OSCAL
-1.2.1 and include backward-compatibility handling. OSCAL 1.2.2 and 1.2.3 introduce
-schema-level differences, so these versions require their own official schemas.
+1.2.1. Some older valid documents, such as a 1.0.0 Profile using
+`merge.combine.method`, are rejected by those models. OSCAL 1.2.2 and 1.2.3
+introduce schema-level differences, so these versions also require their own
+official schemas.
 
 ## Decision
 
-- Support Catalog and Profile documents for OSCAL 1.1.3, 1.2.0, 1.2.1, 1.2.2, and
-  1.2.3. Keep this allowlist explicit. Use Trestle 5.2.0 models through OSCAL 1.2.1
-  (including its backward-compatibility handling for earlier documents), and use
-  the bundled official NIST JSON Schema selected by document model and
-  `metadata.oscal-version` for 1.2.2 and 1.2.3.
+- Support Catalog and Profile documents for OSCAL 1.0.0–1.0.6, 1.1.0–1.1.3,
+  and 1.2.0–1.2.3. Keep this allowlist explicit. Use Trestle 5.2.0 models for
+  1.1.3, 1.2.0, and 1.2.1, and use the bundled official NIST JSON Schema selected
+  by document model and `metadata.oscal-version` for 1.0.0–1.0.6, 1.1.0–1.1.2,
+  1.2.2, and 1.2.3.
 - Default newly generated Profiles to OSCAL 1.2.3. Preserve the declared version
   of existing Profiles and imported Catalog revisions; do not infer a Profile
   version from its source Catalogs or rewrite existing documents.
 - Bundle schema assets from the official [NIST OSCAL releases](https://github.com/usnistgov/OSCAL/releases)
-  only for 1.2.2 and 1.2.3. Record resource hashes and fixture provenance in the
+  for the versions using JSON Schema validation. Record resource hashes and fixture provenance in the
   [Catalog import guide](../catalog-import.md). Runtime validation does not download schemas.
 - Treat the bundled 1.2.2 and 1.2.3 schemas as a compatibility bridge. Replace
   their validation paths with compliance-trestle models once an approved Trestle
   release supports those OSCAL versions, while retaining version-specific tests
   and preserving source documents.
-- Use Trestle model validation for documents through OSCAL 1.2.1 and JSON Schema
-  validation for 1.2.2 and 1.2.3. Never serialize a Trestle model back over an
+- Use Trestle model validation for 1.1.3, 1.2.0, and 1.2.1 and JSON Schema
+  validation for the other supported versions. Never serialize a Trestle model back over an
   imported or persisted document. Catalog `x-` extension properties are preserved
   in the source document but excluded from the validation view; extension-specific
   constraints are not validated.

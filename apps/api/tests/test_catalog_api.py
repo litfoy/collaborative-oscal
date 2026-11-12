@@ -410,7 +410,10 @@ def test_profiles_reference_catalogs_and_select_controls_without_mutating_source
     assert client.get(source_path, headers=world.headers("alice")).json() == source_before
 
 
-def test_multi_import_profile_retains_provenance_and_implementation(client, world, session_factory):
+@pytest.mark.parametrize("oscal_version", ["1.0.0", "1.1.3"])
+def test_multi_import_profile_retains_provenance_and_implementation(
+    client, world, session_factory, oscal_version
+):
     tenant = world.tenant_a.id
     editor = world.headers("editor")
     reader = world.headers("alice")
@@ -443,7 +446,7 @@ def test_multi_import_profile_retains_provenance_and_implementation(client, worl
         json={
             "title": "Multiple",
             "imports": [first, other, repeated, unused],
-            "oscal_version": "1.1.3",
+            "oscal_version": oscal_version,
         },
     )
     assert response.status_code == 201, response.text
@@ -451,7 +454,7 @@ def test_multi_import_profile_retains_provenance_and_implementation(client, worl
     assert profile["imports"] == [first, other, repeated, unused]
     profile_path = f"{path}/{profile['id']}"
     export = client.get(profile_path + "/export", headers=reader).json()["profile"]
-    assert export["metadata"]["oscal-version"] == "1.1.3"
+    assert export["metadata"]["oscal-version"] == oscal_version
     assert [item["include-controls"][0]["with-ids"] for item in export["imports"]] == [
         ["ac-1", "ac-2"],
         ["ac-1"],
@@ -465,7 +468,7 @@ def test_multi_import_profile_retains_provenance_and_implementation(client, worl
     )
     assert updated.status_code == 200
     updated_export = client.get(profile_path + "/export", headers=reader).json()["profile"]
-    assert updated_export["metadata"]["oscal-version"] == "1.1.3"
+    assert updated_export["metadata"]["oscal-version"] == oscal_version
     impl_path = f"/api/v1/tenants/{tenant}/implementations"
     impl = client.post(
         impl_path,
@@ -630,10 +633,67 @@ def test_official_nist_and_bsi_catalogs_compose_in_default_profile(client, world
     document = exported.json()
     validate_profile_document(document)
     assert document["profile"]["metadata"]["oscal-version"] == "1.2.3"
-    assert [
-        item["include-controls"][0]["with-ids"]
-        for item in document["profile"]["imports"]
-    ] == [selection["control_ids"] for selection in selections]
+    assert [item["include-controls"][0]["with-ids"] for item in document["profile"]["imports"]] == [
+        selection["control_ids"] for selection in selections
+    ]
+
+
+def test_legacy_catalog_can_be_imported_and_used_in_mixed_version_profile(client, world):
+    tenant = world.tenant_a.id
+    editor = world.headers("editor")
+    reader = world.headers("alice")
+    catalog_path = f"/api/v1/tenants/{tenant}/catalogs"
+    document = {
+        "catalog": {
+            "uuid": str(uuid4()),
+            "metadata": {
+                "title": "Legacy catalog",
+                "last-modified": "2022-06-01T00:00:00Z",
+                "version": "1.0",
+                "oscal-version": "1.0.0",
+            },
+            "controls": [{"id": "legacy-control", "title": "Legacy control"}],
+        }
+    }
+    imported = client.post(
+        f"{catalog_path}/import",
+        headers={**editor, "Content-Type": "application/json"},
+        content=json.dumps(document),
+    )
+    assert imported.status_code == 200, imported.text
+    revision = imported.json()
+    assert revision["oscal_version"] == "1.0.0"
+    export_path = (
+        f"{catalog_path}/{revision['catalog_id']}/revisions/{revision['revision_id']}/export"
+    )
+    assert client.get(export_path, headers=reader).json() == document
+
+    profile_path = f"/api/v1/tenants/{tenant}/profiles"
+    response = client.post(
+        profile_path,
+        headers=editor,
+        json={
+            "title": "Mixed version",
+            "imports": [
+                {
+                    "catalog_id": revision["catalog_id"],
+                    "revision_id": revision["revision_id"],
+                    "control_ids": ["legacy-control"],
+                },
+                {
+                    "catalog_id": str(world.security.catalog.id),
+                    "revision_id": str(world.security.revision.id),
+                    "control_ids": ["ac-1"],
+                },
+            ],
+        },
+    )
+    assert response.status_code == 201, response.text
+    profile = response.json()
+    assert profile["oscal_version"] == "1.2.3"
+    exported = client.get(f"{profile_path}/{profile['id']}/export", headers=reader)
+    assert exported.status_code == 200
+    validate_profile_document(exported.json())
 
 
 def test_new_profile_reference_locks_revision_against_concurrent_mutation(

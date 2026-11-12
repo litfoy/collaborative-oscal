@@ -16,16 +16,26 @@ class OscalDocumentModel(StrEnum):
 
 
 DEFAULT_OSCAL_VERSION = "1.2.3"
-OSCAL_VERSION_ORDER = ("1.1.3", "1.2.0", "1.2.1", "1.2.2", "1.2.3")
+LEGACY_OSCAL_VERSIONS = (
+    "1.0.0",
+    "1.0.1",
+    "1.0.2",
+    "1.0.3",
+    "1.0.4",
+    "1.0.5",
+    "1.0.6",
+    "1.1.0",
+    "1.1.1",
+    "1.1.2",
+)
 TRESTLE_OSCAL_VERSIONS = ("1.1.3", "1.2.0", "1.2.1")
-JSON_SCHEMA_OSCAL_VERSIONS = ("1.2.2", "1.2.3")
-SUPPORTED_OSCAL_VERSIONS_BY_MODEL: Mapping[OscalDocumentModel, tuple[str, ...]] = (
-    MappingProxyType(
-        {
-            OscalDocumentModel.CATALOG: OSCAL_VERSION_ORDER,
-            OscalDocumentModel.PROFILE: OSCAL_VERSION_ORDER,
-        }
-    )
+JSON_SCHEMA_OSCAL_VERSIONS = (*LEGACY_OSCAL_VERSIONS, "1.2.2", "1.2.3")
+OSCAL_VERSION_ORDER = (*LEGACY_OSCAL_VERSIONS, *TRESTLE_OSCAL_VERSIONS, "1.2.2", "1.2.3")
+SUPPORTED_OSCAL_VERSIONS_BY_MODEL: Mapping[OscalDocumentModel, tuple[str, ...]] = MappingProxyType(
+    {
+        OscalDocumentModel.CATALOG: OSCAL_VERSION_ORDER,
+        OscalDocumentModel.PROFILE: OSCAL_VERSION_ORDER,
+    }
 )
 SUPPORTED_OSCAL_DOCUMENT_MODELS_BY_VERSION: Mapping[str, frozenset[OscalDocumentModel]] = (
     MappingProxyType(

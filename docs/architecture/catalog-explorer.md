@@ -115,7 +115,7 @@ and stored as profile metadata remarks. See ADR 0008 for selection semantics.
    ```
 
    Use `--catalog-id <ID>` to add a further revision of an existing catalog. Any
-   OSCAL 1.1.3, 1.2.0, 1.2.1, 1.2.2, or 1.2.3 JSON/YAML file can be imported the same way; do not commit
+   OSCAL 1.0.0–1.0.6, 1.1.0–1.1.3, or 1.2.0–1.2.3 JSON/YAML file can be imported the same way; do not commit
    content you may not redistribute (for example ISO/IEC text).
 3. Start Keycloak (`--profile identity`, with `KEYCLOAK_ADMIN_USERNAME/PASSWORD`
    exported), then create a user without committing credentials:

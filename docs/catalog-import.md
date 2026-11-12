@@ -75,12 +75,12 @@ Both formats require UTF-8. No URLs or references are fetched.
 |---|---|
 | compliance-trestle | `5.2.0` (dependency range `>=5.2,<5.3`) |
 | Python | Trestle declares `>=3.11`; this repository targets Python 3.12–3.13 |
-| OSCAL versions accepted by Catalog import | `1.1.3`, `1.2.0`, `1.2.1`, `1.2.2`, `1.2.3` |
-| OSCAL versions accepted by Profile generation/export | `1.1.3`, `1.2.0`, `1.2.1`, `1.2.2`, `1.2.3` |
+| OSCAL versions accepted by Catalog import | `1.0.0`–`1.0.6`, `1.1.0`–`1.1.3`, `1.2.0`–`1.2.3` |
+| OSCAL versions accepted by Profile generation/export | `1.0.0`–`1.0.6`, `1.1.0`–`1.1.3`, `1.2.0`–`1.2.3` |
 | Default for newly generated Profiles | `1.2.3` |
 | OSCAL documents | Catalog JSON model only |
 | Input formats | JSON and YAML; optional safe first-character auto-detection |
-| Version-specific validation | compliance-trestle 5.2.0 models through OSCAL 1.2.1; bundled official NIST JSON Schema Draft 7 for 1.2.2 and 1.2.3 |
+| Version-specific validation | compliance-trestle 5.2.0 models for 1.1.3, 1.2.0, and 1.2.1; bundled official NIST JSON Schema Draft 7 for the other supported versions |
 | Additional Catalog checks | Existing group/control projection and duplicate control-ID rejection |
 
 ### Official schema provenance
@@ -92,6 +92,16 @@ SHA-256 for the exact checked-in bytes.
 
 | OSCAL release | Catalog schema SHA-256 | Profile schema SHA-256 |
 |---|---|---|
+| [1.0.0](https://github.com/usnistgov/OSCAL/releases/tag/v1.0.0) | `622b96ca950656d56ea184b080929a6a079d49db50011d7f2c362b268b962d42` | `4efd7cc88e8eb77896574dc23404df20ae623b8c2c0b11927559f707fe0ca33a` |
+| [1.0.1](https://github.com/usnistgov/OSCAL/releases/tag/v1.0.1) | `622b96ca950656d56ea184b080929a6a079d49db50011d7f2c362b268b962d42` | `4efd7cc88e8eb77896574dc23404df20ae623b8c2c0b11927559f707fe0ca33a` |
+| [1.0.2](https://github.com/usnistgov/OSCAL/releases/tag/v1.0.2) | `34e60e908a31dc40f30308a90d1a5727bc709b2c7149ea76d3232268fbad9759` | `9c1a2830c32f0d2dc2bd10f2f4667751fe718f7425d6c01a2075728ac3fa1531` |
+| [1.0.3](https://github.com/usnistgov/OSCAL/releases/tag/v1.0.3) | `42ebb82bb6c4b8ee18f7f29f479997f60d07a0f0d89db6c4947a9d1036b8a78a` | `b954d19effee74fb457bc04393d0a2c23fc80625e746205e1f571b8fb9858960` |
+| [1.0.4](https://github.com/usnistgov/OSCAL/releases/tag/v1.0.4) | `ff3f66f879340ac3c35e03561d4b6ce2948aad7b87f993b6d4e647141bf848b3` | `013288f650344a42574ad635c70415d4fa77f6f2f53a81b38809c78b0fc968c9` |
+| [1.0.5](https://github.com/usnistgov/OSCAL/releases/tag/v1.0.5) | `2a0ea3628809d363d796dcccac82a43e56e397291f6ab904d4df6c44eaf251a0` | `27d8c13b313cc2a79f3fe81b01f5953daa5a15c29dfa01fb34f9e484a97a67e2` |
+| [1.0.6](https://github.com/usnistgov/OSCAL/releases/tag/v1.0.6) | `38ec593fbc020d164d85db67e4f6b5532788f5e4f26de33e6448b3abe7610a2b` | `0fb18c4c00f8509dbec8847a7d1b7479ddb72b32ddb2f987619d7a179eac8d64` |
+| [1.1.0](https://github.com/usnistgov/OSCAL/releases/tag/v1.1.0) | `936c53978eb47880dfa8b471640ae09b111b38d837686022ef7db07e26fa629d` | `e40698f88744d07ff4d06512d7359b18c10bf15ca97de6ce0b61d53bd82d19af` |
+| [1.1.1](https://github.com/usnistgov/OSCAL/releases/tag/v1.1.1) | `90fb059843026fcc99d38dfd1102ea4bc12d0f43a443ba79aa7d6ce3df6a9100` | `067c7da65da2a90017d9f42a81d4a9d73d1dba56990e2a0bf86c438dc167e241` |
+| [1.1.2](https://github.com/usnistgov/OSCAL/releases/tag/v1.1.2) | `5b069afa4f4ecc38d59914dab56098566d4247d3578a2123c030c80d36fc5104` | `c910ea1a852e9d4ccfb7f6a8d0898b0cd4f137e48f88886412a083c8d87d540a` |
 | [1.2.2](https://github.com/usnistgov/OSCAL/releases/tag/v1.2.2) | `fdc559f5dff6848b1ebbe1898a69cc08263479f7c796e2f056412059e7489d0c` | `04329bd68032f48825f712f79576b3fd00e129e59d3597beb56ed72c17277f66` |
 | [1.2.3](https://github.com/usnistgov/OSCAL/releases/tag/v1.2.3) | `ab95836e9e8dfebf6fde80007f6cc76fa3192f595d427c751a3f3923c3f474fc2` | `7c5ff5a92683b6a80ce6a3474dea04e0ea8680a4ecb60702ffa08ebfc677e6cb` |
 
@@ -103,10 +113,16 @@ schema updates the description of `modify.alters.removes` matching by item name.
 These differences are why the declared version selects its own schema for these
 newer versions rather than falling back to the latest one.
 
+NIST's 1.0.1 release assets have the same bytes and `$id` as 1.0.0; the 1.0.5
+assets retain a 1.0.4 `$id`. They are kept exactly as published and selected by
+the release version, not by `$id`. In particular, the official 1.0.5 Catalog
+schema has stricter property and link enumerations than 1.0.4; validation uses
+those constraints rather than silently substituting another schema.
+
 ### Parsing and dependency boundary
 
 The importer validates OSCAL 1.1.3, 1.2.0, and 1.2.1 Catalogs with compliance-trestle
-5.2.0's generated 1.2.1 model and its backward-compatibility handling. OSCAL 1.2.2
+5.2.0's generated 1.2.1 model. OSCAL 1.0.0–1.0.6, 1.1.0–1.1.2, 1.2.2,
 and 1.2.3 Catalogs use their corresponding official NIST schemas. Profile validation
 uses the same version split. The BSI 1.1.3 Catalog and generated Profiles through
 1.2.1 are covered by application tests. Trestle models are used only for validation:
@@ -114,6 +130,11 @@ the parsed input dictionary is returned and persisted without rewriting
 `metadata.oscal-version`, identifiers, or fields. Catalog `x-` extension keys are
 excluded from the validation view; their original values remain in the imported
 document and extension-specific constraints are not checked.
+
+Trestle 5.2.0 does not guarantee backward compatibility with all older documents:
+for example, its 1.2.1 Profile model rejects the `merge.combine.method` construct
+accepted by the official OSCAL 1.0.0 Profile schema. Earlier versions therefore
+use their own official schemas rather than the Trestle model.
 
 The 1.2.2 and 1.2.3 schema paths are temporary compatibility bridges. Replace them
 with compliance-trestle validation when an approved Trestle release supports those

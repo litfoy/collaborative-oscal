@@ -15,7 +15,7 @@ Catalog and Profile APIs and basic implementation tracking are user-facing, but 
 | `apps/api/app/domain` | Tenant, organization, catalog/revision, and Profile entities and domain invariants | Initial entities and repository interfaces |
 | `apps/api/app/persistence` | PostgreSQL mappings, transactions, and tenant-scoped repositories | SQLAlchemy and Alembic foundation |
 | `packages/domain` | Future cross-application domain package boundary | No separately packaged domain library |
-| `packages/oscal` | OSCAL digest, catalog projections, safe JSON/YAML parser, and versioned Catalog/Profile validation | Catalog import and basic Profile document validation for OSCAL 1.1.3, 1.2.0, 1.2.1, 1.2.2, and 1.2.3 |
+| `packages/oscal` | OSCAL digest, catalog projections, safe JSON/YAML parser, and versioned Catalog/Profile validation | Catalog import and basic Profile document validation for OSCAL 1.0.0–1.0.6, 1.1.0–1.1.3, and 1.2.0–1.2.3 |
 | `packages/collaboration` | Collaboration concepts and application services | Reserved |
 | `packages/automation` | Future scheduled/event-triggered jobs and policy automation | Reserved |
 | `packages/authorization` | Future separately packaged authorization boundary | Documentation only; current implementation is in `apps/api/app` |
@@ -31,7 +31,7 @@ Schema and migrations exist for the initial domain records. Database credentials
 
 ## OSCAL and compliance-trestle
 
-OSCAL is the interoperability format, not the domain model. The OSCAL boundary owns deterministic digests, group/control index projections, safe JSON/YAML parsing, and Catalog/Profile document validation. A shared version registry uses compliance-trestle 5.2.0 models through OSCAL 1.2.1 and bundled NIST schemas for 1.2.2 and 1.2.3; new Profiles default to 1.2.3 while existing Profile versions are preserved. Profile authoring stores a Profile document and ordered, identity-stable imports referencing exact catalog revisions; it does not resolve or copy the catalogs. See [ADR 0011](../adr/0011-multiple-profile-catalog-imports.md) for provenance and export limitations and [ADR 0012](../adr/0012-oscal-versioned-schemas.md) for the version policy. Validation does not claim exhaustive NIST Metaschema semantic validation; see [Catalog import](../catalog-import.md). Domain services consume stable application concepts and do not depend on generated OSCAL structures.
+OSCAL is the interoperability format, not the domain model. The OSCAL boundary owns deterministic digests, group/control index projections, safe JSON/YAML parsing, and Catalog/Profile document validation. A shared version registry uses compliance-trestle 5.2.0 models for OSCAL 1.1.3, 1.2.0, and 1.2.1 and bundled NIST schemas for the other supported versions; new Profiles default to 1.2.3 while existing Profile versions are preserved. Profile authoring stores a Profile document and ordered, identity-stable imports referencing exact catalog revisions; it does not resolve or copy the catalogs. See [ADR 0011](../adr/0011-multiple-profile-catalog-imports.md) for provenance and export limitations and [ADR 0012](../adr/0012-oscal-versioned-schemas.md) for the version policy. Validation does not claim exhaustive NIST Metaschema semantic validation; see [Catalog import](../catalog-import.md). Domain services consume stable application concepts and do not depend on generated OSCAL structures.
 
 ## Tenant isolation
 

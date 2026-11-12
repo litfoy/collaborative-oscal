@@ -37,7 +37,8 @@ authoritative. Full NIST Metaschema semantic validation remains future work.
 
 The digest is deterministic for the JSON values handled here, but it does not claim
 RFC 8785 number canonicalization. Catalog and Profile validation use compliance-trestle
-models through OSCAL 1.2.1 and bundled NIST JSON Schemas for 1.2.2 and 1.2.3;
+models for OSCAL 1.1.3, 1.2.0, and 1.2.1 and bundled NIST JSON Schemas for
+1.0.0–1.0.6, 1.1.0–1.1.2, 1.2.2, and 1.2.3;
 Catalog documents remain authoritative and are not rewritten through a validation
 model. See [ADR 0012](0012-oscal-versioned-schemas.md) and the
 [Catalog import guide](../catalog-import.md) for the validation boundary and

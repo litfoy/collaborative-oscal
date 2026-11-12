@@ -117,7 +117,17 @@ def test_real_bsi_catalog_validates_as_oscal_1_1_3_without_data_loss() -> None:
 def test_locally_authored_catalog_validates_for_each_supported_version(
     oscal_version: str,
 ) -> None:
-    document = _catalog_document(oscal_version)
+    source = _catalog_document(oscal_version)
+    document = {
+        "catalog": {
+            "uuid": source["catalog"]["uuid"],
+            "metadata": {
+                key: source["catalog"]["metadata"][key]
+                for key in ("title", "version", "oscal-version", "last-modified")
+            },
+            "controls": [{"id": "ac-1", "title": "Example control"}],
+        }
+    }
 
     outcome = validate_catalog_bytes(_json_bytes(document))
 
@@ -139,9 +149,21 @@ def test_schema_registry_selects_the_official_model_and_version(
 ) -> None:
     schema = load_oscal_schema(model, oscal_version)
 
+    schema_id_version = {"1.0.1": "1.0.0", "1.0.5": "1.0.4"}.get(oscal_version, oscal_version)
     assert schema["$id"] == (
-        f"http://csrc.nist.gov/ns/oscal/{oscal_version}/oscal-{model.value}-schema.json"
+        f"http://csrc.nist.gov/ns/oscal/{schema_id_version}/oscal-{model.value}-schema.json"
     )
+
+
+def test_catalog_validation_uses_the_declared_legacy_release_schema() -> None:
+    document = _catalog_document("1.0.4")
+    assert validate_catalog_bytes(_json_bytes(document)).result.valid
+
+    document["catalog"]["metadata"]["oscal-version"] = "1.0.5"
+    outcome = validate_catalog_bytes(_json_bytes(document))
+    assert not outcome.result.valid
+    assert outcome.result.validation_schema_version == "OSCAL 1.0.5"
+    assert outcome.result.errors[0].code == "OSCAL_SCHEMA_INVALID"
 
 
 def test_official_nist_sp_800_53_catalog_uses_its_declared_1_2_2_schema() -> None:
