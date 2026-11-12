@@ -1,10 +1,14 @@
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import event, update
+from sqlalchemy import event, text, update
 from sqlalchemy.exc import DBAPIError
 
 from app.api import dependencies
@@ -168,9 +172,10 @@ def test_catalog_import_http_authorization_and_revisions(client, world) -> None:
     content = (EXAMPLES / "sample-security-practices.json").read_bytes()
     headers = {**world.headers("editor"), "Content-Type": "application/json"}
     assert client.post(f"{base}/import", content=content).status_code == 401
-    assert client.post(
-        f"{base}/import", content=content, headers=world.headers("alice")
-    ).status_code == 403
+    assert (
+        client.post(f"{base}/import", content=content, headers=world.headers("alice")).status_code
+        == 403
+    )
     foreign = client.post(
         f"{base}/{world.foreign.catalog.id}/import", content=content, headers=headers
     )
@@ -189,9 +194,7 @@ def test_catalog_import_http_authorization_and_revisions(client, world) -> None:
     assert client.get(f"{base}/{result['catalog_id']}", headers=headers).status_code == 200
     modified = json.loads(content)
     modified["catalog"]["metadata"]["version"] = "new-source-version"
-    revision = client.post(
-        f"{base}/{result['catalog_id']}/import", json=modified, headers=headers
-    )
+    revision = client.post(f"{base}/{result['catalog_id']}/import", json=modified, headers=headers)
     assert revision.status_code == 200
     assert revision.json()["created"] is True
     assert revision.json()["revision_number"] == 2
@@ -202,9 +205,10 @@ def test_catalog_import_http_authorization_and_revisions(client, world) -> None:
     invalid = client.post(f"{base}/import", content=b"{", headers=headers)
     assert invalid.status_code == 422
     assert invalid.json()["detail"]["errors"]
-    assert client.post(
-        f"{base}/import", content=content, headers=world.headers("editor")
-    ).status_code == 415
+    assert (
+        client.post(f"{base}/import", content=content, headers=world.headers("editor")).status_code
+        == 415
+    )
 
 
 def test_catalog_listing_pagination_and_search(client, world) -> None:
@@ -400,6 +404,344 @@ def test_profiles_reference_catalogs_and_select_controls_without_mutating_source
         == 404
     )
     assert client.get(source_path, headers=world.headers("alice")).json() == source_before
+
+
+def test_multi_import_profile_retains_provenance_and_implementation(client, world, session_factory):
+    tenant = world.tenant_a.id
+    editor = world.headers("editor")
+    reader = world.headers("alice")
+    second = CatalogImportService(lambda: SQLAlchemyUnitOfWork(session_factory)).import_catalog(
+        tenant, (EXAMPLES / "sample-security-practices.json").read_bytes()
+    )
+    first = {
+        "id": str(uuid4()),
+        "catalog_id": str(world.security.catalog.id),
+        "revision_id": str(world.security.revision.id),
+        "control_ids": ["ac-1", "ac-2"],
+    }
+    other = {
+        "id": str(uuid4()),
+        "catalog_id": str(second.catalog.id),
+        "revision_id": str(second.revision.id),
+        "control_ids": ["ac-1"],
+    }
+    repeated = {**first, "id": str(uuid4()), "control_ids": ["ac-1"]}
+    unused = {
+        "id": str(uuid4()),
+        "catalog_id": str(world.data.catalog.id),
+        "revision_id": str(world.data.revision.id),
+        "control_ids": [world.data.revision.content["catalog"]["groups"][0]["controls"][0]["id"]],
+    }
+    path = f"/api/v1/tenants/{tenant}/profiles"
+    response = client.post(
+        path,
+        headers=editor,
+        json={
+            "title": "Multiple",
+            "imports": [first, other, repeated, unused],
+            "oscal_version": "1.1.3",
+        },
+    )
+    assert response.status_code == 201, response.text
+    profile = response.json()
+    assert profile["imports"] == [first, other, repeated, unused]
+    profile_path = f"{path}/{profile['id']}"
+    export = client.get(profile_path + "/export", headers=reader).json()["profile"]
+    assert export["metadata"]["oscal-version"] == "1.1.3"
+    assert [item["include-controls"][0]["with-ids"] for item in export["imports"]] == [
+        ["ac-1", "ac-2"],
+        ["ac-1"],
+        ["ac-1"],
+        unused["control_ids"],
+    ]
+    impl_path = f"/api/v1/tenants/{tenant}/implementations"
+    impl = client.post(
+        impl_path,
+        headers=editor,
+        json={
+            "profile_id": profile["id"],
+            "profile_import_id": other["id"],
+            "catalog_id": other["catalog_id"],
+            "revision_id": other["revision_id"],
+            "oscal_control_id": "ac-1",
+            "description": "Historical",
+            "status": "in_progress",
+            "evidence_references": ["document:evidence"],
+            "responsibilities": [{"kind": "responsible", "role": "Owner", "user_id": None}],
+        },
+    )
+    assert impl.status_code == 201, impl.text
+    record = impl.json()
+    update_response = client.put(
+        profile_path,
+        headers=editor,
+        json={
+            "title": "Reordered",
+            "imports": [repeated, first],
+        },
+    )
+    assert update_response.status_code == 200, update_response.text
+    assert update_response.json()["imports"] == [repeated, first]
+    assert client.get(profile_path, headers=reader).json()["imports"] == [repeated, first]
+    assert client.get(f"{impl_path}/{record['id']}", headers=reader).json() == record
+    assert (
+        client.post(
+            impl_path,
+            headers=editor,
+            json={
+                "profile_id": profile["id"],
+                "catalog_id": first["catalog_id"],
+                "revision_id": first["revision_id"],
+                "oscal_control_id": "ac-1",
+            },
+        ).status_code
+        == 422
+    )
+    assert (
+        client.put(
+            profile_path,
+            headers=editor,
+            json={
+                "title": "Changed source",
+                "imports": [
+                    {
+                        **first,
+                        "catalog_id": other["catalog_id"],
+                        "revision_id": other["revision_id"],
+                    },
+                    repeated,
+                ],
+            },
+        ).status_code
+        == 422
+    )
+    assert (
+        client.get(impl_path, headers=reader, params={"profile_id": profile["id"]}).json()["total"]
+        == 1
+    )
+    assert (
+        client.put(
+            profile_path,
+            headers=editor,
+            json={
+                "title": "Legacy",
+                "control_ids": ["ac-1"],
+            },
+        ).status_code
+        == 422
+    )
+    unauthorized = {
+        **other,
+        "id": str(uuid4()),
+        "catalog_id": str(world.foreign.catalog.id),
+        "revision_id": str(world.foreign.revision.id),
+    }
+    assert (
+        client.put(
+            profile_path,
+            headers=editor,
+            json={
+                "title": "Foreign",
+                "imports": [first, unauthorized],
+            },
+        ).status_code
+        == 404
+    )
+    with pytest.raises(DBAPIError, match="referenced by profile imports are immutable"):
+        with session_factory.begin() as session:
+            session.execute(
+                update(CatalogRevisionRecord)
+                .where(CatalogRevisionRecord.id == world.security.revision.id)
+                .values(content_sha256="0" * 64)
+            )
+    with pytest.raises(DBAPIError, match="referenced by profile imports are immutable"):
+        with session_factory.begin() as session:
+            session.execute(
+                update(CatalogRevisionRecord)
+                .where(CatalogRevisionRecord.id == world.data.revision.id)
+                .values(content_sha256="0" * 64)
+            )
+
+
+def test_new_profile_reference_locks_revision_against_concurrent_mutation(
+    client, world, session_factory
+) -> None:
+    from app.application.profiles import ProfileService
+    from app.domain.profiles.models import ProfileImport
+
+    tenant = world.tenant_a.id
+    source = world.security
+    other = world.data
+    path = f"/api/v1/tenants/{tenant}/profiles"
+    response = client.post(
+        path,
+        headers=world.headers("editor"),
+        json={
+            "title": "Lock test",
+            "catalog_id": str(source.catalog.id),
+            "revision_id": str(source.revision.id),
+            "control_ids": ["ac-1"],
+        },
+    )
+    assert response.status_code == 201
+    initial = response.json()
+    existing = initial["imports"][0]
+    with session_factory() as session:
+        with session.begin():
+            service = ProfileService(lambda: nullcontext(session))
+            service.update(
+                tenant,
+                UUID(initial["id"]),
+                "Lock test",
+                None,
+                imports=[
+                    ProfileImport(
+                        UUID(existing["id"]),
+                        UUID(existing["catalog_id"]),
+                        UUID(existing["revision_id"]),
+                        existing["control_ids"],
+                    ),
+                    ProfileImport(
+                        uuid4(),
+                        other.catalog.id,
+                        other.revision.id,
+                        [other.revision.content["catalog"]["groups"][0]["controls"][0]["id"]],
+                    ),
+                ],
+            )
+            session.flush()
+            with pytest.raises(DBAPIError, match="lock timeout"):
+                with session_factory.begin() as concurrent:
+                    concurrent.execute(text("SET LOCAL lock_timeout = '200ms'"))
+                    concurrent.execute(
+                        update(CatalogRevisionRecord)
+                        .where(CatalogRevisionRecord.id == other.revision.id)
+                        .values(content_sha256="1" * 64)
+                    )
+    with pytest.raises(DBAPIError, match="referenced by profile imports are immutable"):
+        with session_factory.begin() as session:
+            session.execute(
+                update(CatalogRevisionRecord)
+                .where(CatalogRevisionRecord.id == other.revision.id)
+                .values(content_sha256="1" * 64)
+            )
+
+
+def test_implementation_reference_locks_revision_against_concurrent_mutation(
+    world, session_factory
+) -> None:
+    from app.application.implementations import ImplementationService
+    from app.domain.implementations import ImplementationInformation, ImplementationStatus
+
+    source = world.data
+    control_id = source.revision.content["catalog"]["groups"][0]["controls"][0]["id"]
+    with session_factory() as session:
+        with session.begin():
+            service = ImplementationService(lambda: nullcontext(session))
+            service.create(
+                world.tenant_a.id,
+                world.identity_ids["editor"],
+                source.catalog.id,
+                source.revision.id,
+                control_id,
+                None,
+                None,
+                ImplementationInformation("", ImplementationStatus.NOT_STARTED, [], []),
+            )
+            session.flush()
+            with pytest.raises(DBAPIError, match="lock timeout"):
+                with session_factory.begin() as concurrent:
+                    concurrent.execute(text("SET LOCAL lock_timeout = '200ms'"))
+                    concurrent.execute(
+                        update(CatalogRevisionRecord)
+                        .where(CatalogRevisionRecord.id == source.revision.id)
+                        .values(content_sha256="1" * 64)
+                    )
+    with pytest.raises(DBAPIError, match="referenced by implementations are immutable"):
+        with session_factory.begin() as session:
+            session.execute(
+                update(CatalogRevisionRecord)
+                .where(CatalogRevisionRecord.id == source.revision.id)
+                .values(content_sha256="1" * 64)
+            )
+
+
+def test_waiting_revision_update_observes_committed_import(client, world, session_factory) -> None:
+    from app.application.profiles import ProfileService
+    from app.domain.profiles.models import ProfileImport
+
+    tenant = world.tenant_a.id
+    source, other = world.security, world.data
+    response = client.post(
+        f"/api/v1/tenants/{tenant}/profiles",
+        headers=world.headers("editor"),
+        json={
+            "title": "Concurrent update",
+            "catalog_id": str(source.catalog.id),
+            "revision_id": str(source.revision.id),
+            "control_ids": ["ac-1"],
+        },
+    )
+    existing = response.json()
+    initial = existing["imports"][0]
+    started = threading.Event()
+    backend_pid: list[int] = []
+
+    def mutate() -> None:
+        with session_factory.begin() as session:
+            session.execute(text("SET LOCAL lock_timeout = '5s'"))
+            backend_pid.append(session.scalar(text("SELECT pg_backend_pid()")))
+            started.set()
+            session.execute(
+                update(CatalogRevisionRecord)
+                .where(CatalogRevisionRecord.id == other.revision.id)
+                .values(content_sha256="1" * 64)
+            )
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with session_factory() as session:
+            with session.begin():
+                service = ProfileService(lambda: nullcontext(session))
+                service.update(
+                    tenant,
+                    UUID(existing["id"]),
+                    "Concurrent update",
+                    None,
+                    imports=[
+                        ProfileImport(
+                            UUID(initial["id"]),
+                            source.catalog.id,
+                            source.revision.id,
+                            initial["control_ids"],
+                        ),
+                        ProfileImport(
+                            uuid4(),
+                            other.catalog.id,
+                            other.revision.id,
+                            [other.revision.content["catalog"]["groups"][0]["controls"][0]["id"]],
+                        ),
+                    ],
+                )
+                session.flush()
+                future = executor.submit(mutate)
+                assert started.wait(3)
+                deadline = time.monotonic() + 3
+                with session_factory() as observer:
+                    while time.monotonic() < deadline:
+                        observer.execute(text("SELECT pg_stat_clear_snapshot()"))
+                        waiting = observer.scalar(
+                            text(
+                                "SELECT wait_event_type = 'Lock' FROM pg_stat_activity "
+                                "WHERE pid=:pid"
+                            ),
+                            {"pid": backend_pid[0]},
+                        )
+                        if waiting:
+                            break
+                        time.sleep(0.01)
+                    assert waiting, "Concurrent revision update did not block on the import"
+        with pytest.raises(DBAPIError, match="referenced by profile imports are immutable"):
+            future.result(timeout=5)
 
 
 def test_outline_navigates_nested_groups_and_controls(client, world) -> None:

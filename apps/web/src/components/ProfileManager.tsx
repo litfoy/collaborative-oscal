@@ -11,11 +11,12 @@ const clientSnapshot = () => true;
 const serverSnapshot = () => false;
 
 export function ProfileManager({
-  tenantId, profiles: initialProfiles, catalogs, canWrite,
+  tenantId, profiles: initialProfiles, catalogs, catalogTotal = catalogs.length, canWrite,
 }: {
   tenantId: string;
   profiles: Profile[];
   catalogs: Catalog[];
+  catalogTotal?: number;
   canWrite: boolean;
 }) {
   const hydrated = useSyncExternalStore(subscribe, clientSnapshot, serverSnapshot);
@@ -32,6 +33,8 @@ export function ProfileManager({
         initialProfile={workspace.profile}
         isNew={workspace.isNew}
         catalogName={catalogs.find((item) => item.id === workspace.profile.catalog_id)?.name ?? "Catalog"}
+        catalogs={catalogs}
+        catalogTotal={catalogTotal}
         canWrite={canWrite}
         onClose={() => setWorkspace(null)}
         onSaved={(saved) => {
@@ -78,13 +81,11 @@ export function ProfileManager({
             <li className="panel" key={profile.id}>
               <h3>{profile.title}</h3>
               {profile.description ? <p className="prose">{profile.description}</p> : null}
-              <p>
-                <a href={`/t/${tenantId}/catalogs/${profile.catalog_id}?revision=${profile.revision_id}`}>
-                  {catalogs.find((item) => item.id === profile.catalog_id)?.name ?? "Catalog"}
-                </a>
-                {" · "}{profile.control_ids.length} selected requirements
-              </p>
-              <p className="muted">Pinned revision: <span className="mono">{profile.revision_id}</span></p>
+              {(profile.imports ?? [profile]).map((source) => <p key={source.id}>
+                <a href={`/t/${tenantId}/catalogs/${source.catalog_id}?revision=${source.revision_id}`}>
+                  {catalogs.find((item) => item.id === source.catalog_id)?.name ?? "Catalog"}
+                </a>{" · "}{source.control_ids.length} selected requirements · pinned revision <span className="mono">{source.revision_id}</span>
+              </p>)}
               <p className="muted">Last modified: <time dateTime={profile.updated_at}>{hydrated
                 ? new Date(profile.updated_at).toLocaleString()
                 : new Date(profile.updated_at).toISOString().replace("T", " ").replace("Z", " UTC")}</time></p>
@@ -94,7 +95,8 @@ export function ProfileManager({
                 </button>
                 <a className="button secondary" href={`/bff/tenants/${tenantId}/profiles/${profile.id}/export`}>Export OSCAL JSON</a>
                 {canWrite ? <button className="secondary" type="button" onClick={() => setWorkspace({
-                  isNew: true, profile: { ...profile, id: "new", title: `${profile.title} (copy)`.slice(0, 255) },
+                  isNew: true, profile: { ...profile, id: "new", title: `${profile.title} (copy)`.slice(0, 255),
+                    imports: profile.imports?.map((item) => ({ ...item, id: crypto.randomUUID() })) },
                 })}>Duplicate</button> : null}
               </div>
             </li>

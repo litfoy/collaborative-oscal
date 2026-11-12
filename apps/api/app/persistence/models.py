@@ -346,23 +346,53 @@ class ProfileRecord(Base):
     __tablename__ = "profiles"
     __table_args__ = (
         UniqueConstraint("tenant_id", "id", name="uq_profiles_tenant_id"),
-        ForeignKeyConstraint(
-            ["tenant_id", "catalog_id", "revision_id"],
-            ["catalog_revisions.tenant_id", "catalog_revisions.catalog_id", "catalog_revisions.id"],
-            name="fk_profiles_source_revision_same_tenant",
-            ondelete="RESTRICT",
-        ),
         Index("ix_profiles_tenant_created", "tenant_id", "created_at"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
-    catalog_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
-    revision_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     document: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ProfileImportRecord(Base):
+    __tablename__ = "profile_imports"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "profile_id", "id", name="uq_profile_import_identity"),
+        UniqueConstraint(
+            "tenant_id",
+            "profile_id",
+            "id",
+            "catalog_id",
+            "revision_id",
+            name="uq_profile_import_source",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "profile_id"],
+            ["profiles.tenant_id", "profiles.id"],
+            name="fk_profile_import_profile",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "catalog_id", "revision_id"],
+            ["catalog_revisions.tenant_id", "catalog_revisions.catalog_id", "catalog_revisions.id"],
+            name="fk_profile_import_revision",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint("position >= 0", name="ck_profile_import_position"),
+        Index("ix_profile_imports_profile", "tenant_id", "profile_id"),
+        Index("ix_profile_imports_revision", "tenant_id", "revision_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    profile_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    catalog_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    revision_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    active: Mapped[bool] = mapped_column(nullable=False)
 
 
 class ControlImplementationRecord(Base):
@@ -397,6 +427,22 @@ class ControlImplementationRecord(Base):
             name="fk_implementations_profile",
             ondelete="RESTRICT",
         ),
+        ForeignKeyConstraint(
+            ["tenant_id", "profile_id", "profile_import_id", "catalog_id", "revision_id"],
+            [
+                "profile_imports.tenant_id",
+                "profile_imports.profile_id",
+                "profile_imports.id",
+                "profile_imports.catalog_id",
+                "profile_imports.revision_id",
+            ],
+            name="fk_implementations_profile_import",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "profile_import_id IS NULL OR profile_id IS NOT NULL",
+            name="ck_implementation_import_profile",
+        ),
         ForeignKeyConstraint(["created_by"], ["user_identities.id"], ondelete="RESTRICT"),
         ForeignKeyConstraint(["updated_by"], ["user_identities.id"], ondelete="RESTRICT"),
         CheckConstraint(
@@ -411,6 +457,7 @@ class ControlImplementationRecord(Base):
     tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     organization_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
     profile_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    profile_import_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
     catalog_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     revision_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     oscal_control_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -443,7 +490,10 @@ class ImplementationResponsibilityRecord(Base):
             name="ck_responsibilities_kind",
         ),
         UniqueConstraint(
-            "implementation_id", "kind", "user_id", "role",
+            "implementation_id",
+            "kind",
+            "user_id",
+            "role",
             name="uq_implementation_responsibility",
         ),
     )

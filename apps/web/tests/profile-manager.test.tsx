@@ -50,6 +50,53 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Profile Builder", () => {
+  it("adds a pinned revision and retains unsaved selections when switching sources", async () => {
+    const user = userEvent.setup();
+    const otherCatalog = "55555555-5555-4555-8555-555555555555";
+    const otherRevision = "66666666-6666-4666-8666-666666666666";
+    const revisionOption = revision({ id: otherRevision, catalog_id: otherCatalog, revision_number: 3 });
+    mocks.bffGet.mockImplementation(async (path: string) => {
+      if (path.endsWith("/revisions")) return { items: [revisionOption], total: 1, limit: 200, offset: 0 };
+      if (path.endsWith("profile-browser")) return { nodes };
+      return { ...(path.includes(otherRevision) ? revisionOption : revision()), group_count: 1, source_document: {} };
+    });
+    render(<ProfileManager tenantId={TENANT} profiles={[]} catalogs={[
+      catalog(), catalog({ id: otherCatalog, name: "Privacy", latest_revision: revisionOption }),
+    ]} canWrite />);
+    await user.click(screen.getByRole("button", { name: "Create profile" }));
+    await screen.findByRole("region", { name: "Requirement browser" });
+    await user.click(screen.getByRole("checkbox", { name: "ac-1 Access policy" }));
+    await user.click(screen.getByText("Add catalog source"));
+    await user.selectOptions(screen.getByLabelText("Catalog"), otherCatalog);
+    await screen.findByRole("option", { name: new RegExp(`Revision 3 · ${otherRevision}`) });
+    await user.click(screen.getByRole("button", { name: "Add source" }));
+    await screen.findByText("Select at least one requirement for each source, or remove the empty source before saving.");
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "ac-1 Access policy" })).not.toBeChecked());
+    await user.click(screen.getByRole("checkbox", { name: "ac-1 Access policy" }));
+    expect(await screen.findByText(/Identical control IDs occur/)).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Selected Requirements (2)" }));
+    expect(await screen.findAllByRole("button", { name: "Remove ac-1" })).toHaveLength(2);
+  });
+
+  it("keeps duplicate control IDs independent across imports and reviews both sources", async () => {
+    const user = userEvent.setup();
+    const first = { id: "import-one", catalog_id: CATALOG, revision_id: REVISION, control_ids: ["ac-1"] };
+    const second = { id: "import-two", catalog_id: CATALOG, revision_id: REVISION, control_ids: ["ac-1"] };
+    renderManager([{ ...profile, imports: [first, second] }]);
+    await user.click(screen.getByRole("button", { name: "Edit profile" }));
+    await screen.findByRole("region", { name: "Requirement browser" });
+    expect(await screen.findByText(/Identical control IDs occur/)).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Selected Requirements (2)" }));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Remove ac-1" })).toHaveLength(2));
+    await user.click(screen.getAllByRole("button", { name: "Remove ac-1" })[0]);
+    expect(screen.getByRole("tab", { name: "Selected Requirements (1)" })).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Catalog Browser" }));
+    await user.selectOptions(screen.getByLabelText("Catalog source"), "import-two");
+    expect(screen.getByRole("checkbox", { name: "ac-1 Access policy" })).toBeChecked();
+    await user.selectOptions(screen.getByLabelText("Catalog source"), "import-one");
+    expect(screen.getByRole("checkbox", { name: "ac-1 Access policy" })).not.toBeChecked();
+  });
+
   it("hydrates timestamps consistently before applying the browser locale and timezone", async () => {
     const datedProfile = { ...profile, updated_at: "2026-11-10T12:50:18.299166Z" };
     const element = <ProfileManager tenantId={TENANT} profiles={[datedProfile]} catalogs={[catalog()]} canWrite />;
@@ -135,8 +182,8 @@ describe("Profile Builder", () => {
     await user.click(screen.getByRole("button", { name: "Save profile" }));
     await screen.findByText("Profile “Annual scope” saved.");
     expect(mocks.bffWrite).toHaveBeenCalledWith("POST", `tenants/${TENANT}/profiles`, {
-      title: "Annual scope", description: "Annual audit", control_ids: ["ac-1", "ac-1.1"],
-      catalog_id: CATALOG, revision_id: REVISION,
+      title: "Annual scope", description: "Annual audit",
+      imports: [{ id: expect.any(String), control_ids: ["ac-1", "ac-1.1"], catalog_id: CATALOG, revision_id: REVISION }],
     });
     expect(screen.getByRole("link", { name: "Export OSCAL JSON" })).toHaveAttribute("href", `/bff/tenants/${TENANT}/profiles/${profile.id}/export`);
     await user.click(screen.getByRole("button", { name: "Back to profiles" }));
@@ -154,7 +201,9 @@ describe("Profile Builder", () => {
     expect(mocks.bffGet).not.toHaveBeenCalledWith(expect.stringContaining("newer-revision"), undefined, expect.anything());
     mocks.bffWrite.mockResolvedValue({ ...profile, id: "copy", title: "Access baseline (copy)" });
     await user.click(screen.getByRole("button", { name: "Save profile" }));
-    expect(mocks.bffWrite).toHaveBeenCalledWith("POST", expect.any(String), expect.objectContaining({ revision_id: REVISION, control_ids: ["ac-1"] }));
+    expect(mocks.bffWrite).toHaveBeenCalledWith("POST", expect.any(String), expect.objectContaining({
+      imports: [expect.objectContaining({ revision_id: REVISION, control_ids: ["ac-1"] })],
+    }));
     await screen.findByText("Profile “Access baseline (copy)” saved.");
     await user.click(screen.getByRole("button", { name: "Back to profiles" }));
     await user.click(screen.getAllByRole("button", { name: "Edit profile" })[1]);
@@ -162,7 +211,9 @@ describe("Profile Builder", () => {
     mocks.bffWrite.mockResolvedValue({ ...profile, control_ids: ["ac-1", "ir-1"] });
     await user.click(screen.getByRole("checkbox", { name: "ir-1 Response policy" }));
     await user.click(screen.getByRole("button", { name: "Save profile" }));
-    expect(mocks.bffWrite).toHaveBeenLastCalledWith("PUT", `tenants/${TENANT}/profiles/${profile.id}`, expect.objectContaining({ control_ids: ["ac-1", "ir-1"] }));
+    expect(mocks.bffWrite).toHaveBeenLastCalledWith("PUT", `tenants/${TENANT}/profiles/${profile.id}`, expect.objectContaining({
+      imports: [expect.objectContaining({ control_ids: ["ac-1", "ir-1"] })],
+    }));
     await screen.findByText("Profile “Access baseline” saved.");
   });
 
@@ -174,8 +225,8 @@ describe("Profile Builder", () => {
     await user.keyboard("{ArrowRight}");
     const selection = screen.getByRole("tabpanel", { name: "Selected Requirements (2)" });
     expect(screen.getByRole("tab", { name: "Selected Requirements (2)" })).toHaveFocus();
-    expect(within(selection).getByRole("heading", { name: "ac · Access domain" })).toBeInTheDocument();
-    expect(within(selection).getByRole("heading", { name: "ac · Access domain › ac-1 · Access policy" })).toBeInTheDocument();
+    expect(within(selection).getByRole("heading", { name: /› ac · Access domain$/ })).toBeInTheDocument();
+    expect(within(selection).getByRole("heading", { name: /› ac · Access domain › ac-1 · Access policy$/ })).toBeInTheDocument();
     await user.type(screen.getByRole("searchbox", { name: "Search selected requirements" }), "exceptional");
     expect(within(selection).queryByRole("button", { name: "Remove ac-1" })).not.toBeInTheDocument();
     await user.click(within(selection).getByRole("button", { name: "ac-1.1 Policy exceptions" }));

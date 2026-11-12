@@ -55,9 +55,18 @@ export interface Profile {
   revision_id: string;
   title: string;
   description?: string;
+  oscal_version?: string;
   control_ids: string[];
+  imports?: ProfileImport[];
   created_at: string;
   updated_at: string;
+}
+
+export interface ProfileImport {
+  id: string;
+  catalog_id: string;
+  revision_id: string;
+  control_ids: string[];
 }
 
 export type ImplementationStatus = "not_started" | "in_progress" | "implemented" | "not_applicable";
@@ -71,6 +80,7 @@ export interface Implementation {
   tenant_id: string;
   organization_id: string | null;
   profile_id: string | null;
+  profile_import_id?: string | null;
   catalog_id: string;
   revision_id: string;
   oscal_control_id: string;

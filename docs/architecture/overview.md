@@ -31,7 +31,7 @@ Schema and migrations exist for the initial domain records. Database credentials
 
 ## OSCAL and compliance-trestle
 
-OSCAL is the interoperability format, not the domain model. The OSCAL boundary owns deterministic digests, group/control index projections, safe JSON/YAML parsing, and Catalog/Profile document validation. The internal import application service validates OSCAL Catalog 1.1.3 and 1.2.1. Profile authoring stores only a Profile document and references one immutable catalog revision plus selected control IDs; it does not resolve or copy the catalog. Trestle model validation does not claim exhaustive NIST Metaschema semantic validation; see [Catalog import](../catalog-import.md). Domain services consume stable application concepts and do not depend on generated OSCAL structures.
+OSCAL is the interoperability format, not the domain model. The OSCAL boundary owns deterministic digests, group/control index projections, safe JSON/YAML parsing, and Catalog/Profile document validation. The internal import application service validates OSCAL Catalog 1.1.3 and 1.2.1. Profile authoring stores a Profile document and ordered, identity-stable imports referencing exact catalog revisions; it does not resolve or copy the catalogs. See [ADR 0011](../adr/0011-multiple-profile-catalog-imports.md) for provenance and export limitations. Trestle model validation does not claim exhaustive NIST Metaschema semantic validation; see [Catalog import](../catalog-import.md). Domain services consume stable application concepts and do not depend on generated OSCAL structures.
 
 ## Tenant isolation
 

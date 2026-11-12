@@ -5,6 +5,7 @@ import pytest
 from collaborative_oscal_oscal.profile import (
     ProfileDocumentValidationError,
     build_profile_document,
+    validate_profile_document,
 )
 from pydantic import ValidationError
 from trestle.oscal.profile import Model
@@ -74,3 +75,31 @@ def test_large_profile_selection_contract_has_an_explicit_bound() -> None:
         )
     with pytest.raises(ValidationError, match="must be unique"):
         ProfileCreateRequest.model_validate({**request, "control_ids": ["same", "same"]})
+
+
+@pytest.mark.parametrize("oscal_version", ["1.1.3", "1.2.1"])
+def test_multiple_imports_preserve_colliding_ids(oscal_version: str) -> None:
+    document = build_profile_document(
+        profile_uuid=uuid4(),
+        title="Multiple sources",
+        oscal_version=oscal_version,
+        imports=[("/first", ["ac-1", "ac-1.1"]), ("/second", ["ac-1"])],
+    )
+    assert document["profile"]["imports"] == [
+        {"href": "/first", "include-controls": [{"with-ids": ["ac-1", "ac-1.1"]}]},
+        {"href": "/second", "include-controls": [{"with-ids": ["ac-1"]}]},
+    ]
+
+
+@pytest.mark.parametrize("oscal_version", ["1.1.3", "1.2.1"])
+def test_export_validation_rejects_fields_outside_declared_model(oscal_version: str) -> None:
+    document = build_profile_document(
+        profile_uuid=uuid4(),
+        title="Scope",
+        oscal_version=oscal_version,
+        catalog_href="/catalog",
+        control_ids=["ac-1"],
+    )
+    document["profile"]["invalid-field"] = "not in OSCAL"
+    with pytest.raises(ProfileDocumentValidationError):
+        validate_profile_document(document)

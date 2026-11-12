@@ -46,6 +46,7 @@ class ImplementationCreate(ImplementationInformation):
     responsibilities: list[ResponsibilityInput] = Field(default_factory=list, max_length=100)
     organization_id: UUID | None = None
     profile_id: UUID | None = None
+    profile_import_id: UUID | None = None
     catalog_id: UUID
     revision_id: UUID
     oscal_control_id: str = Field(min_length=1, max_length=255)
@@ -58,6 +59,7 @@ class ImplementationResponse(ImplementationInformation):
     tenant_id: UUID
     organization_id: UUID | None
     profile_id: UUID | None
+    profile_import_id: UUID | None
     catalog_id: UUID
     revision_id: UUID
     oscal_control_id: str

@@ -38,6 +38,7 @@ class ControlImplementation:
     tenant_id: UUID
     organization_id: UUID | None
     profile_id: UUID | None
+    profile_import_id: UUID | None
     catalog_id: UUID
     revision_id: UUID
     oscal_control_id: str

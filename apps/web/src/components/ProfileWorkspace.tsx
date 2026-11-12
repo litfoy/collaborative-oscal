@@ -6,7 +6,7 @@ import { bffGet, bffWrite } from "@/lib/bff-client";
 import { ApiError, ERROR_MESSAGES } from "@/lib/errors";
 import { renderProse } from "@/lib/safe";
 import { inBranch, indexBrowser, matchesProperties, MAX_PROFILE_CONTROLS, propertyLabel } from "@/lib/profile-browser";
-import type { ControlDetail, Profile, ProfileBrowserNode, RevisionDetail } from "@/lib/types";
+import type { Catalog, ControlDetail, Paged, Profile, ProfileBrowserNode, ProfileImport, RevisionDetail, RevisionSummary } from "@/lib/types";
 
 import { ControlDetailView } from "./ControlDetailView";
 import { ImplementationRegister } from "./ImplementationRegister";
@@ -17,12 +17,14 @@ const VIEWS = ["Catalog Browser", "Selected Requirements", "Profile Settings"] a
 type WorkspaceView = typeof VIEWS[number];
 
 export function ProfileWorkspace({
-  tenantId, initialProfile, isNew, catalogName, canWrite, onClose, onSaved,
+  tenantId, initialProfile, isNew, catalogName, catalogs, catalogTotal, canWrite, onClose, onSaved,
 }: {
   tenantId: string;
   initialProfile: Profile;
   isNew: boolean;
   catalogName: string;
+  catalogs: Catalog[];
+  catalogTotal: number;
   canWrite: boolean;
   onClose: () => void;
   onSaved: (profile: Profile) => void;
@@ -30,8 +32,20 @@ export function ProfileWorkspace({
   const [saved, setSaved] = useState<Profile | null>(isNew ? null : initialProfile);
   const [title, setTitle] = useState(initialProfile.title);
   const [description, setDescription] = useState(initialProfile.description ?? "");
-  const [selected, setSelected] = useState(new Set(initialProfile.control_ids));
-  const [data, setData] = useState<{ nodes: ProfileBrowserNode[]; revision: RevisionDetail } | null>(null);
+  const [sources, setSources] = useState<ProfileImport[]>(() => initialProfile.imports ?? [{
+    id: crypto.randomUUID(), catalog_id: initialProfile.catalog_id,
+    revision_id: initialProfile.revision_id, control_ids: initialProfile.control_ids,
+  }]);
+  const [activeSourceId, setActiveSourceId] = useState(() => initialProfile.imports?.[0]?.id ?? "");
+  const [sourceData, setSourceData] = useState<Record<string, { nodes: ProfileBrowserNode[]; revision: RevisionDetail }>>({});
+  const [addCatalogId, setAddCatalogId] = useState("");
+  const [catalogOptions, setCatalogOptions] = useState(catalogs);
+  const [catalogCount, setCatalogCount] = useState(catalogTotal);
+  const [catalogBusy, setCatalogBusy] = useState(false);
+  const [revisions, setRevisions] = useState<RevisionSummary[]>([]);
+  const [addRevisionId, setAddRevisionId] = useState("");
+  const [revisionOffset, setRevisionOffset] = useState(0);
+  const [revisionTotal, setRevisionTotal] = useState(0);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -55,28 +69,66 @@ export function ProfileWorkspace({
   const [active, setActive] = useState<string | null>(null);
   const [detailFocusRequest, setDetailFocusRequest] = useState(0);
   const [page, setPage] = useState(0);
-  const [register, setRegister] = useState<{ controlId: string | null } | null>(null);
-  const base = `tenants/${tenantId}/catalogs/${initialProfile.catalog_id}/revisions/${initialProfile.revision_id}`;
+  const [register, setRegister] = useState<{ controlId: string | null; importId: string | null } | null>(null);
+  const source = sources.find((item) => item.id === activeSourceId) ?? sources[0];
+  const selected = useMemo(() => new Set(source?.control_ids ?? []), [source]);
+  const totalSelected = sources.reduce((sum, item) => sum + item.control_ids.length, 0);
+  const data = source ? sourceData[source.id] ?? null : null;
+  const base = source ? `tenants/${tenantId}/catalogs/${source.catalog_id}/revisions/${source.revision_id}` : "";
+  const collisions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of sources) for (const id of item.control_ids) counts.set(id, (counts.get(id) ?? 0) + 1);
+    return [...counts].filter(([, count]) => count > 1).map(([id]) => id);
+  }, [sources]);
+  async function loadMoreCatalogs() {
+    setCatalogBusy(true);
+    try {
+      const result = await bffGet<Paged<Catalog>>(`tenants/${tenantId}/catalogs`, {
+        limit: 200, offset: catalogOptions.length,
+      });
+      setCatalogOptions((current) => [...current, ...result.items]);
+      setCatalogCount(result.total);
+    } catch (cause) {
+      setError(messageFor(cause));
+    } finally {
+      setCatalogBusy(false);
+    }
+  }
   const dirty = saved
     ? title !== saved.title || description !== (saved.description ?? "") ||
-      selected.size !== saved.control_ids.length || saved.control_ids.some((id) => !selected.has(id))
-    : title !== "" || description !== "" || selected.size > 0;
+      JSON.stringify(sources) !== JSON.stringify(saved.imports ?? [{
+        id: sources[0]?.id, catalog_id: saved.catalog_id, revision_id: saved.revision_id,
+        control_ids: saved.control_ids,
+      }])
+    : title !== "" || description !== "" || totalSelected > 0 || sources.length > 1;
 
   useEffect(() => {
     const controller = new AbortController();
-    Promise.all([
-      bffGet<{ nodes: ProfileBrowserNode[] }>(`${base}/profile-browser`, undefined, controller.signal),
-      bffGet<RevisionDetail>(base, undefined, controller.signal),
-    ]).then(([browser, revision]) => {
-      if (!controller.signal.aborted) {
-        setData({ nodes: browser.nodes, revision });
-        setLoadError(null);
-      }
-    }).catch((cause: unknown) => {
-      if (!controller.signal.aborted) setLoadError(messageFor(cause));
-    });
+    for (const item of sources) {
+      if (sourceData[item.id]) continue;
+      const path = `tenants/${tenantId}/catalogs/${item.catalog_id}/revisions/${item.revision_id}`;
+      Promise.all([
+        bffGet<{ nodes: ProfileBrowserNode[] }>(`${path}/profile-browser`, undefined, controller.signal),
+        bffGet<RevisionDetail>(path, undefined, controller.signal),
+      ]).then(([browser, revision]) => {
+        if (!controller.signal.aborted) {
+          setSourceData((current) => ({ ...current, [item.id]: { nodes: browser.nodes, revision } }));
+        }
+      }).catch((cause: unknown) => {
+        if (!controller.signal.aborted) setLoadError(messageFor(cause));
+      });
+    }
     return () => controller.abort();
-  }, [base, loadAttempt]);
+  }, [tenantId, sources, sourceData, loadAttempt]);
+
+  useEffect(() => {
+    if (!addCatalogId) return;
+    const controller = new AbortController();
+    bffGet<Paged<RevisionSummary>>(`tenants/${tenantId}/catalogs/${addCatalogId}/revisions`, { limit: 200, offset: revisionOffset }, controller.signal)
+      .then((result) => { setRevisions(result.items); setRevisionTotal(result.total); setAddRevisionId(result.items[0]?.id ?? ""); })
+      .catch((cause: unknown) => { if (!controller.signal.aborted) setError(messageFor(cause)); });
+    return () => controller.abort();
+  }, [tenantId, addCatalogId, revisionOffset]);
 
   useEffect(() => {
     if (!dirty && !busy) return;
@@ -109,31 +161,42 @@ export function ProfileWorkspace({
   const pageCount = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount - 1);
   const visible = results.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
-  const selectedResults = useMemo(() => index.controls.filter((node) =>
-    node.id && selected.has(node.id) && (index.search.get(node.key) ?? "").includes(deferredSelectionQuery),
-  ), [index, selected, deferredSelectionQuery]);
+  const selectedResults = useMemo(() => sources.flatMap((item) => {
+    const sourceIndex = indexBrowser(sourceData[item.id]?.nodes ?? []);
+    const ids = new Set(item.control_ids);
+    return sourceIndex.controls.filter((node) =>
+      node.id && ids.has(node.id) && (sourceIndex.search.get(node.key) ?? "").includes(deferredSelectionQuery),
+    ).map((node) => ({ node, source: item, sourceIndex }));
+  }), [sources, sourceData, deferredSelectionQuery]);
   const selectionPageCount = Math.max(1, Math.ceil(selectedResults.length / PAGE_SIZE));
   const currentSelectionPage = Math.min(selectionPage, selectionPageCount - 1);
   const selectedGroups = useMemo(() => {
-    const groups = new Map<string, { title: string; nodes: ProfileBrowserNode[] }>();
-    for (const node of selectedResults.slice(currentSelectionPage * PAGE_SIZE, (currentSelectionPage + 1) * PAGE_SIZE)) {
+    const groups = new Map<string, { title: string; nodes: typeof selectedResults }>();
+    for (const result of selectedResults.slice(currentSelectionPage * PAGE_SIZE, (currentSelectionPage + 1) * PAGE_SIZE)) {
+      const { node, source: item, sourceIndex } = result;
       const path: string[] = [];
       let parent = node.parent_key;
       while (parent) {
-        const ancestor = index.byKey.get(parent);
+        const ancestor = sourceIndex.byKey.get(parent);
         if (!ancestor) break;
         path.unshift(`${ancestor.id ? `${ancestor.id} · ` : ""}${ancestor.title}`);
         parent = ancestor.parent_key;
       }
-      const key = node.parent_key ?? "root";
-      const group = groups.get(key) ?? { title: path.join(" › ") || "Catalog requirements", nodes: [] };
-      group.nodes.push(node);
+      const key = `${item.id}:${node.parent_key ?? "root"}`;
+      const name = catalogOptions.find((catalog) => catalog.id === item.catalog_id)?.name ?? "Catalog";
+      const revision = sourceData[item.id]?.revision.revision_number ?? item.revision_id;
+      const group = groups.get(key) ?? { title: `${name} · revision ${revision} · ${item.id} › ${path.join(" › ") || "Catalog requirements"}`, nodes: [] };
+      group.nodes.push(result);
       groups.set(key, group);
     }
     return [...groups];
-  }, [index, selectedResults, currentSelectionPage]);
-  const knownIds = useMemo(() => new Set(index.controls.map((node) => node.id)), [index]);
-  const unknownIds = data ? [...selected].filter((id) => !knownIds.has(id)) : [];
+  }, [catalogOptions, sourceData, selectedResults, currentSelectionPage]);
+  const unknownIds = sources.flatMap((item) => {
+    const loaded = sourceData[item.id];
+    if (!loaded) return [];
+    const ids = new Set(loaded.nodes.filter((node) => node.kind === "control").map((node) => node.id));
+    return item.control_ids.filter((id) => !ids.has(id)).map((id) => `${item.id}: ${id}`);
+  });
 
   function changeSelection(nodes: ProfileBrowserNode[], include: boolean) {
     const next = new Set(selected);
@@ -141,16 +204,19 @@ export function ProfileWorkspace({
       if (include) next.add(node.id);
       else next.delete(node.id);
     }
-    if (next.size > MAX_PROFILE_CONTROLS) {
+    if (totalSelected - selected.size + next.size > MAX_PROFILE_CONTROLS) {
       setError(`A profile supports up to ${MAX_PROFILE_CONTROLS.toLocaleString()} explicitly selected requirements. Narrow your selection.`);
       return;
     }
-    setSelected(next);
+    if (source) setSources((current) => current.map((item) => item.id === source.id
+      ? { ...item, control_ids: [...next] } : item));
     setStatus(null);
     setError(null);
   }
 
-  function navigateTo(node: ProfileBrowserNode) {
+  function navigateTo(node: ProfileBrowserNode, sourceId: string) {
+    setActiveSourceId(sourceId);
+    const targetIndex = indexBrowser(sourceData[sourceId]?.nodes ?? []);
     setView("Catalog Browser");
     openDetails(node.id);
     setBranch(node.key);
@@ -162,15 +228,15 @@ export function ProfileWorkspace({
     const limits = { ...navigationLimits };
     let target = node;
     while (true) {
-      const siblings = index.children.get(target.parent_key) ?? [];
+      const siblings = targetIndex.children.get(target.parent_key) ?? [];
       const parentKey = target.parent_key ?? "root";
       limits[parentKey] = Math.max(limits[parentKey] ?? 100, siblings.indexOf(target) + 1);
       if (!target.parent_key) break;
-      target = index.byKey.get(target.parent_key) ?? target;
+      target = targetIndex.byKey.get(target.parent_key) ?? target;
     }
     while (parent) {
       next.add(parent);
-      parent = index.byKey.get(parent)?.parent_key ?? null;
+      parent = targetIndex.byKey.get(parent)?.parent_key ?? null;
     }
     setExpanded(next);
     setNavigationLimits(limits);
@@ -192,16 +258,16 @@ export function ProfileWorkspace({
     setStatus(null);
     setSaveFailed(false);
     try {
-      const body = { title: title.trim(), description, control_ids: [...selected] };
+      const body = { title: title.trim(), description, imports: sources };
       const profile = saved
         ? await bffWrite<Profile>("PUT", `tenants/${tenantId}/profiles/${saved.id}`, body)
         : await bffWrite<Profile>("POST", `tenants/${tenantId}/profiles`, {
-          ...body, catalog_id: initialProfile.catalog_id, revision_id: initialProfile.revision_id,
+          ...body, ...(initialProfile.oscal_version ? { oscal_version: initialProfile.oscal_version } : {}),
         });
       setSaved(profile);
       setTitle(profile.title);
       setDescription(profile.description ?? "");
-      setSelected(new Set(profile.control_ids));
+      setSources(profile.imports ?? sources);
       onSaved(profile);
       setStatus(`Profile “${profile.title}” saved.`);
     } catch (cause) {
@@ -246,7 +312,7 @@ export function ProfileWorkspace({
   }
 
   if (register && saved) return <ImplementationRegister tenantId={tenantId} profile={saved}
-    canWrite={canWrite} initialControlId={register.controlId} onBack={() => setRegister(null)} />;
+    canWrite={canWrite} initialControlId={register.controlId} initialImportId={register.importId} onBack={() => setRegister(null)} />;
 
   return (
     <div className="profile-workspace">
@@ -256,15 +322,59 @@ export function ProfileWorkspace({
             if (!dirty || window.confirm("Discard unsaved profile changes?")) onClose();
           }}>Back to profiles</button>
           <h2>{title || "Untitled profile"}</h2>
-          <span className="badge">{selected.size} selected</span>
+          <span className="badge">{totalSelected} selected</span>
           <span role="status" className="save-status">{busy ? "Saving…" : saveFailed ? "Save failed" : dirty ? "Unsaved changes" : status ?? (saved ? "All changes saved" : "New profile")}</span>
-          {canWrite ? <button type="button" disabled={busy || !data || !title.trim() || selected.size === 0 || unknownIds.length > 0}
+          {canWrite ? <button type="button" disabled={busy || sources.some((item) => !sourceData[item.id] || item.control_ids.length === 0) || !title.trim() || totalSelected === 0 || unknownIds.length > 0}
             onClick={() => void save()}>{busy ? "Saving…" : "Save profile"}</button> : null}
           {saved && !dirty && !busy ? <a className="button secondary" href={`/bff/tenants/${tenantId}/profiles/${saved.id}/export`}>Export OSCAL JSON</a> : <span className="muted">Save changes before exporting.</span>}
           {saved && !dirty && !busy ? <button type="button" className="secondary"
-            onClick={() => setRegister({ controlId: null })}>Implementation register</button> : null}
+            onClick={() => setRegister({ controlId: null, importId: null })}>Implementation register</button> : null}
         </div>
-        <p className="workspace-source">{catalogName} · {data ? `Pinned revision ${data.revision.revision_number} · OSCAL ${data.revision.oscal_version}` : "Pinned revision"} · <span className="mono">{initialProfile.revision_id}</span></p>
+        <div className="workspace-source">
+          <label className="field">Catalog source
+            <select value={source?.id ?? ""} onChange={(event) => {
+              setActiveSourceId(event.target.value); setBranch(null); setActive(null);
+              setQuery(""); setFilters({}); setPage(0); setExpanded(new Set());
+            }}>
+              {sources.map((item) => <option key={item.id} value={item.id}>
+                {catalogOptions.find((catalog) => catalog.id === item.catalog_id)?.name ?? catalogName} · revision {sourceData[item.id]?.revision.revision_number ?? item.revision_id} · {item.id}
+              </option>)}
+            </select>
+          </label>
+          {source ? <p>Pinned revision <span className="mono">{source.revision_id}</span>{data ? ` · OSCAL ${data.revision.oscal_version}` : ""}</p> : null}
+          {canWrite && sources.length > 1 ? <button className="secondary" type="button" onClick={() => {
+            if (!source || !window.confirm("Remove this source? Existing implementations remain available in the register.")) return;
+            setSources((current) => current.filter((item) => item.id !== source.id));
+            setActiveSourceId(sources.find((item) => item.id !== source.id)?.id ?? "");
+            setBranch(null); setActive(null); setQuery(""); setFilters({}); setPage(0);
+          }}>Remove source</button> : null}
+          {canWrite ? <details><summary>Add catalog source</summary>
+            <label className="field">Catalog
+              <select value={addCatalogId} onChange={(event) => {
+                setAddCatalogId(event.target.value); setRevisions([]); setAddRevisionId(""); setRevisionOffset(0); setRevisionTotal(0);
+              }}>
+                <option value="">Choose catalog</option>
+                {catalogOptions.map((catalog) => <option key={catalog.id} value={catalog.id}>{catalog.name}</option>)}
+              </select>
+            </label>
+            {catalogOptions.length < catalogCount ? <button type="button" className="secondary" disabled={catalogBusy} onClick={() => void loadMoreCatalogs()}>Load more catalogs</button> : null}
+            <label className="field">Revision
+              <select value={addRevisionId} onChange={(event) => setAddRevisionId(event.target.value)}>
+                {revisions.map((revision) => <option key={revision.id} value={revision.id}>Revision {revision.revision_number} · {revision.id}</option>)}
+              </select>
+            </label>
+            {revisionTotal > 200 ? <div className="workspace-actions">
+              <button type="button" className="secondary" disabled={revisionOffset === 0} onClick={() => setRevisionOffset(Math.max(0, revisionOffset - 200))}>Previous revisions</button>
+              <button type="button" className="secondary" disabled={revisionOffset + 200 >= revisionTotal} onClick={() => setRevisionOffset(revisionOffset + 200)}>Next revisions</button>
+            </div> : null}
+            <button type="button" disabled={!addCatalogId || !addRevisionId} onClick={() => {
+              const id = crypto.randomUUID();
+              setSources((current) => [...current, { id, catalog_id: addCatalogId, revision_id: addRevisionId, control_ids: [] }]);
+              setActiveSourceId(id); setBranch(null); setActive(null); setQuery(""); setFilters({}); setPage(0);
+            }}>Add source</button>
+          </details> : null}
+          {collisions.length > 0 ? <p role="status">Identical control IDs occur in multiple imports: {collisions.join(", ")}. These are separate selections; Profile schema validation does not guarantee a resolvable Catalog.</p> : null}
+        </div>
         <div className="workspace-tabs" role="tablist" aria-label="Profile workspace views">
           {VIEWS.map((name, i) => <button key={name} type="button" role="tab" id={`workspace-tab-${i}`}
             aria-selected={view === name} aria-controls={`workspace-view-${i}`} tabIndex={view === name ? 0 : -1}
@@ -276,12 +386,13 @@ export function ProfileWorkspace({
               event.preventDefault();
               setView(VIEWS[next]);
               document.getElementById(`workspace-tab-${next}`)?.focus();
-            }}>{name}{name === "Selected Requirements" ? ` (${selected.size})` : ""}</button>)}
+            }}>{name}{name === "Selected Requirements" ? ` (${totalSelected})` : ""}</button>)}
         </div>
         {error ? <p role="alert" className="alert">{error}</p> : null}
       </header>
-      {loadError ? <div role="alert" className="alert">{loadError} <button type="button" onClick={() => setLoadAttempt((value) => value + 1)}>Retry catalog loading</button></div> : null}
+      {loadError ? <div role="alert" className="alert">{loadError} <button type="button" onClick={() => { setLoadError(null); setLoadAttempt((value) => value + 1); }}>Retry catalog loading</button></div> : null}
       {!data && !loadError ? <p role="status">Loading pinned catalog requirements…</p> : null}
+      {sources.some((item) => item.control_ids.length === 0) ? <p className="muted">Select at least one requirement for each source, or remove the empty source before saving.</p> : null}
       {unknownIds.length > 0 ? <p role="alert" className="alert">These saved IDs are missing from the pinned catalog: {unknownIds.join(", ")}. Saving is disabled; the original selection has been preserved.</p> : null}
       <section role="tabpanel" id="workspace-view-2" aria-labelledby="workspace-tab-2" hidden={view !== "Profile Settings"} className="panel workspace-settings" tabIndex={0}>
         <h2>Profile settings</h2>
@@ -296,23 +407,26 @@ export function ProfileWorkspace({
         <p className="muted">Save profile to apply metadata and selection changes together. The source catalog revision cannot be changed.</p>
       </section>
       <section role="tabpanel" id="workspace-view-1" aria-labelledby="workspace-tab-1" hidden={view !== "Selected Requirements"} className="panel workspace-selection" tabIndex={0}>
-        <h2>Selected requirements ({selected.size})</h2>
-        <p className="muted">Profile scope only, not implementation or compliance status. Selections reference {catalogName}, pinned revision {data?.revision.revision_number ?? initialProfile.revision_id}.</p>
+        <h2>Selected requirements ({totalSelected})</h2>
+        <p className="muted">Profile scope only, not implementation or compliance status.</p>
         <label className="field">Search selected requirements
           <input type="search" value={selectionQuery} placeholder="ID, title or requirement text"
             onChange={(event) => { setSelectionQuery(event.target.value); setSelectionPage(0); }} />
         </label>
         {selectionQuery ? <button type="button" className="secondary" onClick={() => { setSelectionQuery(""); setSelectionPage(0); }}>Clear selection search</button> : null}
-        <p role="status">{selectedResults.length} matching selected requirements · {selected.size} total selected</p>
-        {!data ? <p>Load the pinned catalog to review selected requirements.</p> : selected.size === 0 ? <p className="empty">Select requirements in the Catalog Browser to define this profile’s scope.</p>
+        <p role="status">{selectedResults.length} matching selected requirements · {totalSelected} total selected</p>
+        {!data ? <p>Load the pinned catalog to review selected requirements.</p> : totalSelected === 0 ? <p className="empty">Select requirements in the Catalog Browser to define this profile’s scope.</p>
           : selectedResults.length === 0 ? <p className="empty">No selected requirements match this search.</p> : null}
         {selectedGroups.map(([key, group]) => <section key={key} className="selection-group">
           <h3>{group.title}</h3>
-          <ul className="result-list">{group.nodes.map((node) => <li key={node.key} className="selection-row">
-            <button type="button" onClick={() => navigateTo(node)}><span className="mono">{node.id}</span> {node.title}</button>
+          <ul className="result-list">{group.nodes.map(({ node, source: item }) => <li key={`${item.id}:${node.key}`} className="selection-row">
+            <button type="button" onClick={() => navigateTo(node, item.id)}><span className="mono">{node.id}</span> {node.title}</button>
             {saved && !dirty && node.id ? <button type="button" className="secondary"
-              onClick={() => setRegister({ controlId: node.id })}>Implement {node.id}</button> : null}
-            <button type="button" className="secondary" disabled={!canWrite || busy} aria-label={`Remove ${node.id}`} onClick={() => changeSelection([node], false)}>Remove</button>
+              onClick={() => setRegister({ controlId: node.id, importId: item.id })}>Implement {node.id}</button> : null}
+            <button type="button" className="secondary" disabled={!canWrite || busy} aria-label={`Remove ${node.id}`} onClick={() => {
+              setSources((current) => current.map((entry) => entry.id === item.id
+                ? { ...entry, control_ids: entry.control_ids.filter((id) => id !== node.id) } : entry));
+            }}>Remove</button>
           </li>)}</ul>
         </section>)}
         {selectionPageCount > 1 ? <nav className="pagination" aria-label="Selected requirement pages">

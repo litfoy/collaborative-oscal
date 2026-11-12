@@ -28,8 +28,8 @@ const toDraft = (record: Implementation): Draft => ({
 });
 const message = (cause: unknown) => cause instanceof ApiError ? cause.message : ERROR_MESSAGES.unavailable;
 
-export function ImplementationRegister({ tenantId, profile, canWrite, initialControlId, onBack }: {
-  tenantId: string; profile: Profile; canWrite: boolean; initialControlId: string | null; onBack: () => void;
+export function ImplementationRegister({ tenantId, profile, canWrite, initialControlId, initialImportId = null, onBack }: {
+  tenantId: string; profile: Profile; canWrite: boolean; initialControlId: string | null; initialImportId?: string | null; onBack: () => void;
 }) {
   const base = `tenants/${tenantId}`;
   const [offset, setOffset] = useState(0);
@@ -38,7 +38,12 @@ export function ImplementationRegister({ tenantId, profile, canWrite, initialCon
   const [options, setOptions] = useState<Options | null>(null);
   const [record, setRecord] = useState<Implementation | null>(null);
   const [creating, setCreating] = useState(initialControlId !== null && canWrite);
-  const [controlId, setControlId] = useState(initialControlId ?? profile.control_ids[0] ?? "");
+  const imports = profile.imports ?? [{
+    id: "", catalog_id: profile.catalog_id, revision_id: profile.revision_id, control_ids: profile.control_ids,
+  }];
+  const [importId, setImportId] = useState(initialImportId ?? imports[0]?.id ?? "");
+  const source = imports.find((item) => item.id === importId) ?? imports[0];
+  const [controlId, setControlId] = useState(initialControlId ?? source?.control_ids[0] ?? "");
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [original, setOriginal] = useState<Draft>(emptyDraft);
   const [control, setControl] = useState<ControlDetail | null>(null);
@@ -64,14 +69,14 @@ export function ImplementationRegister({ tenantId, profile, canWrite, initialCon
   useEffect(() => {
     const controller = new AbortController();
     const path = record ? `${base}/implementations/${record.id}/control` : creating && controlId
-      ? `${base}/catalogs/${profile.catalog_id}/revisions/${profile.revision_id}/controls/${encodeURIComponent(controlId)}` : null;
+      ? `${base}/catalogs/${source.catalog_id}/revisions/${source.revision_id}/controls/${encodeURIComponent(controlId)}` : null;
     if (path) {
       bffGet<ControlDetail>(path, undefined, controller.signal)
         .then((value) => { setControl(value); setDetailError(null); })
         .catch((cause: unknown) => { if (!controller.signal.aborted) setDetailError(message(cause)); });
     }
     return () => controller.abort();
-  }, [base, record, creating, controlId, profile.catalog_id, profile.revision_id]);
+  }, [base, record, creating, controlId, source.catalog_id, source.revision_id]);
 
   useEffect(() => {
     if (!dirty && !busy) return;
@@ -114,7 +119,8 @@ export function ImplementationRegister({ tenantId, profile, canWrite, initialCon
         ? await bffWrite<Implementation>("PUT", `${base}/implementations/${record.id}`, info)
         : await bffWrite<Implementation>("POST", `${base}/implementations`, {
           ...info, organization_id: draft.organization_id || null, profile_id: profile.id,
-          catalog_id: profile.catalog_id, revision_id: profile.revision_id, oscal_control_id: controlId,
+          catalog_id: source.catalog_id, revision_id: source.revision_id, oscal_control_id: controlId,
+          ...(importId ? { profile_import_id: importId } : {}),
         });
       setRecord(saved); setCreating(false);
       const value = toDraft(saved); setDraft(value); setOriginal(value);
@@ -139,7 +145,7 @@ export function ImplementationRegister({ tenantId, profile, canWrite, initialCon
       {!page ? <p>Loading implementations…</p> : page.items.length === 0 ? <p>No implementations on this page.</p> :
         <ul>{page.items.map((item) => <li key={item.id}>
           <button type="button" className="secondary" onClick={() => open(item)}>
-            {item.oscal_control_id} · {item.status.replaceAll("_", " ")} · {item.organization_id
+            {item.oscal_control_id} · {item.status.replaceAll("_", " ")} · revision {item.revision_id} · {item.organization_id
               ? options?.organizations.find((org) => org.id === item.organization_id)?.name ?? item.organization_id
               : "Tenant"} · {item.id}
           </button>
@@ -152,13 +158,24 @@ export function ImplementationRegister({ tenantId, profile, canWrite, initialCon
     </section>
     {record || creating ? <section className="panel">
       <h3>Normative requirement — read-only</h3>
+      {creating && imports.length > 1 ? <label className="field">Source import
+        <select value={importId} onChange={(event) => {
+          if (!canLeave()) return;
+          const next = imports.find((item) => item.id === event.target.value);
+          setImportId(event.target.value); setControlId(next?.control_ids[0] ?? "");
+          setControl(null); setDetailError(null);
+          const value = emptyDraft(); setDraft(value); setOriginal(value);
+        }}>
+          {imports.map((item) => <option key={item.id} value={item.id}>Catalog {item.catalog_id} · revision {item.revision_id} · import {item.id}</option>)}
+        </select>
+      </label> : null}
       {creating ? <label className="field">Selected requirement
         <select value={controlId} onChange={(event) => {
           if (!canLeave()) return;
           setControlId(event.target.value); setControl(null); setDetailError(null);
           const value = emptyDraft(); setDraft(value); setOriginal(value);
         }}>
-          {profile.control_ids.map((id) => <option key={id} value={id}>{id}</option>)}
+          {source.control_ids.map((id) => <option key={id} value={id}>{id}</option>)}
         </select>
       </label> : <p>Original revision: <span className="mono">{record?.revision_id}</span></p>}
       {detailError ? <p role="alert" className="alert">{detailError}</p> : control

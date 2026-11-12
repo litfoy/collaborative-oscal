@@ -263,24 +263,32 @@ def test_published_catalog_revision_is_immutable(
         assert stored.published_at == published_at
 
 
-def test_alembic_upgrade_and_downgrade(db_engine, postgres_url: str) -> None:
-    alembic_config = Config(str(Path(__file__).parents[3] / "alembic.ini"))
-    alembic_config.attributes["database_url"] = postgres_url
-    command.downgrade(alembic_config, "base")
-    command.upgrade(alembic_config, "head")
-
+def test_alembic_upgrade_and_downgrade(db_engine) -> None:
+    schema = f"alembic_test_{uuid4().hex}"
     with db_engine.connect() as connection:
-        tables = set(connection.dialect.get_table_names(connection))
-    assert {
-        "tenants",
-        "organizations",
-        "catalogs",
-        "catalog_revisions",
-        "catalog_group_indexes",
-        "catalog_control_indexes",
-        "user_identities",
-        "tenant_memberships",
-    } <= tables
+        transaction = connection.begin()
+        try:
+            connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+            connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
+            alembic_config = Config(str(Path(__file__).parents[3] / "alembic.ini"))
+            alembic_config.attributes["connection"] = connection
+            command.upgrade(alembic_config, "head")
+            command.downgrade(alembic_config, "base")
+            command.upgrade(alembic_config, "head")
+            tables = set(connection.dialect.get_table_names(connection))
+            assert {
+                "tenants",
+                "organizations",
+                "catalogs",
+                "catalog_revisions",
+                "catalog_group_indexes",
+                "catalog_control_indexes",
+                "user_identities",
+                "tenant_memberships",
+                "profile_imports",
+            } <= tables
+        finally:
+            transaction.rollback()
 
 
 def test_identity_membership_constraints_and_tenant_isolation(grc_service, session_factory) -> None:

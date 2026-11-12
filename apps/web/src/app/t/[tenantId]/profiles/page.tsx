@@ -16,13 +16,14 @@ export default async function ProfilesPage({
     <>
       <h1>Profiles</h1>
       <p className="muted">
-        Select controls from an immutable catalog revision. Profile changes never modify the
+        Select controls from pinned catalog revisions. Profile changes never modify the
         source catalog.
       </p>
       <ProfileManager
         tenantId={tenantId}
         profiles={profiles.items}
         catalogs={catalogs.items}
+        catalogTotal={catalogs.total}
         canWrite={canWrite}
       />
       {profiles.total > profiles.items.length ? (

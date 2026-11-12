@@ -5,7 +5,6 @@ from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from collaborative_oscal_oscal.profile import selected_control_ids
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
@@ -28,6 +27,7 @@ from app.persistence.models import (
     TenantMembershipRecord,
     UserIdentityRecord,
 )
+from app.persistence.profile_repository import SQLProfileRepository
 
 SessionScope = Callable[[], AbstractContextManager[Session]]
 
@@ -50,8 +50,50 @@ class ImplementationService:
         organization_id: UUID | None,
         profile_id: UUID | None,
         information: ImplementationInformation,
+        profile_import_id: UUID | None = None,
     ) -> ControlImplementation:
         with self._session_scope() as session:
+            if profile_id is None and profile_import_id is not None:
+                raise InvalidImplementation("An import requires a profile.")
+            source_exists = session.scalar(
+                select(CatalogControlIndexRecord.id)
+                .join(
+                    CatalogRevisionRecord,
+                    (CatalogRevisionRecord.tenant_id == CatalogControlIndexRecord.tenant_id)
+                    & (CatalogRevisionRecord.id == CatalogControlIndexRecord.catalog_revision_id),
+                )
+                .where(
+                    CatalogRevisionRecord.tenant_id == tenant_id,
+                    CatalogRevisionRecord.catalog_id == catalog_id,
+                    CatalogRevisionRecord.id == revision_id,
+                    CatalogControlIndexRecord.oscal_control_id == control_id,
+                )
+            )
+            if source_exists is None:
+                raise EntityNotFoundError("Control definition not found.")
+            if profile_id is not None:
+                locked = session.scalar(
+                    select(ProfileRecord)
+                    .where(ProfileRecord.tenant_id == tenant_id, ProfileRecord.id == profile_id)
+                    .with_for_update()
+                )
+                if locked is None:
+                    raise EntityNotFoundError("Profile not found.")
+                profile = SQLProfileRepository(session).get(tenant_id, profile_id)
+                assert profile is not None
+                matches = [
+                    item
+                    for item in profile.imports
+                    if item.catalog_id == catalog_id
+                    and item.revision_id == revision_id
+                    and control_id in item.control_ids
+                    and (profile_import_id is None or item.id == profile_import_id)
+                ]
+                if len(matches) != 1:
+                    raise InvalidImplementation(
+                        "Select an unambiguous profile import containing this control."
+                    )
+                profile_import_id = matches[0].id
             revision = session.scalar(
                 select(CatalogRevisionRecord)
                 .where(
@@ -81,21 +123,6 @@ class ImplementationService:
                 is None
             ):
                 raise EntityNotFoundError("Organization not found.")
-            if profile_id is not None:
-                profile = session.scalar(
-                    select(ProfileRecord)
-                    .where(ProfileRecord.tenant_id == tenant_id, ProfileRecord.id == profile_id)
-                    .with_for_update()
-                )
-                if profile is None:
-                    raise EntityNotFoundError("Profile not found.")
-                selected = selected_control_ids(profile.document)
-                if (
-                    profile.catalog_id != catalog_id
-                    or profile.revision_id != revision_id
-                    or control_id not in selected
-                ):
-                    raise InvalidImplementation("Control is not selected in the pinned profile.")
             self._validate_responsibilities(session, tenant_id, information.responsibilities, set())
             now = datetime.now(UTC)
             record = ControlImplementationRecord(
@@ -103,6 +130,7 @@ class ImplementationService:
                 tenant_id=tenant_id,
                 organization_id=organization_id,
                 profile_id=profile_id,
+                profile_import_id=profile_import_id,
                 catalog_id=catalog_id,
                 revision_id=revision_id,
                 oscal_control_id=control_id,
@@ -235,9 +263,7 @@ class ImplementationService:
         responsibilities: list[Responsibility],
         existing: set[Responsibility],
     ) -> None:
-        users = {
-            r.user_id for r in responsibilities if r.user_id is not None and r not in existing
-        }
+        users = {r.user_id for r in responsibilities if r.user_id is not None and r not in existing}
         if users:
             active = set(
                 session.scalars(
@@ -294,6 +320,7 @@ class ImplementationService:
             record.tenant_id,
             record.organization_id,
             record.profile_id,
+            record.profile_import_id,
             record.catalog_id,
             record.revision_id,
             record.oscal_control_id,

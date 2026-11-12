@@ -1,6 +1,10 @@
 from typing import Annotated
-from uuid import UUID
+from uuid import UUID, uuid4
 
+from collaborative_oscal_oscal.profile import (
+    ProfileDocumentValidationError,
+    validate_profile_document,
+)
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.responses import JSONResponse
 
@@ -17,6 +21,7 @@ from app.application.profiles import InvalidProfileSelection, ProfileService
 from app.config import get_settings
 from app.domain.errors import EntityNotFoundError
 from app.domain.identity.models import AuthorizedTenantContext, Permission
+from app.domain.profiles.models import ProfileImport
 from app.persistence.database import create_session_factory
 
 router = APIRouter(prefix="/api/v1")
@@ -105,10 +110,19 @@ def create_profile(
             request.title,
             request.control_ids,
             request.description,
+            imports=[
+                ProfileImport(
+                    item.id or uuid4(), item.catalog_id, item.revision_id, item.control_ids
+                )
+                for item in request.imports
+            ]
+            if request.imports is not None
+            else None,
+            oscal_version=request.oscal_version,
         )
     except EntityNotFoundError as error:
         raise _not_found(error) from error
-    except InvalidProfileSelection as error:
+    except (InvalidProfileSelection, ProfileDocumentValidationError) as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
         ) from error
@@ -142,8 +156,13 @@ def export_profile(
 ) -> JSONResponse:
     try:
         profile = service.get(context.tenant_id, profile_id)
+        validate_profile_document(profile.document)
     except EntityNotFoundError as error:
         raise _not_found(error) from error
+    except ProfileDocumentValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
     return JSONResponse(content=profile.document)
 
 
@@ -166,11 +185,23 @@ def update_profile(
 ) -> ProfileResponse:
     try:
         profile = service.update(
-            context.tenant_id, profile_id, request.title, request.control_ids, request.description
+            context.tenant_id,
+            profile_id,
+            request.title,
+            request.control_ids,
+            request.description,
+            imports=[
+                ProfileImport(
+                    item.id or uuid4(), item.catalog_id, item.revision_id, item.control_ids
+                )
+                for item in request.imports
+            ]
+            if request.imports is not None
+            else None,
         )
     except EntityNotFoundError as error:
         raise _not_found(error) from error
-    except InvalidProfileSelection as error:
+    except (InvalidProfileSelection, ProfileDocumentValidationError) as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
         ) from error
