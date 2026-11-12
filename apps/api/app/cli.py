@@ -98,8 +98,7 @@ def main() -> None:
     importer = commands.add_parser(
         "import-catalog",
         help=(
-            "Validate and import an OSCAL 1.1.3 or 1.2.1 catalog file "
-            "(JSON or YAML) into a tenant."
+            "Validate and import a supported OSCAL Catalog file (JSON or YAML) into a tenant."
         ),
     )
     importer.add_argument("--tenant-id", required=True, type=UUID)

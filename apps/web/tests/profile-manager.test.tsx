@@ -14,6 +14,7 @@ vi.mock("@/lib/bff-client", () => mocks);
 const profile: Profile = {
   id: "profile-id", tenant_id: TENANT, catalog_id: CATALOG, revision_id: REVISION,
   title: "Access baseline", description: "Scope for the annual review", control_ids: ["ac-1"],
+  oscal_version: "1.1.3",
   created_at: "2026-11-10T00:00:00Z", updated_at: "2026-11-10T00:00:00Z",
 };
 const root = "/catalog/groups/0";
@@ -126,6 +127,14 @@ describe("Profile Builder", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
+  it("displays the Profile version separately from its source Catalog version", async () => {
+    const user = userEvent.setup();
+    renderManager([profile]);
+    await user.click(screen.getByRole("button", { name: "Edit profile" }));
+    expect(await screen.findByText("Profile OSCAL specification version: 1.1.3")).toBeInTheDocument();
+    expect(screen.getByText(/Pinned revision.*OSCAL 1.2.1/)).toBeInTheDocument();
+  });
+
   it("navigates groups and nested controls using expandable keyboard-accessible buttons", async () => {
     const user = await createWorkspace();
     const navigation = screen.getByRole("complementary", { name: "Catalog navigation" });
@@ -178,13 +187,14 @@ describe("Profile Builder", () => {
     expect(screen.getByRole("checkbox", { name: "ac-1.1 Policy exceptions" })).not.toBeChecked();
     await user.click(screen.getByRole("button", { name: "Select ac-1 and all descendants" }));
     expect(screen.getByRole("checkbox", { name: "ac-1.1 Policy exceptions" })).toBeChecked();
-    mocks.bffWrite.mockResolvedValue({ ...profile, title: "Annual scope", description: "Annual audit", control_ids: ["ac-1", "ac-1.1"] });
+    mocks.bffWrite.mockResolvedValue({ ...profile, oscal_version: "1.2.3", title: "Annual scope", description: "Annual audit", control_ids: ["ac-1", "ac-1.1"] });
     await user.click(screen.getByRole("button", { name: "Save profile" }));
     await screen.findByText("Profile “Annual scope” saved.");
     expect(mocks.bffWrite).toHaveBeenCalledWith("POST", `tenants/${TENANT}/profiles`, {
       title: "Annual scope", description: "Annual audit",
       imports: [{ id: expect.any(String), control_ids: ["ac-1", "ac-1.1"], catalog_id: CATALOG, revision_id: REVISION }],
     });
+    expect(await screen.findByText("Profile OSCAL specification version: 1.2.3")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Export OSCAL JSON" })).toHaveAttribute("href", `/bff/tenants/${TENANT}/profiles/${profile.id}/export`);
     await user.click(screen.getByRole("button", { name: "Back to profiles" }));
     await user.click(screen.getByRole("button", { name: "Edit profile" }));

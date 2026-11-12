@@ -75,32 +75,67 @@ Both formats require UTF-8. No URLs or references are fetched.
 |---|---|
 | compliance-trestle | `5.2.0` (dependency range `>=5.2,<5.3`) |
 | Python | Trestle declares `>=3.11`; this repository targets Python 3.12–3.13 |
-| OSCAL versions accepted by this importer | `1.1.3` and `1.2.1` |
+| OSCAL versions accepted by Catalog import | `1.1.3`, `1.2.0`, `1.2.1`, `1.2.2`, `1.2.3` |
+| OSCAL versions accepted by Profile generation/export | `1.1.3`, `1.2.0`, `1.2.1`, `1.2.2`, `1.2.3` |
+| Default for newly generated Profiles | `1.2.3` |
 | OSCAL documents | Catalog JSON model only |
 | Input formats | JSON and YAML; optional safe first-character auto-detection |
-| `1.1.3` schema | [Official NIST `oscal_catalog_schema.json`](https://github.com/usnistgov/OSCAL/releases/tag/v1.1.3), validated with JSON Schema Draft 7 |
-| OSCAL 1.2.1 validation | `trestle.oscal.catalog.Model.model_validate_json(..., strict=True, extra="allow")` |
-| OSCAL 1.1.3 validation | Bundled NIST Catalog schema, validated with JSON Schema Draft 7 |
+| Version-specific validation | compliance-trestle 5.2.0 models through OSCAL 1.2.1; bundled official NIST JSON Schema Draft 7 for 1.2.2 and 1.2.3 |
+| Additional Catalog checks | Existing group/control projection and duplicate control-ID rejection |
 
-OSCAL 1.1.3 and 1.2.1 Catalog schemas differ: 1.2.1 adds constraints for Markdown
-line and multiline fields, adds control-selection constructs, and relaxes some
-required fields in group, parameter, and party objects. The supplied BSI Catalog
-uses the common structures and validates against the official 1.1.3 schema. It also
-passes the existing group/control projection checks. The importer validates 1.1.3
-against its own bundled schema instead of applying 1.2.1 model assumptions; the
-existing Trestle model path for 1.2.1 is unchanged. The declared version is preserved
-and never rewritten. The 1.1.3 schema is bundled locally, so validation does not
-fetch schemas or references over the network.
+### Official schema provenance
 
-The official NIST 1.1.3 JSON Schema enforces its Catalog structure, fields, and
-types. Trestle's generated Pydantic model enforces those constraints for 1.2.1.
-Both versions use the existing group/control projector and reject duplicate control
-identifiers. Validation results intentionally carry a warning: JSON Schema and model
-validation are not exhaustive NIST Metaschema semantic validation. Full semantic
-coverage, including every cross-reference and constraint in the specification,
-remains a limitation. OSCAL `x-` extension fields and standard extension properties
-are preserved, but extension-specific constraints are not independently validated.
-No Trestle CLI or remote schema download is used.
+The schemas are bundled locally; application validation makes no runtime network
+requests. Each checked-in schema is sourced from the matching OSCAL release's
+`oscal_catalog_schema.json` or `oscal_profile_schema.json` asset. The table gives
+SHA-256 for the exact checked-in bytes.
+
+| OSCAL release | Catalog schema SHA-256 | Profile schema SHA-256 |
+|---|---|---|
+| [1.2.2](https://github.com/usnistgov/OSCAL/releases/tag/v1.2.2) | `fdc559f5dff6848b1ebbe1898a69cc08263479f7c796e2f056412059e7489d0c` | `04329bd68032f48825f712f79576b3fd00e129e59d3597beb56ed72c17277f66` |
+| [1.2.3](https://github.com/usnistgov/OSCAL/releases/tag/v1.2.3) | `ab95836e9e8dfebf6fde80007f6cc76fa3192f595d427c751a3f3923c3f474fc2` | `7c5ff5a92683b6a80ce6a3474dea04e0ea8680a4ecb60702ffa08ebfc677e6cb` |
+
+The 1.2.2 and 1.2.3 schemas are version-specific, not aliases. Comparing the NIST
+release assets shows that 1.2.2 corrects JSON integer datatypes (the Catalog schema
+changes only its version identifier from 1.2.1).
+For 1.2.3, the Catalog schema changes only its version identifier, while the Profile
+schema updates the description of `modify.alters.removes` matching by item name.
+These differences are why the declared version selects its own schema for these
+newer versions rather than falling back to the latest one.
+
+### Parsing and dependency boundary
+
+The importer validates OSCAL 1.1.3, 1.2.0, and 1.2.1 Catalogs with compliance-trestle
+5.2.0's generated 1.2.1 model and its backward-compatibility handling. OSCAL 1.2.2
+and 1.2.3 Catalogs use their corresponding official NIST schemas. Profile validation
+uses the same version split. The BSI 1.1.3 Catalog and generated Profiles through
+1.2.1 are covered by application tests. Trestle models are used only for validation:
+the parsed input dictionary is returned and persisted without rewriting
+`metadata.oscal-version`, identifiers, or fields. Catalog `x-` extension keys are
+excluded from the validation view; their original values remain in the imported
+document and extension-specific constraints are not checked.
+
+The 1.2.2 and 1.2.3 schema paths are temporary compatibility bridges. Replace them
+with compliance-trestle validation when an approved Trestle release supports those
+versions; keep the version-specific compatibility tests and document-preservation
+behavior.
+
+The BSI Grundschutz++ fixture declares OSCAL 1.1.3 and passes Trestle model
+validation and existing projections. The official NIST SP 800-53 Rev. 5.2.0 Catalog fixture is from
+the independent [OSCAL Content release `v1.5.0`](https://github.com/usnistgov/oscal-content/releases/tag/v1.5.0);
+its declared OSCAL version is 1.2.2.
+The checked-in fixture
+[`NIST_SP-800-53_rev5_catalog-min.json`](../apps/api/tests/fixtures/NIST_SP-800-53_rev5_catalog-min.json)
+has SHA-256 `d820835aa54aeb2265bdacdf8e678af7530443a59556563df898addf012024cb`.
+The smaller local Catalog fixture used for other version cases is self-authored test
+data, not NIST content.
+
+Trestle model validation and Catalog/Profile JSON Schema validation are distinct
+from comprehensive OSCAL semantic validation. Catalog import also projects groups
+and controls and rejects duplicate control identifiers. Validation does not
+implement every NIST Metaschema semantic constraint. Profile validation does not
+resolve its imports or guarantee that a resolver can compose the referenced
+Catalogs. No Trestle CLI or remote schema download is used.
 
 ## Provenance and security boundary
 

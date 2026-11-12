@@ -171,7 +171,7 @@ export function CatalogImport({ tenantId }: { tenantId: string }) {
         </div>
       ) : (
         <form onSubmit={submit} className="profile-form">
-          <p>Upload an OSCAL Catalog JSON file. The server validates OSCAL 1.1.3 and 1.2.1.</p>
+          <p>Upload an OSCAL Catalog JSON file. The server validates it against its declared OSCAL version.</p>
           <div className="empty" onDragOver={(event) => event.preventDefault()} onDrop={(event) => {
             event.preventDefault();
             if (!busy) void selectFile(event.dataTransfer.files[0] ?? null);

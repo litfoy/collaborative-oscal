@@ -30,12 +30,13 @@ change on saved content changes; internal Profile and import UUIDs do not.
 The legacy top-level source and control fields in responses describe only the
 first import; clients that support multi-import Profiles must use `imports`.
 
-Each export preserves the declared Profile OSCAL version and validates against
-the corresponding bundled official NIST JSON schema; 1.2.1 also uses the
-existing trestle model validation. The supported versions are the existing 1.1.3 and
-1.2.1 boundary; imported Catalog versions are independent of the Profile
-version. Selections are explicit; selecting a parent does not implicitly include
-its descendants.
+Each export preserves the declared Profile OSCAL version and validates through
+compliance-trestle for versions through 1.2.1 or the matching bundled official NIST
+JSON Schema for 1.2.2 and 1.2.3. New Profiles default to 1.2.3. Imported Catalog
+versions remain independent of the Profile version. See
+[ADR 0012](0012-oscal-versioned-schemas.md) for the version registry, schema
+provenance, and dependency boundary. Selections are explicit; selecting a parent
+does not implicitly include its descendants.
 
 ## Limitations
 

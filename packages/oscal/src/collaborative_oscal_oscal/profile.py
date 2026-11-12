@@ -1,34 +1,29 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from functools import cache
-from importlib.resources import files
 from uuid import UUID
 
+from jsonschema import Draft7Validator
 from jsonschema import ValidationError as JsonSchemaValidationError
-from pydantic import ValidationError
-from trestle.oscal.profile import Model
+from pydantic import ValidationError as PydanticValidationError
+from trestle.oscal.profile import Model as TrestleProfileModel
 
 from collaborative_oscal_oscal.catalog_import import (
     _OSCAL_DRAFT7_VALIDATOR,
-    SUPPORTED_OSCAL_VERSIONS,
-    _unknown_model_fields,
+)
+from collaborative_oscal_oscal.versions import (
+    DEFAULT_OSCAL_VERSION,
+    OscalDocumentModel,
+    is_supported_oscal_version,
+    load_oscal_schema,
+    uses_json_schema,
+    uses_trestle_model,
 )
 
 
 class ProfileDocumentValidationError(ValueError):
     pass
-
-
-@cache
-def _profile_schema(oscal_version: str) -> dict:
-    return json.loads(
-        files("collaborative_oscal_oscal")
-        .joinpath("schemas", f"oscal_profile_schema_v{oscal_version}.json")
-        .read_text(encoding="utf-8")
-    )
 
 
 def selected_control_ids(document: dict) -> list[str]:
@@ -40,7 +35,7 @@ def build_profile_document(
     *,
     profile_uuid: UUID,
     title: str,
-    oscal_version: str,
+    oscal_version: str = DEFAULT_OSCAL_VERSION,
     catalog_href: str = "",
     control_ids: Sequence[str] = (),
     imports: Sequence[tuple[str, Sequence[str]]] | None = None,
@@ -48,7 +43,7 @@ def build_profile_document(
     last_modified: datetime | None = None,
     description: str = "",
 ) -> dict:
-    if oscal_version not in SUPPORTED_OSCAL_VERSIONS:
+    if not is_supported_oscal_version(OscalDocumentModel.PROFILE, oscal_version):
         raise ProfileDocumentValidationError("Unsupported OSCAL version.")
 
     modified = last_modified or datetime.now(UTC)
@@ -82,16 +77,18 @@ def build_profile_document(
 def validate_profile_document(document: dict) -> None:
     try:
         oscal_version = document["profile"]["metadata"]["oscal-version"]
-        if oscal_version not in SUPPORTED_OSCAL_VERSIONS:
+        if not is_supported_oscal_version(OscalDocumentModel.PROFILE, oscal_version):
             raise ProfileDocumentValidationError("Unsupported OSCAL version.")
-        _OSCAL_DRAFT7_VALIDATOR(_profile_schema(oscal_version)).validate(document)
-        if oscal_version == "1.2.1":
-            if _unknown_model_fields(document, Model):
-                raise ProfileDocumentValidationError(
-                    "OSCAL Profile contains fields not defined by its declared model."
-                )
-            Model.model_validate_json(
-                json.dumps(document, allow_nan=False), strict=True
+        if uses_json_schema(OscalDocumentModel.PROFILE, oscal_version):
+            _OSCAL_DRAFT7_VALIDATOR(
+                load_oscal_schema(OscalDocumentModel.PROFILE, oscal_version),
+                format_checker=Draft7Validator.FORMAT_CHECKER,
+            ).validate(document)
+        elif uses_trestle_model(OscalDocumentModel.PROFILE, oscal_version):
+            TrestleProfileModel.model_validate(document)
+        else:
+            raise ProfileDocumentValidationError(
+                "No validator is configured for the declared OSCAL version."
             )
     except ProfileDocumentValidationError:
         raise
@@ -103,8 +100,8 @@ def validate_profile_document(document: dict) -> None:
         KeyError,
         TypeError,
         ValueError,
-        ValidationError,
         JsonSchemaValidationError,
+        PydanticValidationError,
     ) as error:
         raise ProfileDocumentValidationError(
             "OSCAL Profile does not conform to its declared OSCAL Profile model."

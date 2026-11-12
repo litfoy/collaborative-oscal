@@ -261,9 +261,7 @@ export function ProfileWorkspace({
       const body = { title: title.trim(), description, imports: sources };
       const profile = saved
         ? await bffWrite<Profile>("PUT", `tenants/${tenantId}/profiles/${saved.id}`, body)
-        : await bffWrite<Profile>("POST", `tenants/${tenantId}/profiles`, {
-          ...body, ...(initialProfile.oscal_version ? { oscal_version: initialProfile.oscal_version } : {}),
-        });
+        : await bffWrite<Profile>("POST", `tenants/${tenantId}/profiles`, body);
       setSaved(profile);
       setTitle(profile.title);
       setDescription(profile.description ?? "");
@@ -341,6 +339,9 @@ export function ProfileWorkspace({
               </option>)}
             </select>
           </label>
+          {saved?.oscal_version
+            ? <p>Profile OSCAL specification version: {saved.oscal_version}</p>
+            : null}
           {source ? <p>Pinned revision <span className="mono">{source.revision_id}</span>{data ? ` · OSCAL ${data.revision.oscal_version}` : ""}</p> : null}
           {canWrite && sources.length > 1 ? <button className="secondary" type="button" onClick={() => {
             if (!source || !window.confirm("Remove this source? Existing implementations remain available in the register.")) return;

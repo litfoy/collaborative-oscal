@@ -13,6 +13,12 @@ from collaborative_oscal_oscal.catalog_index import (
     canonical_json_sha256,
     project_catalog_indexes,
 )
+from collaborative_oscal_oscal.versions import (
+    JSON_SCHEMA_OSCAL_VERSIONS,
+    OSCAL_VERSION_ORDER,
+    OscalDocumentModel,
+    load_oscal_schema,
+)
 from sqlalchemy import func, select
 
 from app.application.catalog_import import (
@@ -31,14 +37,15 @@ from app.persistence.models import (
 from app.persistence.repositories import SQLAlchemyUnitOfWork
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "oscal_catalog.json"
+NIST_CATALOG_PATH = Path(__file__).parent / "fixtures" / "NIST_SP-800-53_rev5_catalog-min.json"
 BSI_CATALOG_PATH = (
     Path(__file__).parents[3] / "examples" / "catalogs" / "Grundschutz++-resolved_catalog.json"
 )
 
 
-def _catalog_document() -> dict:
+def _catalog_document(oscal_version: str = "1.2.1") -> dict:
     document = json.loads(FIXTURE_PATH.read_text())
-    document["catalog"]["metadata"]["oscal-version"] = "1.2.1"
+    document["catalog"]["metadata"]["oscal-version"] = oscal_version
     document["catalog"]["params"] = [
         {"id": "catalog_parameter", "label": "Example parameter", "values": ["enabled"]}
     ]
@@ -49,18 +56,18 @@ def _json_bytes(document: dict | None = None) -> bytes:
     return json.dumps(document or _catalog_document(), ensure_ascii=False).encode("utf-8")
 
 
-def test_trestle_validates_catalog_and_preserves_extension_data() -> None:
+def test_versioned_schema_validation_preserves_extension_data() -> None:
     document = _catalog_document()
     document["catalog"]["x-extension"] = {"unrecognized": ["preserved"]}
-    document["catalog"]["groups"][0]["controls"][0]["x-control-extension"] = True
+    document["catalog"]["groups"][0]["groups"][0]["controls"][0]["x-control-extension"] = True
     content = _json_bytes(document)
 
     outcome = validate_catalog_bytes(content, CatalogInputFormat.JSON)
 
     assert outcome.result.valid
     assert outcome.result.validator_name == "compliance-trestle"
-    assert outcome.result.validator_version == "5.2.0"
-    assert outcome.result.validation_schema_version == "OSCAL 1.2.1"
+    assert outcome.result.validator_version
+    assert outcome.result.validation_schema_version is None
     assert outcome.input_format is CatalogInputFormat.JSON
     assert outcome.document == document
     assert outcome.document["catalog"]["uuid"] == document["catalog"]["uuid"]
@@ -75,7 +82,7 @@ def test_trestle_validates_catalog_and_preserves_extension_data() -> None:
     assert outcome.result.warnings
 
 
-def test_yaml_catalog_parsing_preserves_semantics_and_uses_trestle() -> None:
+def test_yaml_catalog_parsing_preserves_semantics_and_uses_declared_schema() -> None:
     document = _catalog_document()
     content = yaml.safe_dump(document, allow_unicode=True).encode("utf-8")
 
@@ -94,9 +101,9 @@ def test_real_bsi_catalog_validates_as_oscal_1_1_3_without_data_loss() -> None:
     outcome = validate_catalog_bytes(content)
 
     assert outcome.result.valid, outcome.result.errors
-    assert outcome.result.validator_name == "jsonschema"
+    assert outcome.result.validator_name == "compliance-trestle"
     assert outcome.result.declared_oscal_version == "1.1.3"
-    assert outcome.result.validation_schema_version == "OSCAL 1.1.3"
+    assert outcome.result.validation_schema_version is None
     assert outcome.document == source_document
     assert outcome.document["catalog"]["metadata"] == source_document["catalog"]["metadata"]
     groups, controls = project_catalog_indexes(outcome.document)
@@ -106,7 +113,52 @@ def test_real_bsi_catalog_validates_as_oscal_1_1_3_without_data_loss() -> None:
     assert any(group.parent_path is not None for group in groups)
 
 
-def test_oscal_1_1_3_schema_errors_are_reported_without_document_content() -> None:
+@pytest.mark.parametrize("oscal_version", OSCAL_VERSION_ORDER)
+def test_locally_authored_catalog_validates_for_each_supported_version(
+    oscal_version: str,
+) -> None:
+    document = _catalog_document(oscal_version)
+
+    outcome = validate_catalog_bytes(_json_bytes(document))
+
+    assert outcome.result.valid, outcome.result.errors
+    assert outcome.result.declared_oscal_version == oscal_version
+    if oscal_version in JSON_SCHEMA_OSCAL_VERSIONS:
+        assert outcome.result.validator_name == "jsonschema"
+        assert outcome.result.validation_schema_version == f"OSCAL {oscal_version}"
+    else:
+        assert outcome.result.validator_name == "compliance-trestle"
+        assert outcome.result.validation_schema_version is None
+    assert outcome.document == document
+
+
+@pytest.mark.parametrize("model", list(OscalDocumentModel))
+@pytest.mark.parametrize("oscal_version", JSON_SCHEMA_OSCAL_VERSIONS)
+def test_schema_registry_selects_the_official_model_and_version(
+    model: OscalDocumentModel, oscal_version: str
+) -> None:
+    schema = load_oscal_schema(model, oscal_version)
+
+    assert schema["$id"] == (
+        f"http://csrc.nist.gov/ns/oscal/{oscal_version}/oscal-{model.value}-schema.json"
+    )
+
+
+def test_official_nist_sp_800_53_catalog_uses_its_declared_1_2_2_schema() -> None:
+    content = NIST_CATALOG_PATH.read_bytes()
+    source_document = json.loads(content)
+
+    outcome = validate_catalog_bytes(content)
+
+    assert outcome.result.valid, outcome.result.errors
+    assert outcome.result.declared_oscal_version == "1.2.2"
+    assert outcome.result.validation_schema_version == "OSCAL 1.2.2"
+    assert outcome.document == source_document
+    _, controls = project_catalog_indexes(outcome.document)
+    assert len(controls) == 1196
+
+
+def test_trestle_model_errors_are_reported_without_document_content() -> None:
     document = _catalog_document()
     document["catalog"]["metadata"]["oscal-version"] = "1.1.3"
     del document["catalog"]["groups"][0]["title"]
@@ -114,8 +166,8 @@ def test_oscal_1_1_3_schema_errors_are_reported_without_document_content() -> No
     outcome = validate_catalog_bytes(_json_bytes(document))
 
     assert not outcome.result.valid
-    assert outcome.result.validator_name == "jsonschema"
-    assert outcome.result.errors[0].code == "OSCAL_SCHEMA_INVALID"
+    assert outcome.result.validator_name == "compliance-trestle"
+    assert outcome.result.errors[0].code == "TRESTLE_MODEL_INVALID"
     assert outcome.result.errors[0].path is not None
     assert outcome.result.errors[0].diagnostic
     assert all("Example Security Catalog" not in error.message for error in outcome.result.errors)
@@ -177,25 +229,25 @@ def test_size_and_nesting_limits_are_enforced_before_validation() -> None:
         (lambda doc: doc.update({"profile": {}}), "UNSUPPORTED_DOCUMENT_TYPE"),
         (lambda doc: doc["catalog"]["metadata"].pop("oscal-version"), "MISSING_OSCAL_VERSION"),
         (
-            lambda doc: doc["catalog"]["metadata"].update({"oscal-version": "1.2.0"}),
+            lambda doc: doc["catalog"]["metadata"].update({"oscal-version": "1.9.0"}),
             "UNSUPPORTED_OSCAL_VERSION",
         ),
-        (lambda doc: doc["catalog"].pop("uuid"), "OSCAL_MODEL_INVALID"),
+        (lambda doc: doc["catalog"].pop("uuid"), "TRESTLE_MODEL_INVALID"),
         (
             lambda doc: doc["catalog"].update({"uuid": "not-a-uuid"}),
-            "OSCAL_MODEL_INVALID",
+            "TRESTLE_MODEL_INVALID",
         ),
         (
-            lambda doc: doc["catalog"]["groups"][0]["controls"][0].pop("title"),
-            "CATALOG_INDEX_INVALID",
+            lambda doc: doc["catalog"]["groups"][0]["groups"][0]["controls"][0].pop("title"),
+            "TRESTLE_MODEL_INVALID",
         ),
         (
             lambda doc: doc["catalog"]["metadata"].update({"last_modifed": "misspelled"}),
-            "OSCAL_MODEL_INVALID",
+            "TRESTLE_MODEL_INVALID",
         ),
         (
             lambda doc: doc["catalog"].update({"controls": "not-a-control-list"}),
-            "OSCAL_MODEL_INVALID",
+            "TRESTLE_MODEL_INVALID",
         ),
     ],
 )
@@ -213,12 +265,12 @@ def test_oscal_model_errors_are_specific_and_do_not_include_document_content(
 
 def test_duplicate_control_ids_are_rejected_with_a_document_path() -> None:
     document = _catalog_document()
-    document["catalog"]["groups"][0]["controls"][0]["controls"][0]["id"] = "ac-1"
+    document["catalog"]["groups"][0]["groups"][0]["controls"][0]["controls"][0]["id"] = "ac-1"
 
     outcome = validate_catalog_bytes(_json_bytes(document))
 
     assert outcome.result.errors[0].code == "DUPLICATE_CONTROL_ID"
-    assert outcome.result.errors[0].path == "/catalog/groups/0/controls/0/controls/0"
+    assert outcome.result.errors[0].path == "/catalog/groups/0/groups/0/controls/0/controls/0"
 
 
 def test_import_validation_failure_exposes_report_without_persisting() -> None:
@@ -226,7 +278,7 @@ def test_import_validation_failure_exposes_report_without_persisting() -> None:
     assert outcome.result.valid
 
     bad_document = _catalog_document()
-    bad_document["catalog"]["metadata"]["oscal-version"] = "1.1.2"
+    bad_document["catalog"]["metadata"]["oscal-version"] = "1.9.0"
     service = CatalogImportService(lambda: None)
     with pytest.raises(CatalogImportValidationError) as error:
         service.import_catalog(uuid4(), _json_bytes(bad_document))

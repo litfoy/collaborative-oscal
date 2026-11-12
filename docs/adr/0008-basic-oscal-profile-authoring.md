@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-10
+- **Superseded in part by:** [ADR 0012](0012-oscal-versioned-schemas.md)
 
 ## Context
 
@@ -18,7 +19,7 @@ tenant-scoped identities and indexed OSCAL control IDs.
   `include-controls` selections by OSCAL control ID. Validate that every selected
   ID exists in the exact referenced revision before create or update.
 - Keep OSCAL Profile construction and model validation within `packages/oscal`.
-  Support the repository's OSCAL 1.1.3 and 1.2.1 compatibility boundary.
+  At adoption, support the repository's OSCAL 1.1.3 and 1.2.1 compatibility boundary.
 - Require the existing tenant-scoped `catalog:write` permission for create and
   update; reads and exports require `catalog:read`.
 - Do not resolve Profiles or copy Catalog content into them. The browser UI supports

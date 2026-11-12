@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from collaborative_oscal_oscal.profile import validate_profile_document
 from fastapi.testclient import TestClient
 from sqlalchemy import event, text, update
 from sqlalchemy.exc import DBAPIError
@@ -26,6 +27,8 @@ pytestmark = pytest.mark.integration
 ISSUER = "https://identity.example.test/realms/test"
 EXAMPLES = Path(__file__).parents[3] / "examples" / "catalogs"
 FIXTURE = Path(__file__).parent / "fixtures" / "oscal_catalog.json"
+BSI_CATALOG = EXAMPLES / "Grundschutz++-resolved_catalog.json"
+NIST_CATALOG = Path(__file__).parent / "fixtures" / "NIST_SP-800-53_rev5_catalog-min.json"
 
 
 class _StubValidator:
@@ -361,6 +364,7 @@ def test_profiles_reference_catalogs_and_select_controls_without_mutating_source
     assert profile["catalog_id"] == str(world.security.catalog.id)
     assert profile["revision_id"] == str(world.security.revision.id)
     assert profile["description"] == "Annual review scope"
+    assert profile["oscal_version"] == "1.2.3"
     listed = client.get(profiles_path, headers=world.headers("alice"))
     assert listed.status_code == 200
     assert listed.json()["items"][0]["control_ids"] == ["ac-1", "ac-1.1"]
@@ -370,9 +374,8 @@ def test_profiles_reference_catalogs_and_select_controls_without_mutating_source
     assert exported_response.status_code == 200
     assert exported_response.headers["content-type"] == "application/json"
     exported = exported_response.json()
-    from trestle.oscal.profile import Model
-
-    Model.model_validate_json(exported_response.content, strict=True)
+    validate_profile_document(exported)
+    assert exported["profile"]["metadata"]["oscal-version"] == "1.2.3"
     assert exported["profile"]["metadata"]["title"] == "Access review profile"
     imported = exported["profile"]["imports"][0]
     assert imported["href"] == source_path
@@ -387,6 +390,7 @@ def test_profiles_reference_catalogs_and_select_controls_without_mutating_source
     updated_document = client.get(export_path, headers=world.headers("alice")).json()
     assert updated_document["profile"]["metadata"]["title"] == "Updated access profile"
     assert updated_document["profile"]["metadata"]["remarks"] == "Annual review scope"
+    assert updated_document["profile"]["metadata"]["oscal-version"] == "1.2.3"
     assert updated_document["profile"]["imports"][0]["include-controls"] == [{"with-ids": ["ac-2"]}]
 
     invalid_control = client.post(
@@ -454,6 +458,14 @@ def test_multi_import_profile_retains_provenance_and_implementation(client, worl
         ["ac-1"],
         unused["control_ids"],
     ]
+    updated = client.put(
+        profile_path,
+        headers=editor,
+        json={"title": "Multiple updated", "imports": profile["imports"]},
+    )
+    assert updated.status_code == 200
+    updated_export = client.get(profile_path + "/export", headers=reader).json()["profile"]
+    assert updated_export["metadata"]["oscal-version"] == "1.1.3"
     impl_path = f"/api/v1/tenants/{tenant}/implementations"
     impl = client.post(
         impl_path,
@@ -561,6 +573,67 @@ def test_multi_import_profile_retains_provenance_and_implementation(client, worl
                 .where(CatalogRevisionRecord.id == world.data.revision.id)
                 .values(content_sha256="0" * 64)
             )
+
+
+def test_official_nist_and_bsi_catalogs_compose_in_default_profile(client, world, session_factory):
+    tenant = world.tenant_a.id
+    editor = world.headers("editor")
+    reader = world.headers("alice")
+    catalog_path = f"/api/v1/tenants/{tenant}/catalogs"
+    imported_nist = client.post(
+        f"{catalog_path}/import",
+        headers={**editor, "Content-Type": "application/json"},
+        content=NIST_CATALOG.read_bytes(),
+    )
+    assert imported_nist.status_code == 200, imported_nist.text
+    nist = imported_nist.json()
+    assert nist["oscal_version"] == "1.2.2"
+
+    bsi = CatalogImportService(lambda: SQLAlchemyUnitOfWork(session_factory)).import_catalog(
+        tenant, BSI_CATALOG.read_bytes()
+    )
+    assert bsi.revision.oscal_version == "1.1.3"
+
+    selections = []
+    for catalog_id, revision_id in (
+        (nist["catalog_id"], nist["revision_id"]),
+        (str(bsi.catalog.id), str(bsi.revision.id)),
+    ):
+        browser = client.get(
+            f"{catalog_path}/{catalog_id}/revisions/{revision_id}/profile-browser",
+            headers=reader,
+        )
+        assert browser.status_code == 200
+        control_id = next(
+            node["id"] for node in browser.json()["nodes"] if node["kind"] == "control"
+        )
+        selections.append(
+            {
+                "catalog_id": catalog_id,
+                "revision_id": revision_id,
+                "control_ids": [control_id],
+            }
+        )
+
+    profiles_path = f"/api/v1/tenants/{tenant}/profiles"
+    created = client.post(
+        profiles_path,
+        headers=editor,
+        json={"title": "NIST and BSI requirements", "imports": selections},
+    )
+    assert created.status_code == 201, created.text
+    profile = created.json()
+    assert profile["oscal_version"] == "1.2.3"
+
+    exported = client.get(f"{profiles_path}/{profile['id']}/export", headers=reader)
+    assert exported.status_code == 200
+    document = exported.json()
+    validate_profile_document(document)
+    assert document["profile"]["metadata"]["oscal-version"] == "1.2.3"
+    assert [
+        item["include-controls"][0]["with-ids"]
+        for item in document["profile"]["imports"]
+    ] == [selection["control_ids"] for selection in selections]
 
 
 def test_new_profile_reference_locks_revision_against_concurrent_mutation(

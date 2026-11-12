@@ -1,4 +1,3 @@
-import json
 from uuid import uuid4
 
 import pytest
@@ -7,13 +6,13 @@ from collaborative_oscal_oscal.profile import (
     build_profile_document,
     validate_profile_document,
 )
+from collaborative_oscal_oscal.versions import DEFAULT_OSCAL_VERSION, OSCAL_VERSION_ORDER
 from pydantic import ValidationError
-from trestle.oscal.profile import Model
 
 from app.api.profile_schemas import ProfileCreateRequest
 
 
-@pytest.mark.parametrize("oscal_version", ["1.1.3", "1.2.1"])
+@pytest.mark.parametrize("oscal_version", OSCAL_VERSION_ORDER)
 def test_profile_document_is_valid_for_supported_oscal_versions(oscal_version: str) -> None:
     document = build_profile_document(
         profile_uuid=uuid4(),
@@ -24,11 +23,23 @@ def test_profile_document_is_valid_for_supported_oscal_versions(oscal_version: s
         description="Annual review scope",
     )
 
-    validated = Model.model_validate_json(json.dumps(document), strict=True)
-    assert validated.profile.imports[0].include_controls[0].with_ids == ["ac-1", "ac-2"]
+    validate_profile_document(document)
     assert document["profile"]["metadata"]["oscal-version"] == oscal_version
     assert document["profile"]["metadata"]["remarks"] == "Annual review scope"
     assert document["profile"]["imports"][0]["include-controls"] == [{"with-ids": ["ac-1", "ac-2"]}]
+
+
+def test_new_profile_document_defaults_to_oscal_1_2_3() -> None:
+    document = build_profile_document(
+        profile_uuid=uuid4(),
+        title="Selected controls",
+        catalog_href="/pinned-revision/export",
+        control_ids=["ac-1"],
+    )
+
+    assert DEFAULT_OSCAL_VERSION == "1.2.3"
+    assert document["profile"]["metadata"]["oscal-version"] == "1.2.3"
+    validate_profile_document(document)
 
 
 def test_profile_document_rejects_unsupported_oscal_versions() -> None:
@@ -77,7 +88,7 @@ def test_large_profile_selection_contract_has_an_explicit_bound() -> None:
         ProfileCreateRequest.model_validate({**request, "control_ids": ["same", "same"]})
 
 
-@pytest.mark.parametrize("oscal_version", ["1.1.3", "1.2.1"])
+@pytest.mark.parametrize("oscal_version", OSCAL_VERSION_ORDER)
 def test_multiple_imports_preserve_colliding_ids(oscal_version: str) -> None:
     document = build_profile_document(
         profile_uuid=uuid4(),
@@ -91,7 +102,7 @@ def test_multiple_imports_preserve_colliding_ids(oscal_version: str) -> None:
     ]
 
 
-@pytest.mark.parametrize("oscal_version", ["1.1.3", "1.2.1"])
+@pytest.mark.parametrize("oscal_version", OSCAL_VERSION_ORDER)
 def test_export_validation_rejects_fields_outside_declared_model(oscal_version: str) -> None:
     document = build_profile_document(
         profile_uuid=uuid4(),

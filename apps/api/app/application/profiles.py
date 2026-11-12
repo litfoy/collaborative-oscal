@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from collaborative_oscal_oscal.profile import build_profile_document
+from collaborative_oscal_oscal.versions import DEFAULT_OSCAL_VERSION
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -50,11 +51,13 @@ class ProfileService:
                     raise InvalidProfileSelection("A catalog source is required.")
                 imports = [ProfileImport(uuid4(), catalog_id, revision_id, list(control_ids))]
             self._validate_import_identities(session, imports, None)
-            revisions = self._validate_imports(session, tenant_id, imports)
+            self._validate_imports(session, tenant_id, imports)
             document = build_profile_document(
                 profile_uuid=uuid4(),
                 title=title,
-                oscal_version=oscal_version or revisions[0].oscal_version,
+                oscal_version=(
+                    DEFAULT_OSCAL_VERSION if oscal_version is None else oscal_version
+                ),
                 imports=[
                     (
                         self._catalog_href(tenant_id, item.catalog_id, item.revision_id),
@@ -175,19 +178,16 @@ class ProfileService:
     @staticmethod
     def _validate_imports(
         session: Session, tenant_id: UUID, imports: Sequence[ProfileImport]
-    ) -> list[CatalogRevisionRecord]:
+    ) -> None:
         if not imports or len({item.id for item in imports}) != len(imports):
             raise InvalidProfileSelection("Profile imports must have distinct identities.")
-        revisions: dict[UUID, CatalogRevisionRecord] = {}
         for item in sorted(imports, key=lambda source: source.revision_id):
-            revision = ProfileService._get_revision(
+            ProfileService._get_revision(
                 session, tenant_id, item.catalog_id, item.revision_id
             )
             ProfileService._validate_control_ids(
                 session, tenant_id, item.revision_id, item.control_ids
             )
-            revisions[item.revision_id] = revision
-        return [revisions[item.revision_id] for item in imports]
 
     @staticmethod
     def _get_revision(
