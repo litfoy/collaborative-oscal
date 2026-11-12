@@ -60,6 +60,30 @@ export interface Profile {
   updated_at: string;
 }
 
+export type ImplementationStatus = "not_started" | "in_progress" | "implemented" | "not_applicable";
+export interface Responsibility {
+  kind: "accountable" | "responsible" | "participant";
+  user_id: string | null;
+  role: string;
+}
+export interface Implementation {
+  id: string;
+  tenant_id: string;
+  organization_id: string | null;
+  profile_id: string | null;
+  catalog_id: string;
+  revision_id: string;
+  oscal_control_id: string;
+  description: string;
+  status: ImplementationStatus;
+  responsibilities: Responsibility[];
+  evidence_references: string[];
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProfileBrowserNode {
   key: string;
   parent_key: string | null;

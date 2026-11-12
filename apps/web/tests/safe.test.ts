@@ -101,6 +101,20 @@ describe("BFF allowlist", () => {
     expect(isAllowedBffRequest(profile, "DELETE")).toBe(false);
   });
 
+  it("allows only the register's explicit operations and filters", () => {
+    const records = ["tenants", UUID, "implementations"];
+    const record = [...records, UUID];
+    expect(isAllowedBffRequest(records, "GET")).toBe(true);
+    expect(isAllowedBffRequest(records, "POST")).toBe(true);
+    expect(isAllowedBffRequest(record, "PUT")).toBe(true);
+    expect(isAllowedBffRequest([...record, "control"], "GET")).toBe(true);
+    expect(isAllowedBffRequest([...record, "control"], "PUT")).toBe(false);
+    expect(isAllowedBffRequest(record, "DELETE")).toBe(false);
+    expect(isAllowedBffRequest(["tenants", UUID, "implementation-options"], "GET")).toBe(true);
+    expect(filterBffQuery(new URLSearchParams(`profile_id=${UUID}&tenant_scope=true&access_token=x`)).toString())
+      .toBe(`profile_id=${UUID}&tenant_scope=true`);
+  });
+
   it("drops unknown query parameters", () => {
     const filtered = filterBffQuery(new URLSearchParams("q=a&limit=5&access_token=x&x=1"));
     expect(filtered.toString()).toBe("q=a&limit=5");

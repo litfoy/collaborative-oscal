@@ -363,3 +363,94 @@ class ProfileRecord(Base):
     document: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ControlImplementationRecord(Base):
+    __tablename__ = "control_implementations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_implementations_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "catalog_id", "revision_id"],
+            ["catalog_revisions.tenant_id", "catalog_revisions.catalog_id", "catalog_revisions.id"],
+            name="fk_implementations_revision",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "revision_id", "oscal_control_id"],
+            [
+                "catalog_control_indexes.tenant_id",
+                "catalog_control_indexes.catalog_revision_id",
+                "catalog_control_indexes.oscal_control_id",
+            ],
+            name="fk_implementations_control",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "organization_id"],
+            ["organizations.tenant_id", "organizations.id"],
+            name="fk_implementations_organization",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "profile_id"],
+            ["profiles.tenant_id", "profiles.id"],
+            name="fk_implementations_profile",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(["created_by"], ["user_identities.id"], ondelete="RESTRICT"),
+        ForeignKeyConstraint(["updated_by"], ["user_identities.id"], ondelete="RESTRICT"),
+        CheckConstraint(
+            "status IN ('not_started', 'in_progress', 'implemented', 'not_applicable')",
+            name="ck_implementations_status",
+        ),
+        Index("ix_implementations_tenant_profile", "tenant_id", "profile_id"),
+        Index("ix_implementations_tenant_organization", "tenant_id", "organization_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    organization_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    profile_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    catalog_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    revision_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    oscal_control_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    evidence_references: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    created_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    updated_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ImplementationResponsibilityRecord(Base):
+    __tablename__ = "implementation_responsibilities"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "implementation_id"],
+            ["control_implementations.tenant_id", "control_implementations.id"],
+            name="fk_responsibilities_implementation",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "user_id"],
+            ["tenant_memberships.tenant_id", "tenant_memberships.user_id"],
+            name="fk_responsibilities_membership",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "kind IN ('accountable', 'responsible', 'participant')",
+            name="ck_responsibilities_kind",
+        ),
+        UniqueConstraint(
+            "implementation_id", "kind", "user_id", "role",
+            name="uq_implementation_responsibility",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    implementation_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    user_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    role: Mapped[str] = mapped_column(String(255), nullable=False)

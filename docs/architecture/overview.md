@@ -2,9 +2,9 @@
 
 ## System overview
 
-The initial system is a self-hostable modular monolith with a Next.js/React/TypeScript browser application, a Python/FastAPI/Pydantic API, and PostgreSQL. The API exposes public health, protected identity and tenant endpoints, read-only tenant-scoped Catalog Explorer endpoints, and basic tenant-scoped Profile authoring. It does not connect to the database during health checks or startup. A future worker belongs in the same deployment boundary until workload and operational evidence justify separation.
+The initial system is a self-hostable modular monolith with a Next.js/React/TypeScript browser application, a Python/FastAPI/Pydantic API, and PostgreSQL. The API exposes public health, protected identity and tenant endpoints, read-only tenant-scoped Catalog Explorer endpoints, basic tenant-scoped Profile authoring, and a control implementation register. It does not connect to the database during health checks or startup. A future worker belongs in the same deployment boundary until workload and operational evidence justify separation.
 
-Catalog and Profile APIs are user-facing, but broader GRC functionality is not implemented. Catalog import remains an internal application service; catalog editing, Profile resolution, control mapping, workflow, evidence management, and continuous compliance are future work.
+Catalog and Profile APIs and basic implementation tracking are user-facing, but broader GRC functionality is not implemented. Catalog import remains an internal application service; catalog editing, Profile resolution, control mapping, workflow, evidence file management, assessments, and continuous compliance are future work. See [ADR 0009](../adr/0009-revision-safe-control-implementations.md).
 
 ## Module boundaries
 

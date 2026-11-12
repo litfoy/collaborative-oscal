@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import event, update
+from sqlalchemy.exc import DBAPIError
 
 from app.api import dependencies
 from app.application.authorization import ROLE_PERMISSIONS
@@ -423,6 +424,225 @@ def test_control_search_and_listing(client, world) -> None:
     assert wildcard["total"] == 0
     page = client.get(path + "?limit=2&offset=2", headers=headers).json()
     assert page["total"] == 6 and len(page["items"]) == 2
+
+
+def test_implementation_register_preserves_original_revision_and_scope(
+    client, world, session_factory, grc_service
+) -> None:
+    tenant = world.tenant_a.id
+    organization = grc_service.create_organization(tenant, "Operations", f"ops-{uuid4().hex}")
+    path = f"/api/v1/tenants/{tenant}/implementations"
+    profiles = f"/api/v1/tenants/{tenant}/profiles"
+    editor = world.headers("editor")
+    reader = world.headers("alice")
+    source_path = _revision_path(world) + "/export"
+    original = client.get(source_path, headers=reader).json()
+    profile = client.post(
+        profiles,
+        headers=editor,
+        json={
+            "catalog_id": str(world.security.catalog.id),
+            "revision_id": str(world.security.revision.id),
+            "title": "Implementation baseline",
+            "control_ids": ["ac-1", "ac-2"],
+        },
+    ).json()
+    payload = {
+        "catalog_id": str(world.security.catalog.id),
+        "revision_id": str(world.security.revision.id),
+        "oscal_control_id": "ac-1",
+        "profile_id": profile["id"],
+        "description": "Original implementation",
+        "status": "in_progress",
+        "evidence_references": ["document:policy"],
+        "responsibilities": [
+            {
+                "kind": "accountable",
+                "user_id": str(world.identity_ids["editor"]),
+                "role": "Owner",
+            }
+        ],
+    }
+    assert client.post(path, headers=reader, json=payload).status_code == 403
+    first_response = client.post(path, headers=editor, json=payload)
+    assert first_response.status_code == 201, first_response.text
+    first = first_response.json()
+    assert client.put(f"{path}/{first['id']}", headers=editor, json={}).status_code == 422
+    second_response = client.post(
+        path,
+        headers=editor,
+        json={
+            **payload,
+            "organization_id": str(organization.id),
+            "description": "Organization-specific",
+        },
+    )
+    assert second_response.status_code == 201, second_response.text
+    second = second_response.json()
+    assert first["id"] != second["id"]
+    assert (
+        client.get(path, headers=reader, params={"organization_id": str(organization.id)}).json()[
+            "items"
+        ][0]["id"]
+        == second["id"]
+    )
+    assert (
+        client.get(path, headers=reader, params={"tenant_scope": "true"}).json()["items"][0]["id"]
+        == first["id"]
+    )
+    changed = {
+        "description": "Updated implementation",
+        "status": "implemented",
+        "evidence_references": ["document:policy", "document:review"],
+        "responsibilities": [
+            {"kind": "responsible", "user_id": str(world.identity_ids["alice"]), "role": ""},
+            {"kind": "participant", "user_id": None, "role": "Security team"},
+        ],
+    }
+    updated = client.put(f"{path}/{first['id']}", headers=editor, json=changed)
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["responsibilities"] == changed["responsibilities"]
+    assert client.get(f"{path}/{second['id']}", headers=reader).json()["description"] == (
+        "Organization-specific"
+    )
+    assert client.get(source_path, headers=reader).json() == original
+    with pytest.raises(DBAPIError, match="referenced by implementations are immutable"):
+        with session_factory.begin() as session:
+            session.execute(
+                update(CatalogRevisionRecord)
+                .where(CatalogRevisionRecord.id == world.security.revision.id)
+                .values(content_sha256="0" * 64)
+            )
+
+    document = json.loads((EXAMPLES / "sample-security-practices.json").read_text())
+    document["catalog"]["metadata"]["version"] = "2.0.0"
+    document["catalog"]["groups"][0]["controls"][0]["title"] = "Changed requirement"
+    new_revision = CatalogImportService(
+        lambda: SQLAlchemyUnitOfWork(session_factory)
+    ).import_catalog(
+        tenant, json.dumps(document).encode(), target_catalog_id=world.security.catalog.id
+    )
+    new_profile = client.post(
+        profiles,
+        headers=editor,
+        json={
+            "catalog_id": str(world.security.catalog.id),
+            "revision_id": str(new_revision.revision.id),
+            "title": "Updated baseline",
+            "control_ids": ["ac-1"],
+        },
+    ).json()
+    assert (
+        client.get(path, headers=reader, params={"profile_id": new_profile["id"]}).json()["items"]
+        == []
+    )
+    after = client.get(f"{path}/{first['id']}", headers=reader).json()
+    assert after["revision_id"] == str(world.security.revision.id)
+    assert after["evidence_references"] == changed["evidence_references"]
+    assert sorted(after["responsibilities"], key=lambda r: r["kind"]) == sorted(
+        changed["responsibilities"], key=lambda r: r["kind"]
+    )
+    control = client.get(f"{path}/{first['id']}/control", headers=reader).json()
+    assert control["title"] == "Access Policy"
+    assert control["reference"]["revision_id"] == str(world.security.revision.id)
+    assert (
+        client.put(
+            f"{profiles}/{profile['id']}",
+            headers=editor,
+            json={
+                "title": "Changed selection",
+                "control_ids": ["ac-2"],
+            },
+        ).status_code
+        == 200
+    )
+    assert (
+        client.get(path, headers=reader, params={"profile_id": profile["id"]}).json()["total"] == 2
+    )
+    assert client.get(source_path, headers=reader).json() == original
+    world._membership("alice", tenant, "viewer", "inactive")
+    retained = client.put(f"{path}/{first['id']}", headers=editor, json=changed)
+    assert retained.status_code == 200
+    reassigned = {
+        **changed,
+        "responsibilities": [
+            {"kind": "accountable", "user_id": str(world.identity_ids["alice"]), "role": ""}
+        ],
+    }
+    assert client.put(f"{path}/{first['id']}", headers=editor, json=reassigned).status_code == 422
+
+
+def test_implementation_rejects_missing_foreign_and_unselected_references(
+    client, world, grc_service
+) -> None:
+    tenant = world.tenant_a.id
+    path = f"/api/v1/tenants/{tenant}/implementations"
+    editor = world.headers("editor")
+    profile = client.post(
+        f"/api/v1/tenants/{tenant}/profiles",
+        headers=editor,
+        json={
+            "catalog_id": str(world.security.catalog.id),
+            "revision_id": str(world.security.revision.id),
+            "title": "Baseline",
+            "control_ids": ["ac-1"],
+        },
+    ).json()
+    base = {
+        "catalog_id": str(world.security.catalog.id),
+        "revision_id": str(world.security.revision.id),
+        "profile_id": profile["id"],
+        "oscal_control_id": "ac-1",
+    }
+    assert (
+        client.post(path, headers=editor, json={**base, "oscal_control_id": "missing"}).status_code
+        == 404
+    )
+    assert (
+        client.post(path, headers=editor, json={**base, "oscal_control_id": "ac-2"}).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            path,
+            headers=editor,
+            json={
+                **base,
+                "catalog_id": str(world.foreign.catalog.id),
+                "revision_id": str(world.foreign.revision.id),
+            },
+        ).status_code
+        == 404
+    )
+    foreign_org = grc_service.create_organization(
+        world.tenant_b.id, "Foreign", f"org-{uuid4().hex}"
+    )
+    assert (
+        client.post(
+            path,
+            headers=editor,
+            json={
+                **base,
+                "organization_id": str(foreign_org.id),
+            },
+        ).status_code
+        == 404
+    )
+    for user in ("bob", "carol"):
+        assert (
+            client.post(
+                path,
+                headers=editor,
+                json={
+                    **base,
+                    "responsibilities": [
+                        {"kind": "responsible", "user_id": str(world.identity_ids[user])}
+                    ],
+                },
+            ).status_code
+            == 422
+        )
+    assert client.get(path, headers=world.headers("bob")).status_code == 403
 
 
 def test_control_detail_preserves_oscal_semantics(client, world) -> None:

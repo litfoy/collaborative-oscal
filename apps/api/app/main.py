@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.catalog_routes import router as catalog_router
+from app.api.implementation_routes import router as implementation_router
 from app.api.profile_routes import router as profile_router
 from app.api.routes import router as api_router
 from app.config import get_settings
@@ -23,6 +24,7 @@ app.add_middleware(
 app.include_router(api_router)
 app.include_router(catalog_router)
 app.include_router(profile_router)
+app.include_router(implementation_router)
 
 
 @app.get("/health", tags=["health"])

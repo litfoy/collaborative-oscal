@@ -13,11 +13,16 @@ const READ_PATHS = [
   new RegExp(`^tenants/${UUID}/profiles$`),
   new RegExp(`^tenants/${UUID}/profiles/${UUID}$`),
   new RegExp(`^tenants/${UUID}/profiles/${UUID}/export$`),
+  new RegExp(`^tenants/${UUID}/implementation-options$`),
+  new RegExp(`^tenants/${UUID}/implementations$`),
+  new RegExp(`^tenants/${UUID}/implementations/${UUID}(/control)?$`),
 ];
 const CREATE_PROFILE = new RegExp(`^tenants/${UUID}/profiles$`);
 const UPDATE_PROFILE = new RegExp(`^tenants/${UUID}/profiles/${UUID}$`);
+const CREATE_IMPLEMENTATION = new RegExp(`^tenants/${UUID}/implementations$`);
+const UPDATE_IMPLEMENTATION = new RegExp(`^tenants/${UUID}/implementations/${UUID}$`);
 
-const ALLOWED_QUERY = new Set(["q", "limit", "offset", "parent_kind", "parent_id", "lifecycle_status"]);
+const ALLOWED_QUERY = new Set(["q", "limit", "offset", "parent_kind", "parent_id", "lifecycle_status", "profile_id", "organization_id", "tenant_scope"]);
 
 export function isAllowedBffPath(segments: string[]): boolean {
   if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return false;
@@ -29,8 +34,8 @@ export function isAllowedBffRequest(segments: string[], method: string): boolean
   if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return false;
   const path = segments.join("/");
   if (method === "GET") return isAllowedBffPath(segments);
-  if (method === "POST") return CREATE_PROFILE.test(path);
-  if (method === "PUT") return UPDATE_PROFILE.test(path);
+  if (method === "POST") return CREATE_PROFILE.test(path) || CREATE_IMPLEMENTATION.test(path);
+  if (method === "PUT") return UPDATE_PROFILE.test(path) || UPDATE_IMPLEMENTATION.test(path);
   return false;
 }
 

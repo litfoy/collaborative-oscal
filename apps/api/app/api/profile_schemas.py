@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
+from collaborative_oscal_oscal.profile import selected_control_ids
 from pydantic import BaseModel, Field, field_validator
 
 from app.domain.profiles.models import Profile
@@ -75,9 +76,7 @@ class ProfileResponse(BaseModel):
             revision_id=profile.revision_id,
             title=profile.title,
             description=profile.document["profile"]["metadata"].get("remarks", ""),
-            control_ids=profile.document["profile"]["imports"][0]["include-controls"][0][
-                "with-ids"
-            ],
+            control_ids=selected_control_ids(profile.document),
             created_at=profile.created_at,
             updated_at=profile.updated_at,
         )

@@ -15,6 +15,11 @@ class ProfileDocumentValidationError(ValueError):
     pass
 
 
+def selected_control_ids(document: dict) -> list[str]:
+    """Read the explicit selections from a Profile created by this application."""
+    return list(document["profile"]["imports"][0]["include-controls"][0]["with-ids"])
+
+
 def build_profile_document(
     *,
     profile_uuid: UUID,

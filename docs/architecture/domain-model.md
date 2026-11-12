@@ -34,6 +34,11 @@ are not implemented.
 - A **Profile** belongs to one tenant and references an exact catalog revision.
   Its separate OSCAL JSONB document contains `imports` and `include-controls`
   selections by OSCAL control ID; the source catalog is neither copied nor changed.
+- A **ControlImplementation** has an independent UUID, tenant or organization
+  scope, an optional originating Profile, and a pinned catalog/revision/control
+  reference. Its editable status, description, evidence references, and
+  responsibilities are operational data, not catalog content or assessment results.
+  See [ADR 0009](../adr/0009-revision-safe-control-implementations.md).
 
 ```mermaid
 erDiagram
@@ -167,9 +172,10 @@ claim exhaustive NIST Metaschema semantic coverage. See
 Basic Profile creation, editing, and OSCAL JSON export are implemented. Profiles
 retain a stable reference to the source catalog revision and select controls using
 their OSCAL IDs. Profile resolution and catalog composition are not implemented.
-Future domains are documented but not implemented: **Control Mappings** will relate
+The implementation register preserves its original source reference when a Profile
+selection changes or a new revision arrives. Future domains are documented but not implemented: **Control Mappings** will relate
 controls across revisions without replacing their source artifacts; **Assets and Systems**, **Control
-Implementations**, **Risks**, **Assessments**, **Evidence**, **Collaboration**,
+Risks**, **Assessments**, **Evidence**, **Collaboration**,
 **Workflows**, **Automation**, and **AI Governance** will each own their own domain
 rules and tenant-scoped persistence. They should reference stable catalog/revision
 and control-index identities as appropriate, not copy or flatten OSCAL documents.

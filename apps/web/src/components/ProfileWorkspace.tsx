@@ -9,6 +9,7 @@ import { inBranch, indexBrowser, matchesProperties, MAX_PROFILE_CONTROLS, proper
 import type { ControlDetail, Profile, ProfileBrowserNode, RevisionDetail } from "@/lib/types";
 
 import { ControlDetailView } from "./ControlDetailView";
+import { ImplementationRegister } from "./ImplementationRegister";
 
 const PAGE_SIZE = 50;
 const PREVIEW_PARAMETERS = new Map<string, string>();
@@ -54,6 +55,7 @@ export function ProfileWorkspace({
   const [active, setActive] = useState<string | null>(null);
   const [detailFocusRequest, setDetailFocusRequest] = useState(0);
   const [page, setPage] = useState(0);
+  const [register, setRegister] = useState<{ controlId: string | null } | null>(null);
   const base = `tenants/${tenantId}/catalogs/${initialProfile.catalog_id}/revisions/${initialProfile.revision_id}`;
   const dirty = saved
     ? title !== saved.title || description !== (saved.description ?? "") ||
@@ -243,6 +245,9 @@ export function ProfileWorkspace({
     </ul>;
   }
 
+  if (register && saved) return <ImplementationRegister tenantId={tenantId} profile={saved}
+    canWrite={canWrite} initialControlId={register.controlId} onBack={() => setRegister(null)} />;
+
   return (
     <div className="profile-workspace">
       <header className="panel profile-workspace-header">
@@ -256,6 +261,8 @@ export function ProfileWorkspace({
           {canWrite ? <button type="button" disabled={busy || !data || !title.trim() || selected.size === 0 || unknownIds.length > 0}
             onClick={() => void save()}>{busy ? "Saving…" : "Save profile"}</button> : null}
           {saved && !dirty && !busy ? <a className="button secondary" href={`/bff/tenants/${tenantId}/profiles/${saved.id}/export`}>Export OSCAL JSON</a> : <span className="muted">Save changes before exporting.</span>}
+          {saved && !dirty && !busy ? <button type="button" className="secondary"
+            onClick={() => setRegister({ controlId: null })}>Implementation register</button> : null}
         </div>
         <p className="workspace-source">{catalogName} · {data ? `Pinned revision ${data.revision.revision_number} · OSCAL ${data.revision.oscal_version}` : "Pinned revision"} · <span className="mono">{initialProfile.revision_id}</span></p>
         <div className="workspace-tabs" role="tablist" aria-label="Profile workspace views">
@@ -303,6 +310,8 @@ export function ProfileWorkspace({
           <h3>{group.title}</h3>
           <ul className="result-list">{group.nodes.map((node) => <li key={node.key} className="selection-row">
             <button type="button" onClick={() => navigateTo(node)}><span className="mono">{node.id}</span> {node.title}</button>
+            {saved && !dirty && node.id ? <button type="button" className="secondary"
+              onClick={() => setRegister({ controlId: node.id })}>Implement {node.id}</button> : null}
             <button type="button" className="secondary" disabled={!canWrite || busy} aria-label={`Remove ${node.id}`} onClick={() => changeSelection([node], false)}>Remove</button>
           </li>)}</ul>
         </section>)}
