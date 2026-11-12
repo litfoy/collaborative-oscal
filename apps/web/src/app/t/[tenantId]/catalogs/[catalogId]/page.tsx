@@ -2,7 +2,7 @@ import { ApiProblem } from "@/components/ApiProblem";
 import { ControlBrowser } from "@/components/ControlBrowser";
 import { getCatalog, getControl, getOutline, getRevision, listRevisions } from "@/lib/api";
 import { ApiError } from "@/lib/errors";
-import { classifyHref, isOscalId } from "@/lib/safe";
+import { classifyHref, isOscalId, isUuid } from "@/lib/safe";
 import type { ControlDetail } from "@/lib/types";
 
 export default async function CatalogPage({
@@ -76,6 +76,9 @@ export default async function CatalogPage({
           <div className="field">
             <label htmlFor="revision-select">Revision</label>
             <select id="revision-select" name="revision" defaultValue={selected.id}>
+              {!revisions.items.some((item) => item.id === selected.id) ? (
+                <option value={selected.id}>Revision {selected.revision_number} — {selected.lifecycle_status}</option>
+              ) : null}
               {revisions.items.map((item) => (
                 <option key={item.id} value={item.id}>
                   Revision {item.revision_number}
@@ -143,12 +146,22 @@ async function load(
       getCatalog(tenantId, catalogId, here),
       listRevisions(tenantId, catalogId, here),
     ]);
-    const selected = revisions.items.find((item) => item.id === revisionParam) ?? revisions.items[0];
+    let selected = revisions.items.find((item) => item.id === revisionParam);
+    let requestedRevision = null;
+    if (!selected && revisionParam && isUuid(revisionParam)) {
+      try {
+        requestedRevision = await getRevision(tenantId, catalogId, revisionParam, here);
+        selected = requestedRevision;
+      } catch (error) {
+        if (!(error instanceof ApiError && error.kind === "not_found")) throw error;
+      }
+    }
+    selected ??= revisions.items[0];
     if (!selected) {
       return { ok: true as const, catalog, revisions, selected: null, revision: null, root: null, initialControl: null };
     }
     const [revision, root] = await Promise.all([
-      getRevision(tenantId, catalogId, selected.id, here),
+      requestedRevision ?? getRevision(tenantId, catalogId, selected.id, here),
       getOutline(tenantId, catalogId, selected.id, here),
     ]);
 

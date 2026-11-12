@@ -3,11 +3,12 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { backendFetch } from "@/lib/api";
 import { getConfig } from "@/lib/config";
-import { filterBffQuery, isAllowedBffPath, isAllowedBffRequest } from "@/lib/bff-allowlist";
+import { filterBffQuery, isAllowedBffPath, isAllowedBffRequest, isCatalogImportPath } from "@/lib/bff-allowlist";
 import { readSession } from "@/lib/session";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 const MAX_PROFILE_BODY_BYTES = 3 * 1024 * 1024;
+const MAX_CATALOG_BODY_BYTES = 100 * 1024 * 1024;
 
 function json(body: unknown, status: number): NextResponse {
   return NextResponse.json(body, { status, headers: NO_STORE });
@@ -65,11 +66,13 @@ async function mutate(
   if (rejectCrossSite(request)) return json({ error: "forbidden" }, 403);
   const { path } = await context.params;
   if (!isAllowedBffRequest(path, method)) return json({ error: "not_found" }, 404);
+  const isImport = method === "POST" && isCatalogImportPath(path);
+  const maxBytes = isImport ? MAX_CATALOG_BODY_BYTES : MAX_PROFILE_BODY_BYTES;
   if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
     return json({ error: "invalid_content_type" }, 415);
   }
   const declaredLength = Number(request.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_PROFILE_BODY_BYTES) return json({ error: "request_too_large" }, 413);
+  if (declaredLength > maxBytes) return json({ error: "request_too_large" }, 413);
 
   const session = await readSession(await cookies());
   if (!session || session.accessTokenExpiresAt <= Math.floor(Date.now() / 1000)) {
@@ -88,7 +91,7 @@ async function mutate(
     }
     if (result.done) break;
     totalBytes += result.value.byteLength;
-    if (totalBytes > MAX_PROFILE_BODY_BYTES) {
+    if (totalBytes > maxBytes) {
       await reader.cancel();
       return json({ error: "request_too_large" }, 413);
     }
@@ -100,11 +103,14 @@ async function mutate(
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  const body = new TextDecoder().decode(bytes);
-  try {
-    JSON.parse(body);
-  } catch {
-    return json({ error: "invalid_json" }, 400);
+  let body: string | Uint8Array<ArrayBuffer> = bytes;
+  if (!isImport) {
+    body = new TextDecoder().decode(bytes);
+    try {
+      JSON.parse(body);
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
   }
 
   let upstream: Response;
@@ -113,7 +119,7 @@ async function mutate(
       session,
       `/api/v1/${path.join("/")}`,
       undefined,
-      { method, body },
+      isImport ? { method, body, timeoutMs: 120_000 } : { method, body },
     );
   } catch {
     return json({ error: "unavailable" }, 503);

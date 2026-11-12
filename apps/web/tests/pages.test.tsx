@@ -30,7 +30,10 @@ vi.mock("@/lib/api", () => ({
   getOutline: mocks.getOutline,
   getControl: mocks.getControl,
 }));
-vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
+vi.mock("next/navigation", () => ({
+  redirect: mocks.redirect,
+  useRouter: () => ({ refresh: vi.fn(), replace: vi.fn() }),
+}));
 
 import HomePage from "@/app/page";
 import CatalogPage from "@/app/t/[tenantId]/catalogs/[catalogId]/page";
@@ -44,6 +47,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getSession.mockResolvedValue(session);
   mocks.requireSession.mockResolvedValue(session);
+  mocks.listTenants.mockResolvedValue({ items: [tenant(TENANT, "Alpha")] });
 });
 
 describe("home / tenant selection", () => {
@@ -142,6 +146,16 @@ describe("catalog overview", () => {
     render(await CatalogsPage({ params, searchParams: Promise.resolve({}) }));
     expect(screen.getByRole("alert")).toHaveTextContent(/Access denied/);
   });
+
+  it("only offers import to members with catalog import permission", async () => {
+    mocks.listCatalogs.mockResolvedValue(page([]));
+    const { unmount } = render(await CatalogsPage({ params, searchParams: Promise.resolve({}) }));
+    expect(screen.queryByRole("button", { name: "Import catalog" })).not.toBeInTheDocument();
+    unmount();
+    mocks.listTenants.mockResolvedValue({ items: [{ ...tenant(TENANT, "Alpha"), permissions: ["catalog:read", "catalog:import"] }] });
+    render(await CatalogsPage({ params, searchParams: Promise.resolve({}) }));
+    expect(screen.getByRole("button", { name: "Import catalog" })).toBeInTheDocument();
+  });
 });
 
 describe("catalog details", () => {
@@ -174,6 +188,13 @@ describe("catalog details", () => {
     expect(mocks.getRevision).toHaveBeenLastCalledWith(TENANT, CATALOG, REVISION, expect.any(String));
     render(await CatalogPage({ params, searchParams: Promise.resolve({ revision: "unknown" }) }));
     expect(mocks.getRevision).toHaveBeenLastCalledWith(TENANT, CATALOG, "rev-2", expect.any(String));
+  });
+
+  it("opens a requested revision outside the first page of history", async () => {
+    mocks.listRevisions.mockResolvedValue(page([second]));
+    render(await CatalogPage({ params, searchParams: Promise.resolve({ revision: REVISION }) }));
+    expect(mocks.getRevision).toHaveBeenCalledWith(TENANT, CATALOG, REVISION, expect.any(String));
+    expect(screen.getByLabelText("Revision")).toHaveValue(REVISION);
   });
 
   it("preloads a deep-linked control and tolerates a missing one", async () => {

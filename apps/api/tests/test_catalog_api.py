@@ -163,6 +163,50 @@ def test_catalog_read_permission_is_required(client, world, monkeypatch) -> None
     assert client.get("/api/v1/tenants", headers=world.headers("alice")).status_code == 200
 
 
+def test_catalog_import_http_authorization_and_revisions(client, world) -> None:
+    base = _base(world.tenant_a.id)
+    content = (EXAMPLES / "sample-security-practices.json").read_bytes()
+    headers = {**world.headers("editor"), "Content-Type": "application/json"}
+    assert client.post(f"{base}/import", content=content).status_code == 401
+    assert client.post(
+        f"{base}/import", content=content, headers=world.headers("alice")
+    ).status_code == 403
+    foreign = client.post(
+        f"{base}/{world.foreign.catalog.id}/import", content=content, headers=headers
+    )
+    assert foreign.status_code == 404
+
+    created = client.post(f"{base}/import", content=content, headers=headers)
+    assert created.status_code == 200
+    result = created.json()
+    assert result["created"] is True
+    assert result["catalog_name"] == "Collaborative OSCAL Sample Security Practices"
+    duplicate = client.post(
+        f"{base}/{result['catalog_id']}/import", content=content, headers=headers
+    )
+    assert duplicate.json()["created"] is False
+    assert duplicate.json()["revision_id"] == result["revision_id"]
+    assert client.get(f"{base}/{result['catalog_id']}", headers=headers).status_code == 200
+    modified = json.loads(content)
+    modified["catalog"]["metadata"]["version"] = "new-source-version"
+    revision = client.post(
+        f"{base}/{result['catalog_id']}/import", json=modified, headers=headers
+    )
+    assert revision.status_code == 200
+    assert revision.json()["created"] is True
+    assert revision.json()["revision_number"] == 2
+    assert revision.json()["revision_id"] != result["revision_id"]
+    listing = client.get(base, headers=headers).json()
+    assert any(item["id"] == result["catalog_id"] for item in listing["items"])
+
+    invalid = client.post(f"{base}/import", content=b"{", headers=headers)
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"]["errors"]
+    assert client.post(
+        f"{base}/import", content=content, headers=world.headers("editor")
+    ).status_code == 415
+
+
 def test_catalog_listing_pagination_and_search(client, world) -> None:
     headers = world.headers("alice")
     listing = client.get(_base(world.tenant_a.id), headers=headers).json()

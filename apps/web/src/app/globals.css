@@ -216,6 +216,13 @@ textarea {
   resize: vertical;
   min-width: 100%;
 }
+.catalog-import {
+  margin: 1rem 0;
+  max-width: 46rem;
+}
+.import-meta-row {
+  display: contents;
+}
 .profile-list {
   list-style: none;
   padding: 0;

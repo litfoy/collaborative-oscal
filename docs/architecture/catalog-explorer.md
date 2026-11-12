@@ -1,6 +1,6 @@
 # Catalog Explorer
 
-The browser Catalog Explorer is a read-only workspace for browsing tenant catalogs,
+The browser Catalog Explorer supports catalog import and read-only browsing of tenant catalogs,
 revisions, control hierarchies and control details. The API also supports basic
 tenant-scoped Profile authoring. See
 [ADR 0007](../adr/0007-browser-bff-and-catalog-explorer.md) for decisions.
@@ -45,8 +45,8 @@ sequenceDiagram
 
 - `apps/web/src/lib`: configuration, encrypted session, OIDC (openid-client),
   typed backend client. `src/proxy.ts` refreshes or clears sessions.
-- `apps/web/src/app/auth/*`: login, callback, logout. `app/bff/[...path]`: GET-only
-  allowlisted proxy for client-side lazy loading.
+- `apps/web/src/app/auth/*`: login, callback, logout. `app/bff/[...path]`: allowlisted
+  proxy for client-side reads and authorized writes.
 - `apps/web/src/app/t/[tenantId]/…`: server components. The layout re-checks
   tenant membership through `GET /api/v1/tenants`; the URL is never trusted.
 - `ControlBrowser` (client component) is an ARIA tree with lazy outline loading,
@@ -63,6 +63,8 @@ All paths are prefixed with `/api/v1` and require a bearer access token.
 | --- | --- |
 | `GET /tenants` | Tenants with active membership only |
 | `GET /tenants/{t}/catalogs?q&limit&offset` | Paginated, ordered by name then ID |
+| `POST /tenants/{t}/catalogs/import` | Import JSON as a new catalog (`catalog:import`) |
+| `POST /tenants/{t}/catalogs/{c}/import` | Import JSON as a revision, or return an existing identical revision (`catalog:import`) |
 | `GET …/catalogs/{c}` | Metadata, latest revision, revision count |
 | `GET …/catalogs/{c}/revisions?lifecycle_status` | Newest first |
 | `GET …/revisions/{r}` | Revision metadata, counts, source document info |
@@ -102,7 +104,7 @@ and stored as profile metadata remarks. See ADR 0008 for selection semantics.
 
 1. `docker compose -f infrastructure/docker/compose.yaml up -d db`; migrate with
    `uv run alembic -c ../../alembic.ini upgrade head` (from `apps/api`).
-2. Create a tenant and import samples (no public import endpoint exists):
+2. Create a tenant and optionally import samples from the CLI:
 
    ```bash
    cd apps/api

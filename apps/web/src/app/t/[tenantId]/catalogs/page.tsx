@@ -1,5 +1,6 @@
 import { ApiProblem } from "@/components/ApiProblem";
-import { listCatalogs } from "@/lib/api";
+import { CatalogImport } from "@/components/CatalogImport";
+import { listCatalogs, listTenants } from "@/lib/api";
 import type { Catalog } from "@/lib/types";
 
 const PAGE_SIZE = 12;
@@ -51,12 +52,14 @@ export default async function CatalogsPage({
   const here = `/t/${tenantId}/catalogs`;
 
   let result;
+  let canImport;
   try {
-    result = await listCatalogs(
-      tenantId,
-      { q: term, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE },
-      here,
-    );
+    const [catalogs, tenants] = await Promise.all([
+      listCatalogs(tenantId, { q: term, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }, here),
+      listTenants(here),
+    ]);
+    result = catalogs;
+    canImport = tenants.items.some((tenant) => tenant.id === tenantId && tenant.permissions.includes("catalog:import"));
   } catch (error) {
     return <ApiProblem error={error} />;
   }
@@ -72,6 +75,7 @@ export default async function CatalogsPage({
         Control catalogs available in this workspace. Catalog sources may carry their own licence
         terms.
       </p>
+      {canImport ? <CatalogImport tenantId={tenantId} /> : null}
       <form role="search" method="get" className="search-form">
         <div className="field">
           <label htmlFor="catalog-q">Search catalogs</label>

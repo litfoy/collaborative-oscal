@@ -21,6 +21,11 @@ const CREATE_PROFILE = new RegExp(`^tenants/${UUID}/profiles$`);
 const UPDATE_PROFILE = new RegExp(`^tenants/${UUID}/profiles/${UUID}$`);
 const CREATE_IMPLEMENTATION = new RegExp(`^tenants/${UUID}/implementations$`);
 const UPDATE_IMPLEMENTATION = new RegExp(`^tenants/${UUID}/implementations/${UUID}$`);
+const IMPORT_CATALOG = new RegExp(`^tenants/${UUID}/catalogs(?:/${UUID})?/import$`);
+
+export function isCatalogImportPath(segments: string[]): boolean {
+  return IMPORT_CATALOG.test(segments.join("/"));
+}
 
 const ALLOWED_QUERY = new Set(["q", "limit", "offset", "parent_kind", "parent_id", "lifecycle_status", "profile_id", "organization_id", "tenant_scope"]);
 
@@ -34,7 +39,7 @@ export function isAllowedBffRequest(segments: string[], method: string): boolean
   if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return false;
   const path = segments.join("/");
   if (method === "GET") return isAllowedBffPath(segments);
-  if (method === "POST") return CREATE_PROFILE.test(path) || CREATE_IMPLEMENTATION.test(path);
+  if (method === "POST") return CREATE_PROFILE.test(path) || CREATE_IMPLEMENTATION.test(path) || IMPORT_CATALOG.test(path);
   if (method === "PUT") return UPDATE_PROFILE.test(path) || UPDATE_IMPLEMENTATION.test(path);
   return false;
 }

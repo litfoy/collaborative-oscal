@@ -1,9 +1,20 @@
 # OSCAL Catalog import
 
 The internal `CatalogImportService` imports raw JSON or YAML bytes into the existing
-tenant-scoped catalog repository. It is an application-service interface for future
-REST, CLI, Git, and automation adapters; this change adds no HTTP endpoint or
-authentication surface.
+tenant-scoped catalog repository. Before the browser integration there was no HTTP
+import endpoint: the CLI and trusted application callers were the only adapters.
+The service does not discover logical catalog identity automatically: callers must
+explicitly select a target to create a revision or detect an existing document.
+Without a target, even an identical document creates a separate logical catalog.
+
+The HTTP adapter accepts the unchanged UTF-8 JSON document as `application/json`
+at `POST /api/v1/tenants/{tenant_id}/catalogs/import`, or at
+`POST /api/v1/tenants/{tenant_id}/catalogs/{catalog_id}/import` for an explicit
+target. Both require `catalog:import`. The response identifies the catalog and
+revision and reports whether a revision was created; identical content in the
+selected catalog returns the existing revision. The configured
+`CATALOG_IMPORT_MAX_INPUT_BYTES` limit applies. Existing profiles and implementation
+references remain pinned to their original revisions.
 
 ## Architecture and processing
 
@@ -101,8 +112,8 @@ the authoritative OSCAL content. Imported OSCAL metadata is not rewritten.
 
 `tenant_id` is an explicit application-service argument and every catalog lookup,
 duplicate check, and revision write is tenant-scoped. The caller must provide a
-tenant identity established by a trusted boundary; authentication and authorization
-are not implemented. Catalog IDs from another tenant are indistinguishable from
+tenant identity established by a trusted boundary; the HTTP adapter authenticates
+and authorizes the caller before invoking it. Catalog IDs from another tenant are indistinguishable from
 missing IDs. Tenant IDs in imported documents are never used. Input parsers do not
 instantiate YAML objects, follow paths, or access the network; errors and
 diagnostics exclude full document content.

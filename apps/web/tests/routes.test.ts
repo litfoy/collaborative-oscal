@@ -75,6 +75,31 @@ describe("login", () => {
 });
 
 describe("BFF proxy", () => {
+  it("forwards catalog import bytes without parsing or rewriting them", async () => {
+    mocks.readSession.mockResolvedValue(session);
+    mocks.backendFetch.mockResolvedValue(new Response("{}", { headers: { "content-type": "application/json" } }));
+    const path = ["tenants", U, "catalogs", U, "import"];
+    const input = '{"catalog": {"metadata": {"oscal-version": "1.1.3"}}}';
+    const response = await bffPost(new NextRequest(`http://localhost:3000/bff/${path.join("/")}`, {
+      method: "POST", headers: { origin: "http://localhost:3000", "content-type": "application/json" }, body: input,
+    }), ctx(path));
+    expect(response.status).toBe(200);
+    const options = mocks.backendFetch.mock.calls[0][3];
+    expect(new TextDecoder().decode(options.body)).toBe(input);
+    expect(options.timeoutMs).toBe(120_000);
+  });
+
+  it("accepts catalog bodies larger than the profile mutation limit", async () => {
+    mocks.readSession.mockResolvedValue(session);
+    mocks.backendFetch.mockResolvedValue(new Response("{}", { headers: { "content-type": "application/json" } }));
+    const path = ["tenants", U, "catalogs", "import"];
+    const input = " ".repeat(5_401_489);
+    const response = await bffPost(new NextRequest(`http://localhost:3000/bff/${path.join("/")}`, {
+      method: "POST", headers: { origin: "http://localhost:3000", "content-type": "application/json" }, body: input,
+    }), ctx(path));
+    expect(response.status).toBe(200);
+    expect(mocks.backendFetch.mock.calls[0][3].body.byteLength).toBe(input.length);
+  });
   it("returns 401 without a session and never calls the API", async () => {
     mocks.readSession.mockResolvedValue(null);
     const res = await bff(new NextRequest("http://localhost:3000/bff/"+PATH.join("/")), ctx(PATH));

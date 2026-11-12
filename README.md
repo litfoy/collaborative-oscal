@@ -1,6 +1,6 @@
 # Collaborative OSCAL
 
-Collaborative OSCAL is the foundation of a self-hostable, open-source Governance, Risk, and Compliance (GRC) platform. The project is licensed under Apache-2.0. The product surface includes OIDC browser sign-in through a Next.js Backend-for-Frontend, a read-only, tenant-scoped **Catalog Explorer**, basic Profile authoring, and a revision-pinned Control Implementation Register. The API provides OIDC bearer-token authentication, internal identities, tenant memberships, tenant-scoped RBAC, and catalog read/write permissions for the Profile and register. Profiles select controls from exact catalog revisions; full Profile resolution is not implemented. Register status is self-reported, not an assessment. Catalog import remains an internal application service (CLI for local development); there is no public import endpoint, catalog editing, assessment workflow, or evidence file storage. See [Catalog Explorer](docs/architecture/catalog-explorer.md) for setup and [ADR 0009](docs/adr/0009-revision-safe-control-implementations.md) for register behavior and limitations.
+Collaborative OSCAL is the foundation of a self-hostable, open-source Governance, Risk, and Compliance (GRC) platform. The project is licensed under Apache-2.0. The product surface includes OIDC browser sign-in through a Next.js Backend-for-Frontend, a tenant-scoped **Catalog Explorer** with catalog import, basic Profile authoring, and a revision-pinned Control Implementation Register. The API provides OIDC bearer-token authentication, internal identities, tenant memberships, and tenant-scoped RBAC. Profiles select controls from exact catalog revisions; full Profile resolution is not implemented. Register status is self-reported, not an assessment. Catalog editing, assessment workflows, and evidence file storage are not implemented. See [Catalog Explorer](docs/architecture/catalog-explorer.md) for setup and [ADR 0009](docs/adr/0009-revision-safe-control-implementations.md) for register behavior and limitations.
 
 ## Architecture at a glance
 
@@ -9,7 +9,8 @@ The initial deployment is a modular monolith: a Next.js web app calls a FastAPI 
 See [System architecture](docs/architecture/overview.md) for module boundaries and [Identity and access](docs/architecture/identity-and-access.md) for OIDC configuration, tenant authorization, Keycloak development setup, and trusted membership bootstrap. [Architecture Decision Records](docs/adr/) capture the initial choices and the questions that remain open.
 
 The internal OSCAL Catalog import service accepts JSON or YAML and validates
-Catalog documents declared as OSCAL 1.1.3 or 1.2.1. It is not a public endpoint.
+Catalog documents declared as OSCAL 1.1.3 or 1.2.1. The authorized browser and
+HTTP import adapter accept JSON; the CLI also accepts YAML.
 See the [Catalog import guide](docs/catalog-import.md) for compatibility,
 validation limitations, security boundaries, and a development example.
 

@@ -11,21 +11,22 @@ export async function backendFetch(
   session: SessionData,
   path: string,
   search?: URLSearchParams,
-  init?: { method: "POST" | "PUT"; body: string },
+  init?: { method: "POST" | "PUT"; body: string | Uint8Array<ArrayBuffer>; timeoutMs?: number },
 ): Promise<Response> {
   const url = new URL(`${getConfig().apiBaseUrl}${path}`);
   if (search) url.search = search.toString();
   let response: Response;
   try {
     response = await fetch(url, {
-      ...init,
+      method: init?.method,
+      body: init?.body,
       headers: {
         Authorization: `Bearer ${session.accessToken}`,
         Accept: "application/json",
         ...(init ? { "Content-Type": "application/json" } : {}),
       },
       cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(init?.timeoutMs ?? 15_000),
     });
   } catch (error) {
     const cause = error instanceof Error ? error.cause : undefined;
