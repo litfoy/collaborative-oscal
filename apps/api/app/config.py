@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     api_page_size_default: int = Field(default=50, ge=1, le=500)
     api_page_size_max: int = Field(default=200, ge=1, le=500)
     catalog_import_max_input_bytes: int = Field(
-        default=10 * 1024 * 1024,
+        default=100 * 1024 * 1024,
         ge=1,
         le=100 * 1024 * 1024,
     )

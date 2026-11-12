@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import pytest
+from collaborative_oscal_oscal.catalog_import import DEFAULT_MAX_INPUT_BYTES
 from pydantic import ValidationError
 
 from app.application.catalog_import import CatalogImportMetadata
@@ -11,7 +12,8 @@ from app.config import Settings
 
 
 def test_import_limit_default_supports_bsi_catalog() -> None:
-    assert Settings().catalog_import_max_input_bytes == 10 * 1024 * 1024
+    assert Settings().catalog_import_max_input_bytes == 100 * 1024 * 1024
+    assert DEFAULT_MAX_INPUT_BYTES == 100 * 1024 * 1024
 
 
 def test_import_limit_environment(monkeypatch: pytest.MonkeyPatch) -> None:

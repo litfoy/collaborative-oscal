@@ -63,7 +63,7 @@ The structured validation result includes `valid`, document type, declared OSCAL
 version, validator name/version, validation schema version, errors, and warnings.
 Errors have a stable code, safe human-readable message, optional JSON Pointer, and
 optional diagnostic code. Parser errors do not include imported content. The
-default input limit is 10 MiB and the default maximum nesting depth is 64; both can
+default input limit is 100 MiB and the default maximum nesting depth is 64; both can
 be overridden on the internal service. YAML uses `SafeLoader`, rejects duplicate
 mapping keys and aliases, permits one document only, and does not resolve dates to
 Python objects. JSON duplicate object keys and non-finite numbers are rejected.
@@ -190,10 +190,8 @@ logical catalog. Without it, each call creates a new logical catalog.
 
 ## Local sample data
 
-The CLI defaults to a 10 MiB input limit, which accommodates the supplied 5,401,489-byte
-BSI catalog. For larger catalogs, set
-`CATALOG_IMPORT_MAX_INPUT_BYTES` (bytes, at most 100 MiB) in the environment or
-root `.env`. For example, `CATALOG_IMPORT_MAX_INPUT_BYTES=10485760` allows
-10 MiB inputs without disabling OSCAL validation.
+Catalog import defaults to a 100 MiB input limit for both the API and CLI. It can
+be lowered with `CATALOG_IMPORT_MAX_INPUT_BYTES` (bytes, maximum 100 MiB) in the
+environment or root `.env`. The browser and BFF enforce the same 100 MiB limit.
 
 Two self-authored OSCAL 1.2.1 catalogs live in `examples/catalogs/`. Import them with `python -m app.cli create-tenant` and `import-catalog` (run from `apps/api`); see [Catalog Explorer](architecture/catalog-explorer.md#local-setup). The CLI uses the same import service and validation as every other caller.
