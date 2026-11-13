@@ -11,11 +11,8 @@ export default async function NewMappingCollectionPage({
   const here = `/t/${tenantId}/mappings/new`;
   const result = await loadNewMappingPage(tenantId, here);
   if (!result.ok) return <ApiProblem error={result.error} />;
-  return <>
-    <h1>New Control Mapping collection</h1>
-    <MappingWorkspace tenantId={tenantId} catalogs={result.catalogs} catalogTotal={result.catalogTotal}
-      canWrite={result.canWrite} initialCollection={null} />
-  </>;
+  return <MappingWorkspace tenantId={tenantId} catalogs={result.catalogs} catalogTotal={result.catalogTotal}
+    canWrite={result.canWrite} initialCollection={null} />;
 }
 
 async function loadNewMappingPage(tenantId: string, returnTo: string) {
