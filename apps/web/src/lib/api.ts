@@ -4,14 +4,14 @@ import { getConfig } from "./config";
 import { ApiError, ERROR_MESSAGES, kindForStatus } from "./errors";
 import { requireSession } from "./auth";
 import type { SessionData } from "./session-crypto";
-import type { Catalog, ControlDetail, Paged, OutlineNode, Profile, RevisionDetail, RevisionSummary, Tenant } from "./types";
+import type { Catalog, ControlDetail, MappingCollection, Paged, OutlineNode, Profile, RevisionDetail, RevisionSummary, Tenant } from "./types";
 
 /** Server-side call to FastAPI using the session's API access token (never the ID token). */
 export async function backendFetch(
   session: SessionData,
   path: string,
   search?: URLSearchParams,
-  init?: { method: "POST" | "PUT"; body: string | Uint8Array<ArrayBuffer>; timeoutMs?: number },
+  init?: { method: "POST" | "PUT" | "DELETE"; body: string | Uint8Array<ArrayBuffer>; timeoutMs?: number },
 ): Promise<Response> {
   const url = new URL(`${getConfig().apiBaseUrl}${path}`);
   if (search) url.search = search.toString();
@@ -104,4 +104,19 @@ export function listProfiles(
   returnTo: string,
 ): Promise<Paged<Profile>> {
   return getJson(`/api/v1/tenants/${tenantId}/profiles`, returnTo, { limit: 200 });
+}
+
+export function listMappingCollections(
+  tenantId: string,
+  returnTo: string,
+): Promise<Paged<MappingCollection>> {
+  return getJson(`/api/v1/tenants/${tenantId}/mapping-collections`, returnTo, { limit: 200 });
+}
+
+export function getMappingCollection(
+  tenantId: string,
+  collectionId: string,
+  returnTo: string,
+): Promise<MappingCollection> {
+  return getJson(`/api/v1/tenants/${tenantId}/mapping-collections/${collectionId}`, returnTo);
 }

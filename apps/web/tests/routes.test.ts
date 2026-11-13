@@ -22,7 +22,7 @@ vi.mock("@/lib/session", async (original) => ({
 
 import { GET as login } from "@/app/auth/login/route";
 import { POST as logout } from "@/app/auth/logout/route";
-import { GET as bff, POST as bffPost, PUT as bffPut } from "@/app/bff/[...path]/route";
+import { DELETE as bffDelete, GET as bff, POST as bffPost, PUT as bffPut } from "@/app/bff/[...path]/route";
 
 const session = { sub: "u", accessToken: "SECRET-TOKEN", idToken: "ID", accessTokenExpiresAt: 9e9, expiresAt: 9e9 };
 const U = "11111111-1111-4111-8111-111111111111";
@@ -185,6 +185,69 @@ describe("BFF proxy", () => {
       ctx(path),
     );
     expect(wrongMethod.status).toBe(404);
+  });
+
+  it("allows tenant-scoped mapping collection writes and empty delete responses", async () => {
+    mocks.readSession.mockResolvedValue(session);
+    const path = ["tenants", U, "mapping-collections"];
+    mocks.backendFetch.mockResolvedValue(new Response(JSON.stringify({ id: U }), {
+      headers: { "content-type": "application/json" },
+    }));
+    const created = await bffPost(
+      new NextRequest(`http://localhost:3000/bff/${path.join("/")}`, {
+        method: "POST",
+        headers: { origin: "http://localhost:3000", "content-type": "application/json" },
+        body: JSON.stringify({ title: "Mappings" }),
+      }),
+      ctx(path),
+    );
+    expect(created.status).toBe(200);
+    expect(mocks.backendFetch.mock.calls[0][1]).toBe(`/api/v1/${path.join("/")}`);
+
+    mocks.backendFetch.mockResolvedValue(new Response(null, { status: 204 }));
+    const deletePath = [...path, U];
+    const removed = await bffDelete(
+      new NextRequest(`http://localhost:3000/bff/${deletePath.join("/")}`, {
+        method: "DELETE",
+        headers: { origin: "http://localhost:3000", "content-type": "application/json" },
+        body: "{}",
+      }),
+      ctx(deletePath),
+    );
+    expect(removed.status).toBe(204);
+    expect(await removed.text()).toBe("");
+  });
+
+  it("proxies related-control lookups using the exact revision and original control ID", async () => {
+    mocks.readSession.mockResolvedValue(session);
+    mocks.backendFetch.mockResolvedValue(new Response('{"items":[]}', {
+      headers: { "content-type": "application/json" },
+    }));
+    const path = ["tenants", U, "catalogs", U, "revisions", U, "controls", "AC-1", "related-mappings"];
+    const response = await bff(new NextRequest(`http://localhost:3000/bff/${path.join("/")}`), ctx(path));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ items: [] });
+    expect(mocks.backendFetch).toHaveBeenCalledWith(
+      session,
+      `/api/v1/${path.join("/")}`,
+      expect.any(URLSearchParams),
+    );
+  });
+
+  it("preserves the export download header from the authorized API", async () => {
+    mocks.readSession.mockResolvedValue(session);
+    mocks.backendFetch.mockResolvedValue(new Response('{"mapping-collection":{}}', {
+      headers: {
+        "content-type": "application/json",
+        "content-disposition": `attachment; filename="mapping-collection-${U}.json"`,
+      },
+    }));
+    const path = ["tenants", U, "mapping-collections", U, "export"];
+    const response = await bff(new NextRequest(`http://localhost:3000/bff/${path.join("/")}`), ctx(path));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toBe(
+      `attachment; filename="mapping-collection-${U}.json"`,
+    );
   });
 
   it("allows the revision-pinned profile browser through the authenticated proxy", async () => {

@@ -336,6 +336,93 @@ textarea {
   margin: 0;
   min-width: 0;
 }
+.mapping-workspace {
+  display: grid;
+  gap: 1rem;
+}
+.mapping-workspace > header .workspace-actions {
+  margin: 0.75rem 0;
+}
+.mapping-workspace > header h2 {
+  margin: 0;
+}
+.mapping-collection-fields {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 48rem;
+  border: 0;
+  padding: 0;
+  margin: 1rem 0;
+}
+.mapping-collection-fields textarea,
+.mapping-entry-form textarea {
+  resize: vertical;
+  min-width: 100%;
+}
+.mapping-pair {
+  display: grid;
+  gap: 0.75rem;
+}
+.mapping-pair h2,
+.mapping-pair h3 {
+  margin-top: 0;
+}
+.mapping-pair-revisions,
+.mapping-control-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.mapping-pair-revisions fieldset,
+.mapping-control-picker,
+.mapping-entry-form {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  min-width: 0;
+}
+.mapping-control-picker {
+  min-height: 12rem;
+}
+.mapping-control-picker legend,
+.mapping-pair-revisions legend,
+.mapping-entry-form legend {
+  font-weight: 600;
+  padding: 0 0.25rem;
+}
+.mapping-control-location {
+  display: block;
+  font-size: 0.85rem;
+  margin-left: 1.6rem;
+}
+.mapping-selected-controls,
+.mapping-entry-list {
+  list-style: none;
+  padding: 0;
+}
+.mapping-selected-controls li,
+.mapping-entry-list > li {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.mapping-entry-list p {
+  margin: 0.25rem 0;
+}
+.mapping-collection-meta {
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+.related-mapping {
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--border);
+}
+.related-mapping h3 {
+  margin-top: 0;
+}
 .builder-layout {
   display: grid;
   grid-template-columns: minmax(22rem, 1fr);
@@ -548,6 +635,16 @@ summary {
   .profile-workspace input:not([type="checkbox"]):not([type="range"]),
   .profile-workspace textarea,
   .profile-manager select {
+    min-width: 0;
+    width: 100%;
+  }
+  .mapping-pair-revisions,
+  .mapping-control-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mapping-workspace select,
+  .mapping-workspace input:not([type="checkbox"]),
+  .mapping-workspace textarea {
     min-width: 0;
     width: 100%;
   }

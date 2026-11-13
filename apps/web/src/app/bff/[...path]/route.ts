@@ -49,19 +49,25 @@ export async function GET(
     return json({ error: "unavailable" }, 503);
   }
   if (upstream.status === 401) return json({ error: "session_expired" }, 401);
+  if (upstream.status === 204) return new NextResponse(null, { status: 204, headers: NO_STORE });
   if (!upstream.headers.get("content-type")?.includes("application/json")) {
     return json({ error: "unavailable" }, 502);
   }
+  const contentDisposition = upstream.headers.get("content-disposition");
   return new NextResponse(await upstream.text(), {
     status: upstream.status,
-    headers: { ...NO_STORE, "Content-Type": "application/json" },
+    headers: {
+      ...NO_STORE,
+      "Content-Type": "application/json",
+      ...(contentDisposition ? { "Content-Disposition": contentDisposition } : {}),
+    },
   });
 }
 
 async function mutate(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> },
-  method: "POST" | "PUT",
+  method: "POST" | "PUT" | "DELETE",
 ): Promise<NextResponse> {
   if (rejectCrossSite(request)) return json({ error: "forbidden" }, 403);
   const { path } = await context.params;
@@ -125,6 +131,7 @@ async function mutate(
     return json({ error: "unavailable" }, 503);
   }
   if (upstream.status === 401) return json({ error: "session_expired" }, 401);
+  if (upstream.status === 204) return new NextResponse(null, { status: 204, headers: NO_STORE });
   if (!upstream.headers.get("content-type")?.includes("application/json")) {
     return json({ error: "unavailable" }, 502);
   }
@@ -146,4 +153,11 @@ export async function PUT(
   context: { params: Promise<{ path: string[] }> },
 ): Promise<NextResponse> {
   return mutate(request, context, "PUT");
+}
+
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ path: string[] }> },
+): Promise<NextResponse> {
+  return mutate(request, context, "DELETE");
 }

@@ -395,6 +395,93 @@ class ProfileImportRecord(Base):
     active: Mapped[bool] = mapped_column(nullable=False)
 
 
+class MappingCollectionRecord(Base):
+    __tablename__ = "mapping_collections"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_mapping_collections_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id"],
+            ["tenants.id"],
+            name="fk_mapping_collections_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(["created_by"], ["user_identities.id"], ondelete="RESTRICT"),
+        ForeignKeyConstraint(["updated_by"], ["user_identities.id"], ondelete="RESTRICT"),
+        Index("ix_mapping_collections_tenant_updated", "tenant_id", "updated_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    document: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    updated_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class MappingMemberRecord(Base):
+    __tablename__ = "mapping_members"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "collection_id"],
+            ["mapping_collections.tenant_id", "mapping_collections.id"],
+            name="fk_mapping_members_collection",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "catalog_id", "revision_id"],
+            ["catalog_revisions.tenant_id", "catalog_revisions.catalog_id", "catalog_revisions.id"],
+            name="fk_mapping_members_revision",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "revision_id", "control_id"],
+            [
+                "catalog_control_indexes.tenant_id",
+                "catalog_control_indexes.catalog_revision_id",
+                "catalog_control_indexes.oscal_control_id",
+            ],
+            name="fk_mapping_members_control",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "side IN ('source', 'target')",
+            name="ck_mapping_members_side",
+        ),
+        CheckConstraint(
+            "(member_type = 'control' AND control_id = oscal_member_id) OR "
+            "(member_type = 'statement' AND control_id IS NULL)",
+            name="ck_mapping_members_member_type",
+        ),
+        Index(
+            "ix_mapping_members_related_control",
+            "tenant_id",
+            "revision_id",
+            "member_type",
+            "oscal_member_id",
+        ),
+        Index(
+            "ix_mapping_members_entry",
+            "tenant_id",
+            "collection_id",
+            "mapping_uuid",
+            "entry_uuid",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    collection_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    mapping_uuid: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    entry_uuid: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    member_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    catalog_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    revision_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    oscal_member_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    control_id: Mapped[str | None] = mapped_column(String(255))
+
+
 class ControlImplementationRecord(Base):
     __tablename__ = "control_implementations"
     __table_args__ = (

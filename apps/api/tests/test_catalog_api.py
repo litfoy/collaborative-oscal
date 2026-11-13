@@ -1276,6 +1276,8 @@ def test_openapi_documents_catalog_api() -> None:
     assert "/api/v1/tenants" in paths
     assert "/api/v1/tenants/{tenant_id}/profiles" in paths
     assert "/api/v1/tenants/{tenant_id}/profiles/{profile_id}/export" in paths
+    assert "/api/v1/tenants/{tenant_id}/mapping-collections" in paths
+    assert "/api/v1/tenants/{tenant_id}/mapping-collections/{collection_id}/export" in paths
     assert (
         "/api/v1/tenants/{tenant_id}/catalogs/{catalog_id}/revisions/{revision_id}/profile-browser"
         in paths
@@ -1287,3 +1289,110 @@ def test_openapi_documents_catalog_api() -> None:
     operation = paths["/api/v1/tenants/{tenant_id}/catalogs"]["get"]
     assert {"401", "403"} <= set(operation["responses"])
     assert schema["components"]["schemas"]["ControlDetailResponse"]["properties"]["class"]
+
+
+def test_control_mappings_are_revision_scoped_and_export_as_oscal(
+    client, world, session_factory
+) -> None:
+    from collaborative_oscal_oscal.mapping import validate_mapping_document
+
+    from app.application.catalog_import import CatalogImportService
+    from app.persistence.repositories import SQLAlchemyUnitOfWork
+
+    source_document = json.loads(FIXTURE.read_text())
+    source_document["catalog"]["uuid"] = str(uuid4())
+    source_document["catalog"]["metadata"]["title"] = "Mapping source catalog"
+    source_document["catalog"]["metadata"]["oscal-version"] = "1.2.1"
+    target_document = json.loads(FIXTURE.read_text())
+    target_document["catalog"]["uuid"] = str(uuid4())
+    target_document["catalog"]["metadata"]["title"] = "Mapping target catalog"
+    target_document["catalog"]["metadata"]["oscal-version"] = "1.1.3"
+    importer = CatalogImportService(lambda: SQLAlchemyUnitOfWork(session_factory))
+    source = importer.import_catalog(world.tenant_a.id, json.dumps(source_document).encode())
+    target = importer.import_catalog(world.tenant_a.id, json.dumps(target_document).encode())
+
+    path = f"/api/v1/tenants/{world.tenant_a.id}/mapping-collections"
+    body = {
+        "title": "Synthetic cross-catalog mapping",
+        "description": "A test-only relationship.",
+        "mappings": [
+            {
+                "source_catalog_id": str(source.catalog.id),
+                "source_revision_id": str(source.revision.id),
+                "target_catalog_id": str(target.catalog.id),
+                "target_revision_id": str(target.revision.id),
+                "entries": [
+                    {
+                        "sources": ["ac-1", "ac-2"],
+                        "targets": ["ac-1", "ac-2"],
+                        "relationship": "subset-of",
+                        "matching_rationale": "semantic",
+                        "justification": "Synthetic fixture assertion.",
+                    }
+                ],
+            }
+        ],
+    }
+
+    assert client.post(path, headers=world.headers("alice"), json=body).status_code == 403
+    created = client.post(path, headers=world.headers("editor"), json=body)
+    assert created.status_code == 201, created.text
+    collection = created.json()
+    assert collection["oscal_version"] == "1.2.3"
+    assert collection["mappings"][0]["source_revision_id"] == str(source.revision.id)
+    assert collection["mappings"][0]["target_revision_id"] == str(target.revision.id)
+    assert collection["mappings"][0]["entries"][0]["sources"] == ["ac-1", "ac-2"]
+    assert collection["mappings"][0]["entries"][0]["targets"] == ["ac-1", "ac-2"]
+
+    reloaded = client.get(f"{path}/{collection['id']}", headers=world.headers("alice"))
+    assert reloaded.status_code == 200
+    assert reloaded.json()["oscal_document_uuid"] == collection["oscal_document_uuid"]
+    related_source = client.get(
+        _base(world.tenant_a.id, source.catalog.id)
+        + f"/revisions/{source.revision.id}/controls/ac-1/related-mappings",
+        headers=world.headers("alice"),
+    )
+    assert related_source.status_code == 200
+    assert related_source.json()["items"][0]["relationship"] == "subset-of"
+    assert len(related_source.json()["items"][0]["sources"]) == 2
+    assert len(related_source.json()["items"][0]["targets"]) == 2
+
+    related_target = client.get(
+        _base(world.tenant_a.id, target.catalog.id)
+        + f"/revisions/{target.revision.id}/controls/ac-1/related-mappings",
+        headers=world.headers("alice"),
+    )
+    assert related_target.status_code == 200
+    assert related_target.json()["items"][0]["relationship"] == "superset-of"
+    assert related_target.json()["items"][0]["matched_side"] == "target"
+
+    exported = client.get(f"{path}/{collection['id']}/export", headers=world.headers("alice"))
+    assert exported.status_code == 200
+    document = exported.json()
+    validate_mapping_document(document)
+    assert document["mapping-collection"]["uuid"] == collection["oscal_document_uuid"]
+    exported_entry = document["mapping-collection"]["mappings"][0]["maps"][0]["uuid"]
+    assert exported_entry == collection["mappings"][0]["entries"][0]["id"]
+
+    invalid = json.loads(json.dumps(body))
+    invalid["mappings"][0]["entries"][0]["sources"] = ["does-not-exist"]
+    rejected = client.post(path, headers=world.headers("editor"), json=invalid)
+    assert rejected.status_code == 422
+    assert "do not exist" in rejected.json()["detail"]
+
+    cross_tenant = json.loads(json.dumps(body))
+    cross_tenant["mappings"][0]["target_catalog_id"] = str(world.foreign.catalog.id)
+    cross_tenant["mappings"][0]["target_revision_id"] = str(world.foreign.revision.id)
+    rejected = client.post(path, headers=world.headers("editor"), json=cross_tenant)
+    assert rejected.status_code == 404
+
+    with pytest.raises(
+        DBAPIError,
+        match="Catalog revisions referenced by control mappings are immutable",
+    ):
+        with session_factory.begin() as session:
+            session.execute(
+                update(CatalogRevisionRecord)
+                .where(CatalogRevisionRecord.id == source.revision.id)
+                .values(content_sha256="a" * 64)
+            )

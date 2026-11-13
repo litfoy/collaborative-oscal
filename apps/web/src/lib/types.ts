@@ -62,6 +62,90 @@ export interface Profile {
   updated_at: string;
 }
 
+export interface MappingEntry {
+  id: string;
+  relationship: string;
+  matching_rationale: string;
+  justification: string;
+  sources: (string | MappingControlReference)[];
+  targets: (string | MappingControlReference)[];
+}
+
+export type MappingControlReference = { type?: string } & (
+  | { "id-ref": string }
+  | { id_ref: string }
+  | { control_id: string }
+);
+
+export interface MappingPair {
+  id: string;
+  source_catalog_id: string;
+  source_revision_id: string;
+  target_catalog_id: string;
+  target_revision_id: string;
+  entries: MappingEntry[];
+}
+
+export interface MappingCollection {
+  id: string;
+  tenant_id: string;
+  title: string;
+  description: string;
+  oscal_version: string;
+  oscal_document_uuid: string;
+  version: string;
+  mappings: MappingPair[];
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MappingEntryInput {
+  id?: string;
+  sources: string[];
+  targets: string[];
+  relationship: "equal-to" | "equivalent-to" | "subset-of" | "superset-of" | "intersects-with" | "no-relationship";
+  matching_rationale: "syntactic" | "semantic" | "functional";
+  justification: string;
+}
+
+export interface MappingPairInput {
+  id?: string;
+  source_catalog_id: string;
+  source_revision_id: string;
+  target_catalog_id: string;
+  target_revision_id: string;
+  entries: MappingEntryInput[];
+}
+
+export interface MappingCollectionInput {
+  title: string;
+  description: string;
+  mappings: MappingPairInput[];
+}
+
+export interface RelatedControl {
+  catalog_id: string;
+  catalog_name: string;
+  revision_id: string;
+  revision_number: number;
+  control_id: string;
+  title: string;
+}
+
+export interface RelatedMapping {
+  collection_id: string;
+  collection_title: string;
+  mapping_uuid: string;
+  entry_uuid: string;
+  relationship: string;
+  matching_rationale: string;
+  matched_side: "source" | "target";
+  sources: RelatedControl[];
+  targets: RelatedControl[];
+}
+
 export interface ProfileImport {
   id: string;
   catalog_id: string;

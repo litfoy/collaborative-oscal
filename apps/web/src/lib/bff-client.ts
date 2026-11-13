@@ -29,11 +29,13 @@ export async function bffGet<T>(
   return (await response.json()) as T;
 }
 
+export function bffWrite<T>(method: "POST" | "PUT", path: string, body: unknown): Promise<T>;
+export function bffWrite(method: "DELETE", path: string, body: unknown): Promise<void>;
 export async function bffWrite<T>(
-  method: "POST" | "PUT",
+  method: "POST" | "PUT" | "DELETE",
   path: string,
   body: unknown,
-): Promise<T> {
+): Promise<T | void> {
   let response: Response;
   try {
     response = await fetch(`/bff/${path}`, {
@@ -49,6 +51,7 @@ export async function bffWrite<T>(
     const kind = kindForStatus(response.status);
     throw new ApiError(kind, response.status, await responseMessage(response, kind));
   }
+  if (response.status === 204) return;
   return (await response.json()) as T;
 }
 

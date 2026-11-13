@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import { bffGet } from "@/lib/bff-client";
 import { ApiError, ERROR_MESSAGES } from "@/lib/errors";
-import type { ControlDetail, ControlListItem, OutlineNode, Paged } from "@/lib/types";
+import type { ControlDetail, ControlListItem, OutlineNode, Paged, RelatedMapping } from "@/lib/types";
 
 import { ControlDetailView } from "./ControlDetailView";
 
@@ -47,6 +47,7 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
   );
   const [selected, setSelected] = useState<string | null>(initialControl?.oscal_control_id ?? null);
   const [detail, setDetail] = useState<ControlDetail | null>(initialControl);
+  const [relatedByControl, setRelatedByControl] = useState<Record<string, { items: RelatedMapping[]; error: string | null }>>({});
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
 
@@ -56,6 +57,31 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
   const [searching, setSearching] = useState(false);
   const itemRefs = useRef<Map<string, HTMLElement>>(new Map());
   const detailRequest = useRef(0);
+
+  useEffect(() => {
+    if (!selected) return;
+    const controller = new AbortController();
+    bffGet<{ items: RelatedMapping[] }>(
+      `${base}/controls/${encodeURIComponent(selected)}/related-mappings`,
+      undefined,
+      controller.signal,
+    ).then((result) => setRelatedByControl((current) => ({
+      ...current,
+      [selected]: { items: result.items, error: null },
+    }))).catch((cause: unknown) => {
+      if (!controller.signal.aborted) {
+        setRelatedByControl((current) => ({
+          ...current,
+          [selected]: {
+            items: [],
+            error: cause instanceof Error ? cause.message : "Unable to load related mappings.",
+          },
+        }));
+      }
+    });
+    return () => controller.abort();
+  }, [base, selected]);
+  const related = selected ? relatedByControl[selected] : undefined;
 
   const fail = useCallback((cause: unknown) => {
     setError(
@@ -331,7 +357,8 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
 
       <div aria-live="polite" aria-busy={detailLoading}>
         {detailLoading ? <p className="panel">Loading control…</p> : null}
-        {!detailLoading && detail ? <ControlDetailView control={detail} /> : null}
+        {!detailLoading && detail ? <ControlDetailView control={detail} relatedMappings={related?.items ?? []}
+          tenantId={tenantId} relatedError={related?.error ?? null} relatedLoading={related === undefined} /> : null}
         {!detailLoading && !detail ? (
           <div className="empty">Select a control to read its details.</div>
         ) : null}

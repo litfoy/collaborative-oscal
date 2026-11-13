@@ -59,6 +59,57 @@ describe("ControlDetailView", () => {
     expect(screen.getByRole("heading", { name: "Source identity" })).toBeInTheDocument();
   });
 
+  it("shows revision-specific related mappings with directional set context", () => {
+    const tenantId = "11111111-1111-4111-8111-111111111111";
+    const related = {
+      collection_id: "22222222-2222-4222-8222-222222222222",
+      collection_title: "Policy relationships",
+      mapping_uuid: "33333333-3333-4333-8333-333333333333",
+      entry_uuid: "44444444-4444-4444-8444-444444444444",
+      relationship: "superset-of",
+      matching_rationale: "semantic",
+      matched_side: "target" as const,
+      sources: [{
+        catalog_id: "55555555-5555-4555-8555-555555555555",
+        catalog_name: "Source catalog",
+        revision_id: "66666666-6666-4666-8666-666666666666",
+        revision_number: 2,
+        control_id: "AC-1",
+        title: "Access policy",
+      }],
+      targets: [
+        {
+          catalog_id: "77777777-7777-4777-8777-777777777777",
+          catalog_name: "Target catalog",
+          revision_id: "88888888-8888-4888-8888-888888888888",
+          revision_number: 3,
+          control_id: "AC-1",
+          title: "Access control",
+        },
+        {
+          catalog_id: "77777777-7777-4777-8777-777777777777",
+          catalog_name: "Target catalog",
+          revision_id: "88888888-8888-4888-8888-888888888888",
+          revision_number: 3,
+          control_id: "AC-2",
+          title: "Account management",
+        },
+      ],
+    };
+    render(<ControlDetailView control={control()} tenantId={tenantId} relatedMappings={[related]} />);
+    expect(screen.getByRole("heading", { name: "Related controls" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "superset-of" })).toBeInTheDocument();
+    expect(screen.getByText(/relationship between sets, not separate pairwise assertions/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Policy relationships" })).toHaveAttribute(
+      "href",
+      `/t/${tenantId}/mappings/${related.collection_id}`,
+    );
+    expect(screen.getByRole("link", { name: /Source catalog · revision 2 · AC-1/ })).toHaveAttribute(
+      "href",
+      `/t/${tenantId}/catalogs/${related.sources[0].catalog_id}?revision=${related.sources[0].revision_id}&control=AC-1`,
+    );
+  });
+
   it("prioritizes source statements and available compliance facts in the profile presentation", () => {
     const source = control();
     const { rerender } = render(<ControlDetailView presentation="profile" control={{

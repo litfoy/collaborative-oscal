@@ -13,12 +13,19 @@ const READ_PATHS = [
   new RegExp(`^tenants/${UUID}/profiles$`),
   new RegExp(`^tenants/${UUID}/profiles/${UUID}$`),
   new RegExp(`^tenants/${UUID}/profiles/${UUID}/export$`),
+  new RegExp(`^tenants/${UUID}/mapping-collections$`),
+  new RegExp(`^tenants/${UUID}/mapping-collections/${UUID}$`),
+  new RegExp(`^tenants/${UUID}/mapping-collections/${UUID}/export$`),
+  new RegExp(`^tenants/${UUID}/catalogs/${UUID}/revisions/${UUID}/controls/${OSCAL_ID}/related-mappings$`),
   new RegExp(`^tenants/${UUID}/implementation-options$`),
   new RegExp(`^tenants/${UUID}/implementations$`),
   new RegExp(`^tenants/${UUID}/implementations/${UUID}(/control)?$`),
 ];
 const CREATE_PROFILE = new RegExp(`^tenants/${UUID}/profiles$`);
 const UPDATE_PROFILE = new RegExp(`^tenants/${UUID}/profiles/${UUID}$`);
+const CREATE_MAPPING_COLLECTION = new RegExp(`^tenants/${UUID}/mapping-collections$`);
+const UPDATE_MAPPING_COLLECTION = new RegExp(`^tenants/${UUID}/mapping-collections/${UUID}$`);
+const DELETE_MAPPING_COLLECTION = new RegExp(`^tenants/${UUID}/mapping-collections/${UUID}$`);
 const CREATE_IMPLEMENTATION = new RegExp(`^tenants/${UUID}/implementations$`);
 const UPDATE_IMPLEMENTATION = new RegExp(`^tenants/${UUID}/implementations/${UUID}$`);
 const IMPORT_CATALOG = new RegExp(`^tenants/${UUID}/catalogs(?:/${UUID})?/import$`);
@@ -39,8 +46,9 @@ export function isAllowedBffRequest(segments: string[], method: string): boolean
   if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return false;
   const path = segments.join("/");
   if (method === "GET") return isAllowedBffPath(segments);
-  if (method === "POST") return CREATE_PROFILE.test(path) || CREATE_IMPLEMENTATION.test(path) || IMPORT_CATALOG.test(path);
-  if (method === "PUT") return UPDATE_PROFILE.test(path) || UPDATE_IMPLEMENTATION.test(path);
+  if (method === "POST") return CREATE_MAPPING_COLLECTION.test(path) || CREATE_PROFILE.test(path) || CREATE_IMPLEMENTATION.test(path) || IMPORT_CATALOG.test(path);
+  if (method === "PUT") return UPDATE_PROFILE.test(path) || UPDATE_IMPLEMENTATION.test(path) || UPDATE_MAPPING_COLLECTION.test(path);
+  if (method === "DELETE") return DELETE_MAPPING_COLLECTION.test(path);
   return false;
 }
 

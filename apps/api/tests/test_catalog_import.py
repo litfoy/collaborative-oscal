@@ -142,8 +142,18 @@ def test_locally_authored_catalog_validates_for_each_supported_version(
     assert outcome.document == document
 
 
-@pytest.mark.parametrize("model", list(OscalDocumentModel))
-@pytest.mark.parametrize("oscal_version", JSON_SCHEMA_OSCAL_VERSIONS)
+@pytest.mark.parametrize(
+    ("model", "oscal_version"),
+    [
+        (model, version)
+        for model in (OscalDocumentModel.CATALOG, OscalDocumentModel.PROFILE)
+        for version in JSON_SCHEMA_OSCAL_VERSIONS
+    ]
+    + [
+        (OscalDocumentModel.MAPPING, version)
+        for version in ("1.2.2", "1.2.3")
+    ],
+)
 def test_schema_registry_selects_the_official_model_and_version(
     model: OscalDocumentModel, oscal_version: str
 ) -> None:

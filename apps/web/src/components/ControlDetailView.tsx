@@ -1,6 +1,6 @@
 import { parameterText, renderProse } from "@/lib/safe";
 import { propertyLabel } from "@/lib/profile-browser";
-import type { ControlDetail, Link, Part, Property } from "@/lib/types";
+import type { ControlDetail, Link, Part, Property, RelatedMapping } from "@/lib/types";
 
 import { SafeLink } from "./SafeLink";
 
@@ -81,7 +81,16 @@ function References({ control, labels, anchorIds = true }: { control: ControlDet
   </section>;
 }
 
-export function ControlDetailView({ control, presentation = "catalog" }: { control: ControlDetail; presentation?: "catalog" | "profile" | "technical" }) {
+export function ControlDetailView({
+  control, presentation = "catalog", relatedMappings, tenantId, relatedError, relatedLoading,
+}: {
+  control: ControlDetail;
+  presentation?: "catalog" | "profile" | "technical";
+  relatedMappings?: RelatedMapping[];
+  tenantId?: string;
+  relatedError?: string | null;
+  relatedLoading?: boolean;
+}) {
   const labels = parameterText(control.parameters);
   const { source_catalog: catalog, source_revision: revision } = control;
   const location = control.ancestors.map((ancestor) => ancestor.oscal_id ?? ancestor.title);
@@ -213,6 +222,9 @@ export function ControlDetailView({ control, presentation = "catalog" }: { contr
       ) : null}
 
       <References control={control} labels={labels} anchorIds={presentation !== "technical"} />
+      {presentation === "catalog" && tenantId ? <RelatedMappingsSection
+        mappings={relatedMappings ?? []} tenantId={tenantId} error={relatedError ?? null}
+        loading={relatedLoading ?? false} /> : null}
 
       <section aria-labelledby="control-source">
         <h2 id="control-source">Source identity</h2>
@@ -248,4 +260,49 @@ export function ControlDetailView({ control, presentation = "catalog" }: { contr
       </details> : null}
     </article>
   );
+}
+
+function RelatedMappingsSection({
+  mappings, tenantId, error,
+  loading,
+}: {
+  mappings: RelatedMapping[];
+  tenantId: string;
+  error: string | null;
+  loading: boolean;
+}) {
+  return <section aria-labelledby="related-controls-title">
+    <h2 id="related-controls-title">Related controls</h2>
+    {error ? <p role="alert" className="alert">{error}</p> : null}
+    {!error && loading ? <p role="status">Loading related mappings…</p> : null}
+    {!error && !loading && mappings.length === 0 ? <p className="muted">No explicit Control Mapping relationships are defined for this catalog revision.</p> : null}
+    {mappings.map((mapping) => {
+      const selectedSet = mapping.matched_side === "source" ? mapping.sources : mapping.targets;
+      const relatedSet = mapping.matched_side === "source" ? mapping.targets : mapping.sources;
+      return <article className="related-mapping" key={`${mapping.collection_id}:${mapping.entry_uuid}`}>
+        <h3>{mapping.relationship}</h3>
+        <p>
+          Viewed from the {mapping.matched_side}, this control participates in a mapping between
+          the selected {mappingSetLabel(selectedSet.length)} and related {mappingSetLabel(relatedSet.length)}.
+        </p>
+        {selectedSet.length > 1 || relatedSet.length > 1
+          ? <p className="muted">This is a relationship between sets, not separate pairwise assertions.</p> : null}
+        <dl className="meta-list">
+          <dt>Matching rationale</dt><dd>{mapping.matching_rationale}</dd>
+          <dt>Mapping collection</dt>
+          <dd><a href={`/t/${tenantId}/mappings/${mapping.collection_id}`}>{mapping.collection_title}</a></dd>
+        </dl>
+        <h4>Related set</h4>
+        <ul>{relatedSet.map((related) => <li key={`${related.catalog_id}:${related.revision_id}:${related.control_id}`}>
+          <a href={`/t/${tenantId}/catalogs/${related.catalog_id}?${new URLSearchParams({ revision: related.revision_id, control: related.control_id })}`}>
+            {related.catalog_name} · revision {related.revision_number} · <span className="mono">{related.control_id}</span> — {related.title}
+          </a>
+        </li>)}</ul>
+      </article>;
+    })}
+  </section>;
+}
+
+function mappingSetLabel(count: number): string {
+  return count === 1 ? "control" : `set of ${count} controls`;
 }
