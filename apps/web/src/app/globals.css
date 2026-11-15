@@ -245,6 +245,78 @@ textarea {
 .profile-workspace [hidden] {
   display: none !important;
 }
+.page:has(.measure-workspace) {
+  max-width: 100rem;
+}
+.measure-workspace {
+  display: grid;
+  gap: 1rem;
+}
+.measure-workspace [hidden] {
+  display: none !important;
+}
+.measure-heading {
+  justify-content: space-between;
+}
+.measure-heading h2,
+.measure-heading p {
+  margin: 0;
+}
+.measure-filters,
+.measure-form {
+  max-width: 48rem;
+}
+.measure-form {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.measure-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+}
+.measure-table {
+  overflow-x: auto;
+}
+.measure-requirement-group {
+  margin-top: 1rem;
+}
+.measure-requirement {
+  border-top: 1px solid var(--border);
+  padding: 0.75rem 0;
+}
+.measure-requirement > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.measure-guidance-preview {
+  display: block;
+  color: var(--muted);
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.measure-requirement[open] .measure-guidance-preview {
+  display: none;
+}
+.measure-requirement > :not(summary) {
+  margin-top: 0.75rem;
+}
+.measure-selection {
+  margin: 1rem 0;
+}
+.measure-picker .mapping-control-picker {
+  margin-top: 1rem;
+}
+@media (max-width: 700px) {
+  .measure-workspace .mapping-control-filters {
+    grid-template-columns: 1fr;
+  }
+}
 .profile-workspace-header {
   position: sticky;
   top: 0;

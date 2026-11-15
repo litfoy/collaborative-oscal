@@ -3,7 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 
 import { bffGet } from "@/lib/bff-client";
-import { inBranch, indexBrowser } from "@/lib/profile-browser";
+import { inBranch, indexBrowser, matchesProperties } from "@/lib/profile-browser";
 import type { ControlDetail, ProfileBrowserNode } from "@/lib/types";
 
 import { ControlDetailView } from "./ControlDetailView";
@@ -20,6 +20,7 @@ export function MappingControlPicker({
   onChange,
   onControlTitles,
   disabled,
+  unavailable = [],
 }: {
   tenantId: string;
   catalogId: string;
@@ -29,10 +30,12 @@ export function MappingControlPicker({
   onChange: (ids: string[]) => void;
   onControlTitles: (titles: Record<string, string>) => void;
   disabled: boolean;
+  unavailable?: string[];
 }) {
   const [loaded, setLoaded] = useState<{ base: string; attempt: number; nodes: ProfileBrowserNode[]; error: string | null } | null>(null);
   const [query, setQuery] = useState("");
   const [branch, setBranch] = useState("");
+  const [filters, setFilters] = useState<Record<string, string>>({});
   const [page, setPage] = useState(0);
   const [attempt, setAttempt] = useState(0);
   const deferredQuery = useDeferredValue(query.trim().toLocaleLowerCase());
@@ -64,8 +67,9 @@ export function MappingControlPicker({
     index.controls.flatMap((node) => node.id ? [[node.id, node.title]] : []),
   ), [index.controls]);
   const results = useMemo(() => index.controls.filter((node) =>
-    inBranch(node, branch || null) && (index.search.get(node.key) ?? "").includes(deferredQuery),
-  ), [index, deferredQuery, branch]);
+    inBranch(node, branch || null) && matchesProperties(node, filters) &&
+      (index.search.get(node.key) ?? "").includes(deferredQuery),
+  ), [index, deferredQuery, branch, filters]);
   const pageCount = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount - 1);
   const visible = results.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
@@ -106,6 +110,21 @@ export function MappingControlPicker({
           </select>
         </label>
       </div>
+      {index.facets.length ? <details>
+        <summary>Catalog filters</summary>
+        <div className="mapping-control-filters">
+          {index.facets.map((facet) => <label className="field" key={facet.key}>
+            {facet.label}{facet.ns ? ` (${facet.ns})` : ""}
+            <select value={filters[facet.key] ?? ""} onChange={(event) => {
+              setFilters((current) => ({ ...current, [facet.key]: event.target.value }));
+              setPage(0);
+            }}>
+              <option value="">All</option>
+              {[...facet.values].sort().map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>)}
+        </div>
+      </details> : null}
       {error ? <p role="alert" className="alert">{error}{" "}
         <button type="button" className="secondary" onClick={() => setAttempt((value) => value + 1)}>Retry controls</button>
       </p> : null}
@@ -131,9 +150,10 @@ export function MappingControlPicker({
           const controlId = node.id;
           return <li key={node.key} className={selected.includes(controlId) ? "requirement selected" : "requirement"}>
             <label className="requirement-select">
-              <input type="checkbox" checked={selected.includes(controlId)} disabled={disabled}
+              <input type="checkbox" checked={selected.includes(controlId)} disabled={disabled || unavailable.includes(controlId)}
                 onChange={(event) => toggle(controlId, event.target.checked)} />
               <span><span className="mono">{controlId}</span> <strong>{node.title}</strong>
+                {unavailable.includes(controlId) ? " (already associated)" : null}
                 {location(node) ? <span className="muted mapping-control-location">{location(node)}</span> : null}
               </span>
             </label>

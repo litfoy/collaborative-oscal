@@ -13,21 +13,14 @@ export default async function MeasuresPage({
   if (!result.ok) return <ApiProblem error={result.error} />;
   const { definitions, catalogs, canWrite } = result;
   return (
-    <>
-      <h1>Our Measures &amp; Controls</h1>
-      <p className="muted">
-        Define reusable security and privacy measures and explicitly associate them with
-        requirements from pinned catalog revisions. A measure is guidance, not evidence that
-        it has been deployed or assessed. Historical document contents are not retained.
-      </p>
       <ComponentDefinitionWorkspace
         tenantId={tenantId}
         initialDefinitions={definitions.items}
+        definitionTotal={definitions.total}
         catalogs={catalogs.items}
         catalogTotal={catalogs.total}
         canWrite={canWrite}
       />
-    </>
   );
 }
 

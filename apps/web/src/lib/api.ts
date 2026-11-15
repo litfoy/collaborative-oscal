@@ -140,6 +140,14 @@ export function listComponentDefinitions(
   return getJson(`/api/v1/tenants/${tenantId}/component-definitions`, returnTo, { limit: 200 });
 }
 
+export function getComponentDefinition(
+  tenantId: string,
+  documentId: string,
+  returnTo: string,
+): Promise<ComponentDefinition> {
+  return getJson(`/api/v1/tenants/${tenantId}/component-definitions/${documentId}`, returnTo);
+}
+
 export function listMappingCollections(
   tenantId: string,
   returnTo: string,
