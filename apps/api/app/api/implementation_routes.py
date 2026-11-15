@@ -46,6 +46,8 @@ def _information(request: ImplementationInformation) -> Information:
         request.status,
         request.evidence_references,
         [Responsibility(r.kind, r.user_id, r.role) for r in request.responsibilities],
+        request.oscal_implementation_status,
+        request.oscal_status_explanation,
     )
 
 

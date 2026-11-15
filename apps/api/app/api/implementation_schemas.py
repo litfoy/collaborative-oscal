@@ -3,7 +3,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.domain.implementations import ImplementationStatus, ResponsibilityKind
+from app.domain.implementations import (
+    ImplementationStatus,
+    OscalImplementationStatus,
+    ResponsibilityKind,
+)
 
 
 class ResponsibilityInput(BaseModel):
@@ -28,6 +32,8 @@ class ImplementationInformation(BaseModel):
     status: ImplementationStatus
     evidence_references: list[str] = Field(max_length=100)
     responsibilities: list[ResponsibilityInput] = Field(max_length=100)
+    oscal_implementation_status: OscalImplementationStatus | None = None
+    oscal_status_explanation: str | None = Field(default=None, max_length=5000)
 
     @model_validator(mode="after")
     def validate_lists(self) -> "ImplementationInformation":
@@ -36,6 +42,14 @@ class ImplementationInformation(BaseModel):
         keys = [(item.kind, item.user_id, item.role) for item in self.responsibilities]
         if len(keys) != len(set(keys)):
             raise ValueError("Responsibilities must be unique.")
+        if self.oscal_implementation_status in {
+            OscalImplementationStatus.PLANNED,
+            OscalImplementationStatus.ALTERNATIVE,
+            OscalImplementationStatus.NOT_APPLICABLE,
+        } and not (self.oscal_status_explanation or "").strip():
+            raise ValueError(
+                "Planned, alternative, and not-applicable states require an explanation."
+            )
         return self
 
 
@@ -58,6 +72,8 @@ class ImplementationResponse(ImplementationInformation):
     id: UUID
     tenant_id: UUID
     organization_id: UUID | None
+    system_id: UUID | None = None
+    system_component_id: UUID | None = None
     profile_id: UUID | None
     profile_import_id: UUID | None
     catalog_id: UUID

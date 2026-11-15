@@ -2,6 +2,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKeyConstraint,
@@ -486,6 +487,16 @@ class ControlImplementationRecord(Base):
     __tablename__ = "control_implementations"
     __table_args__ = (
         UniqueConstraint("tenant_id", "id", name="uq_implementations_tenant_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "id",
+            "system_id",
+            "system_component_id",
+            "catalog_id",
+            "revision_id",
+            "oscal_control_id",
+            name="uq_implementations_ssp_association",
+        ),
         ForeignKeyConstraint(
             ["tenant_id", "catalog_id", "revision_id"],
             ["catalog_revisions.tenant_id", "catalog_revisions.catalog_id", "catalog_revisions.id"],
@@ -506,6 +517,22 @@ class ControlImplementationRecord(Base):
             ["tenant_id", "organization_id"],
             ["organizations.tenant_id", "organizations.id"],
             name="fk_implementations_organization",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "system_id"],
+            ["information_systems.tenant_id", "information_systems.id"],
+            name="fk_implementations_system",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "system_id", "system_component_id"],
+            [
+                "system_components.tenant_id",
+                "system_components.system_id",
+                "system_components.id",
+            ],
+            name="fk_implementations_system_component",
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
@@ -530,6 +557,24 @@ class ControlImplementationRecord(Base):
             "profile_import_id IS NULL OR profile_id IS NOT NULL",
             name="ck_implementation_import_profile",
         ),
+        CheckConstraint(
+            "system_component_id IS NULL OR system_id IS NOT NULL",
+            name="ck_implementation_component_requires_system",
+        ),
+        CheckConstraint(
+            "oscal_implementation_status IS NULL OR oscal_implementation_status IN "
+            "('implemented', 'partial', 'planned', 'alternative', 'not-applicable')",
+            name="ck_implementation_oscal_status",
+        ),
+        CheckConstraint(
+            "oscal_implementation_status NOT IN ('planned', 'alternative', 'not-applicable') "
+            "OR coalesce(length(trim(oscal_status_explanation)), 0) > 0",
+            name="ck_implementation_oscal_status_explanation",
+        ),
+        CheckConstraint(
+            "oscal_implementation_status IS NOT NULL OR oscal_status_explanation IS NULL",
+            name="ck_implementation_oscal_explanation_requires_status",
+        ),
         ForeignKeyConstraint(["created_by"], ["user_identities.id"], ondelete="RESTRICT"),
         ForeignKeyConstraint(["updated_by"], ["user_identities.id"], ondelete="RESTRICT"),
         CheckConstraint(
@@ -543,6 +588,8 @@ class ControlImplementationRecord(Base):
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     organization_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    system_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    system_component_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
     profile_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
     profile_import_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
     catalog_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
@@ -550,6 +597,8 @@ class ControlImplementationRecord(Base):
     oscal_control_id: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
+    oscal_implementation_status: Mapped[str | None] = mapped_column(String(32))
+    oscal_status_explanation: Mapped[str | None] = mapped_column(Text)
     evidence_references: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     created_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     updated_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
@@ -710,3 +759,344 @@ class ComponentDefinitionSourceRecord(Base):
     catalog_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     revision_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     oscal_control_id: Mapped[str] = mapped_column(String(255), nullable=False)
+
+
+class InformationSystemRecord(Base):
+    __tablename__ = "information_systems"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_information_systems_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id"],
+            ["tenants.id"],
+            name="fk_information_systems_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "organization_id"],
+            ["organizations.tenant_id", "organizations.id"],
+            name="fk_information_systems_organization",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["created_by"],
+            ["user_identities.id"],
+            name="fk_information_systems_created_by",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["updated_by"],
+            ["user_identities.id"],
+            name="fk_information_systems_updated_by",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "operational_status IS NULL OR operational_status IN "
+            "('operational', 'under-development', 'under-major-modification', "
+            "'disposition', 'other')",
+            name="ck_information_systems_status",
+        ),
+        CheckConstraint(
+            "operational_status != 'other' OR coalesce(length(trim(status_remarks)), 0) > 0",
+            name="ck_information_systems_other_status_remarks",
+        ),
+        Index("ix_information_systems_tenant_updated", "tenant_id", "updated_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    organization_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    system_boundary: Mapped[str | None] = mapped_column(Text)
+    system_ids: Mapped[list[dict]] = mapped_column(JSONB, nullable=False)
+    information_types: Mapped[list[dict]] = mapped_column(JSONB, nullable=False)
+    operational_status: Mapped[str | None] = mapped_column(String(32))
+    status_remarks: Mapped[str | None] = mapped_column(Text)
+    security_sensitivity_level: Mapped[str | None] = mapped_column(String(255))
+    created_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    updated_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ComponentDefinitionSnapshotRecord(Base):
+    __tablename__ = "component_definition_snapshots"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_component_definition_snapshots_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "content_sha256", name="uq_component_definition_snapshots_digest"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id"],
+            ["tenants.id"],
+            name="fk_component_definition_snapshots_tenant",
+            ondelete="RESTRICT",
+        ),
+        Index("ix_component_definition_snapshots_created", "tenant_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    source_document_uuid: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    document: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    diagnostics: Mapped[list[dict]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class SystemComponentRecord(Base):
+    __tablename__ = "system_components"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "system_id", "id", name="uq_system_components_identity"),
+        UniqueConstraint(
+            "tenant_id", "system_id", "oscal_component_uuid", name="uq_system_components_oscal_uuid"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "system_id"],
+            ["information_systems.tenant_id", "information_systems.id"],
+            name="fk_system_components_system",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "source_snapshot_id"],
+            ["component_definition_snapshots.tenant_id", "component_definition_snapshots.id"],
+            name="fk_system_components_source_snapshot",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["created_by"],
+            ["user_identities.id"],
+            name="fk_system_components_created_by",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["updated_by"],
+            ["user_identities.id"],
+            name="fk_system_components_updated_by",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "(source_snapshot_id IS NULL AND source_component_uuid IS NULL) OR "
+            "(source_snapshot_id IS NOT NULL AND source_component_uuid IS NOT NULL)",
+            name="ck_system_components_source_identity",
+        ),
+        Index("ix_system_components_system_created", "tenant_id", "system_id", "created_at"),
+        Index(
+            "uq_system_components_this_system",
+            "tenant_id",
+            "system_id",
+            unique=True,
+            postgresql_where=text("is_system_component"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    system_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    oscal_component_uuid: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    source_snapshot_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    source_component_uuid: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    is_system_component: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    component: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    updated_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class SystemSecurityPlanRecord(Base):
+    __tablename__ = "system_security_plans"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_system_security_plans_tenant_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "id",
+            "system_id",
+            "catalog_id",
+            "revision_id",
+            name="uq_system_security_plans_context",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "system_id"],
+            ["information_systems.tenant_id", "information_systems.id"],
+            name="fk_system_security_plans_system",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "catalog_id", "revision_id"],
+            ["catalog_revisions.tenant_id", "catalog_revisions.catalog_id", "catalog_revisions.id"],
+            name="fk_system_security_plans_baseline",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["created_by"],
+            ["user_identities.id"],
+            name="fk_system_security_plans_created_by",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["updated_by"],
+            ["user_identities.id"],
+            name="fk_system_security_plans_updated_by",
+            ondelete="RESTRICT",
+        ),
+        Index("ix_system_security_plans_system_updated", "tenant_id", "system_id", "updated_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    system_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    catalog_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    revision_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    control_implementation_description: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    updated_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class SystemSecurityPlanVersionRecord(Base):
+    __tablename__ = "system_security_plan_versions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_system_security_plan_versions_tenant_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "id",
+            "system_security_plan_id",
+            name="uq_system_security_plan_versions_identity",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "system_security_plan_id",
+            "content_sha256",
+            name="uq_system_security_plan_versions_digest",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "system_security_plan_id"],
+            ["system_security_plans.tenant_id", "system_security_plans.id"],
+            name="fk_system_security_plan_versions_plan",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "catalog_id", "revision_id"],
+            ["catalog_revisions.tenant_id", "catalog_revisions.catalog_id", "catalog_revisions.id"],
+            name="fk_system_security_plan_versions_baseline",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_system_security_plan_versions_plan_created",
+            "tenant_id",
+            "system_security_plan_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    system_security_plan_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    catalog_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    revision_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    oscal_document_uuid: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    oscal_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    document_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    last_modified: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    document: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    diagnostics: Mapped[list[dict]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class SystemSecurityPlanImplementationRecord(Base):
+    __tablename__ = "system_security_plan_implementations"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "system_security_plan_id",
+            "implementation_id",
+            name="uq_system_security_plan_implementation",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "system_security_plan_id",
+            "oscal_control_id",
+            "system_component_id",
+            name="uq_system_security_plan_component_contribution",
+        ),
+        ForeignKeyConstraint(
+            [
+                "tenant_id",
+                "system_security_plan_id",
+                "system_id",
+                "catalog_id",
+                "revision_id",
+            ],
+            [
+                "system_security_plans.tenant_id",
+                "system_security_plans.id",
+                "system_security_plans.system_id",
+                "system_security_plans.catalog_id",
+                "system_security_plans.revision_id",
+            ],
+            name="fk_system_security_plan_implementations_plan_context",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "tenant_id",
+                "implementation_id",
+                "system_id",
+                "system_component_id",
+                "catalog_id",
+                "revision_id",
+                "oscal_control_id",
+            ],
+            [
+                "control_implementations.tenant_id",
+                "control_implementations.id",
+                "control_implementations.system_id",
+                "control_implementations.system_component_id",
+                "control_implementations.catalog_id",
+                "control_implementations.revision_id",
+                "control_implementations.oscal_control_id",
+            ],
+            name="fk_system_security_plan_implementations_record",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "system_id", "system_component_id"],
+            [
+                "system_components.tenant_id",
+                "system_components.system_id",
+                "system_components.id",
+            ],
+            name="fk_system_security_plan_implementations_component",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "revision_id", "oscal_control_id"],
+            [
+                "catalog_control_indexes.tenant_id",
+                "catalog_control_indexes.catalog_revision_id",
+                "catalog_control_indexes.oscal_control_id",
+            ],
+            name="fk_system_security_plan_implementations_control",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_system_security_plan_implementations_plan",
+            "tenant_id",
+            "system_security_plan_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    system_security_plan_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    implementation_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    system_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    system_component_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    catalog_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    revision_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    oscal_control_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

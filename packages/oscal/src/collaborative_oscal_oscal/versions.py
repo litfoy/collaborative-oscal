@@ -15,6 +15,7 @@ class OscalDocumentModel(StrEnum):
     COMPONENT_DEFINITION = "component-definition"
     MAPPING = "mapping"
     PROFILE = "profile"
+    SYSTEM_SECURITY_PLAN = "system-security-plan"
 
 
 DEFAULT_OSCAL_VERSION = "1.2.3"
@@ -46,6 +47,7 @@ SUPPORTED_OSCAL_VERSIONS_BY_MODEL: Mapping[OscalDocumentModel, tuple[str, ...]] 
             OscalDocumentModel.COMPONENT_DEFINITION: ("1.2.3",),
             OscalDocumentModel.MAPPING: ("1.2.0", "1.2.1", "1.2.2", "1.2.3"),
             OscalDocumentModel.PROFILE: OSCAL_VERSION_ORDER,
+            OscalDocumentModel.SYSTEM_SECURITY_PLAN: ("1.2.3",),
         }
     )
 )
@@ -79,9 +81,13 @@ def schema_resource(model: OscalDocumentModel, version: str) -> Traversable:
     schema_name = (
         "oscal_component_definition_schema"
         if model is OscalDocumentModel.COMPONENT_DEFINITION
-        else f"oscal_{model.value}_schema"
+        else "oscal_ssp_schema"
+        if model is OscalDocumentModel.SYSTEM_SECURITY_PLAN
+        else f"oscal_{model.value.replace('-', '_')}_schema"
     )
-    return files("collaborative_oscal_oscal").joinpath("schemas", f"{schema_name}_v{version}.json")
+    return files("collaborative_oscal_oscal").joinpath(
+        "schemas", f"{schema_name}_v{version}.json"
+    )
 
 
 @cache

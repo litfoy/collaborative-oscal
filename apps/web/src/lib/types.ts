@@ -220,12 +220,117 @@ export interface Implementation {
   oscal_control_id: string;
   description: string;
   status: ImplementationStatus;
+  oscal_implementation_status?: OscalImplementationStatus | null;
+  oscal_status_explanation?: string | null;
+  system_id?: string | null;
+  system_component_id?: string | null;
   responsibilities: Responsibility[];
   evidence_references: string[];
   created_by: string;
   updated_by: string;
   created_at: string;
   updated_at: string;
+}
+
+export type OscalImplementationStatus =
+  | "implemented"
+  | "partial"
+  | "planned"
+  | "alternative"
+  | "not-applicable";
+
+export interface SystemIdentifier {
+  id: string;
+  "identifier-type"?: string;
+}
+
+export interface SystemInformationType {
+  uuid: string;
+  title: string;
+  description: string;
+}
+
+export interface InformationSystem {
+  id: string;
+  tenant_id: string;
+  organization_id: string | null;
+  name: string;
+  description: string | null;
+  system_boundary: string | null;
+  system_ids: SystemIdentifier[];
+  information_types: SystemInformationType[];
+  operational_status: string | null;
+  status_remarks: string | null;
+  security_sensitivity_level: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SystemComponent {
+  id: string;
+  system_id: string;
+  oscal_component_uuid: string;
+  component: {
+    uuid: string;
+    type: string;
+    title: string;
+    description: string;
+    purpose?: string;
+    status: { state: string; remarks?: string };
+  };
+  is_system_component: boolean;
+  source_snapshot_id: string | null;
+  source_component_uuid: string | null;
+}
+
+export interface IncludedImplementation {
+  implementation_id: string;
+  oscal_control_id: string;
+  system_component_id: string;
+}
+
+export interface SystemSecurityPlan {
+  id: string;
+  tenant_id: string;
+  system_id: string;
+  catalog_id: string;
+  revision_id: string;
+  catalog_name: string;
+  title: string;
+  control_implementation_description: string | null;
+  included_implementations: IncludedImplementation[];
+  baseline_control_count: number;
+  documented_control_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SystemSecurityPlanDiagnostic {
+  severity: "error" | "warning";
+  code: string;
+  message: string;
+}
+
+export interface SystemSecurityPlanValidation {
+  valid: boolean;
+  diagnostics: SystemSecurityPlanDiagnostic[];
+  baseline_control_count: number;
+  documented_control_count: number;
+}
+
+export interface SystemSecurityPlanVersion {
+  id: string;
+  system_security_plan_id: string;
+  catalog_id: string;
+  revision_id: string;
+  oscal_document_uuid: string;
+  oscal_version: string;
+  document_version: string;
+  last_modified: string;
+  content_sha256: string;
+  diagnostics: SystemSecurityPlanDiagnostic[];
+  created_at: string;
+  created?: boolean;
 }
 
 export interface ProfileBrowserNode {

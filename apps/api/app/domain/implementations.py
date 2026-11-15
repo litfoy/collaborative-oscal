@@ -17,6 +17,14 @@ class ResponsibilityKind(StrEnum):
     PARTICIPANT = "participant"
 
 
+class OscalImplementationStatus(StrEnum):
+    IMPLEMENTED = "implemented"
+    PARTIAL = "partial"
+    PLANNED = "planned"
+    ALTERNATIVE = "alternative"
+    NOT_APPLICABLE = "not-applicable"
+
+
 @dataclass(frozen=True, slots=True)
 class Responsibility:
     kind: ResponsibilityKind
@@ -30,6 +38,8 @@ class ImplementationInformation:
     status: ImplementationStatus
     evidence_references: list[str]
     responsibilities: list[Responsibility]
+    oscal_implementation_status: OscalImplementationStatus | None = None
+    oscal_status_explanation: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,3 +60,7 @@ class ControlImplementation:
     updated_by: UUID
     created_at: datetime
     updated_at: datetime
+    system_id: UUID | None = None
+    system_component_id: UUID | None = None
+    oscal_implementation_status: OscalImplementationStatus | None = None
+    oscal_status_explanation: str | None = None

@@ -24,6 +24,17 @@ const READ_PATHS = [
   new RegExp(`^tenants/${UUID}/implementation-options$`),
   new RegExp(`^tenants/${UUID}/implementations$`),
   new RegExp(`^tenants/${UUID}/implementations/${UUID}(/control)?$`),
+  new RegExp(`^tenants/${UUID}/systems$`),
+  new RegExp(`^tenants/${UUID}/systems/${UUID}$`),
+  new RegExp(`^tenants/${UUID}/systems/${UUID}/components$`),
+  new RegExp(`^tenants/${UUID}/systems/${UUID}/components/${UUID}$`),
+  new RegExp(`^tenants/${UUID}/systems/${UUID}/system-security-plans$`),
+  new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}$`),
+  new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}/validation$`),
+  new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}/implementations/${UUID}$`),
+  new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}/versions$`),
+  new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}/versions/${UUID}(/export)?$`),
+  new RegExp(`^tenants/${UUID}/component-definition-snapshots/${UUID}/components/${UUID}/export$`),
 ];
 const CREATE_PROFILE = new RegExp(`^tenants/${UUID}/profiles$`);
 const UPDATE_PROFILE = new RegExp(`^tenants/${UUID}/profiles/${UUID}$`);
@@ -36,6 +47,15 @@ const UPDATE_MAPPING_COLLECTION = new RegExp(`^tenants/${UUID}/mapping-collectio
 const DELETE_MAPPING_COLLECTION = new RegExp(`^tenants/${UUID}/mapping-collections/${UUID}$`);
 const CREATE_IMPLEMENTATION = new RegExp(`^tenants/${UUID}/implementations$`);
 const UPDATE_IMPLEMENTATION = new RegExp(`^tenants/${UUID}/implementations/${UUID}$`);
+const CREATE_SYSTEM = new RegExp(`^tenants/${UUID}/systems$`);
+const UPDATE_SYSTEM = new RegExp(`^tenants/${UUID}/systems/${UUID}$`);
+const CREATE_SYSTEM_COMPONENT = new RegExp(`^tenants/${UUID}/systems/${UUID}/components$`);
+const UPDATE_SYSTEM_COMPONENT = new RegExp(`^tenants/${UUID}/systems/${UUID}/components/${UUID}$`);
+const ADOPT_SYSTEM_COMPONENT = new RegExp(`^tenants/${UUID}/systems/${UUID}/components/adopt$`);
+const CREATE_SYSTEM_PLAN = new RegExp(`^tenants/${UUID}/systems/${UUID}/system-security-plans$`);
+const UPDATE_SYSTEM_PLAN = new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}$`);
+const INCLUDE_SYSTEM_IMPLEMENTATION = new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}/implementations/${UUID}$`);
+const CREATE_SYSTEM_PLAN_VERSION = new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}/versions$`);
 const IMPORT_CATALOG = new RegExp(`^tenants/${UUID}/catalogs(?:/${UUID})?/import$`);
 
 export function isCatalogImportPath(segments: string[]): boolean {
@@ -54,9 +74,9 @@ export function isAllowedBffRequest(segments: string[], method: string): boolean
   if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return false;
   const path = segments.join("/");
   if (method === "GET") return isAllowedBffPath(segments);
-  if (method === "POST") return CREATE_MAPPING_COLLECTION.test(path) || CREATE_PROFILE.test(path) || CREATE_COMPONENT_DEFINITION.test(path) || CREATE_IMPLEMENTATION.test(path) || IMPORT_CATALOG.test(path);
-  if (method === "PUT") return UPDATE_PROFILE.test(path) || UPDATE_COMPONENT_DEFINITION.test(path) || UPDATE_IMPLEMENTATION.test(path) || UPDATE_MAPPING_COLLECTION.test(path);
-  if (method === "DELETE") return DELETE_MAPPING_COLLECTION.test(path) || DELETE_COMPONENT_DEFINITION.test(path) || DELETE_COMPONENT.test(path);
+  if (method === "POST") return CREATE_MAPPING_COLLECTION.test(path) || CREATE_PROFILE.test(path) || CREATE_COMPONENT_DEFINITION.test(path) || CREATE_IMPLEMENTATION.test(path) || CREATE_SYSTEM.test(path) || CREATE_SYSTEM_COMPONENT.test(path) || ADOPT_SYSTEM_COMPONENT.test(path) || CREATE_SYSTEM_PLAN.test(path) || INCLUDE_SYSTEM_IMPLEMENTATION.test(path) || CREATE_SYSTEM_PLAN_VERSION.test(path) || IMPORT_CATALOG.test(path);
+  if (method === "PUT") return UPDATE_PROFILE.test(path) || UPDATE_COMPONENT_DEFINITION.test(path) || UPDATE_IMPLEMENTATION.test(path) || UPDATE_SYSTEM.test(path) || UPDATE_SYSTEM_COMPONENT.test(path) || UPDATE_SYSTEM_PLAN.test(path) || UPDATE_MAPPING_COLLECTION.test(path);
+  if (method === "DELETE") return DELETE_MAPPING_COLLECTION.test(path) || DELETE_COMPONENT_DEFINITION.test(path) || DELETE_COMPONENT.test(path) || INCLUDE_SYSTEM_IMPLEMENTATION.test(path);
   return false;
 }
 

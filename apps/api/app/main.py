@@ -12,12 +12,11 @@ from app.api.implementation_routes import router as implementation_router
 from app.api.mapping_routes import router as mapping_router
 from app.api.profile_routes import router as profile_router
 from app.api.routes import router as api_router
+from app.api.system_security_plan_routes import router as system_security_plan_router
 from app.config import get_settings
 
 settings = get_settings()
-component_definition_diagnostics = logging.getLogger(
-    "app.component_definition_diagnostics"
-)
+component_definition_diagnostics = logging.getLogger("app.component_definition_diagnostics")
 component_definition_diagnostics.setLevel(logging.WARNING)
 if not any(
     isinstance(handler, logging.FileHandler)
@@ -53,6 +52,7 @@ app.include_router(catalog_import_router)
 app.include_router(profile_router)
 app.include_router(implementation_router)
 app.include_router(mapping_router)
+app.include_router(system_security_plan_router)
 
 
 @app.exception_handler(RequestValidationError)

@@ -33,6 +33,7 @@ export function AppShell({
               <a href={`/t/${current.id}/measures`}>Our Measures &amp; Controls</a>
               <a href={`/t/${current.id}/mappings`}>Control mappings</a>
               <a href={`/t/${current.id}/profiles`}>Profiles</a>
+              <a href={`/t/${current.id}/systems`}>Systems and SSPs</a>
               <span className="muted">Workspace: {current.name}</span>
               {tenants.length > 1 ? <Link href="/">Switch workspace</Link> : null}
             </>

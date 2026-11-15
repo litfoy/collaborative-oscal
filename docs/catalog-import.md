@@ -112,6 +112,16 @@ official NIST `oscal_component_schema.json` release asset
 It is a separate model schema and does not change Catalog, Profile, or Control
 Mapping dispatch.
 
+OSCAL System Security Plan validation uses the official NIST release asset
+[`oscal_ssp_schema.json`](https://github.com/usnistgov/OSCAL/releases/download/v1.2.3/oscal_ssp_schema.json)
+from OSCAL 1.2.3. The exact checked-in schema file
+`packages/oscal/src/collaborative_oscal_oscal/schemas/oscal_ssp_schema_v1.2.3.json`
+has SHA-256
+`99b1bee2df5604a7d4f1faeab43148e0bd4c4a1f513cd0d2d0c7896aa216a1e7`.
+SSP validation uses the same bundled Draft 7 JSON Schema compatibility mechanism
+as the other 1.2.3 models, plus SSP-specific baseline and internal-reference
+checks; it does not claim exhaustive OSCAL Metaschema semantic coverage.
+
 The 1.2.2 and 1.2.3 schemas are version-specific, not aliases. Comparing the NIST
 release assets shows that 1.2.2 corrects JSON integer datatypes (the Catalog schema
 changes only its version identifier from 1.2.1).

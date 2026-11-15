@@ -130,6 +130,28 @@ describe("BFF allowlist", () => {
       .toBe(`profile_id=${UUID}&tenant_scope=true`);
   });
 
+  it("allows only tenant-scoped System and SSP lifecycle operations", () => {
+    const system = ["tenants", UUID, "systems", UUID];
+    const component = [...system, "components", UUID];
+    const plan = ["tenants", UUID, "system-security-plans", UUID];
+    const membership = [...plan, "implementations", UUID];
+    const versionExport = [...plan, "versions", UUID, "export"];
+    expect(isAllowedBffRequest(["tenants", UUID, "systems"], "POST")).toBe(true);
+    expect(isAllowedBffRequest(system, "GET")).toBe(true);
+    expect(isAllowedBffRequest(system, "PUT")).toBe(true);
+    expect(isAllowedBffRequest([...system, "components"], "POST")).toBe(true);
+    expect(isAllowedBffRequest(component, "PUT")).toBe(true);
+    expect(isAllowedBffRequest([...system, "system-security-plans"], "POST")).toBe(true);
+    expect(isAllowedBffRequest(plan, "GET")).toBe(true);
+    expect(isAllowedBffRequest([...plan, "validation"], "GET")).toBe(true);
+    expect(isAllowedBffRequest(membership, "POST")).toBe(true);
+    expect(isAllowedBffRequest(membership, "DELETE")).toBe(true);
+    expect(isAllowedBffRequest([...plan, "versions"], "POST")).toBe(true);
+    expect(isAllowedBffRequest(versionExport, "GET")).toBe(true);
+    expect(isAllowedBffRequest(component, "DELETE")).toBe(false);
+    expect(isAllowedBffRequest(versionExport, "POST")).toBe(false);
+  });
+
   it("drops unknown query parameters", () => {
     const filtered = filterBffQuery(new URLSearchParams("q=a&limit=5&access_token=x&x=1"));
     expect(filtered.toString()).toBe("q=a&limit=5");

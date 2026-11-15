@@ -3,7 +3,24 @@ import "server-only";
 import { getConfig } from "./config";
 import { ApiError, ERROR_MESSAGES, kindForStatus } from "./errors";
 import { isDemoPrincipal, requireSession, type WebPrincipal } from "./auth";
-import type { Catalog, ComponentDefinition, ControlDetail, MappingCollection, Paged, OutlineNode, Profile, RevisionDetail, RevisionSummary, Tenant } from "./types";
+import type {
+  Catalog,
+  ComponentDefinition,
+  ControlDetail,
+  InformationSystem,
+  Implementation,
+  MappingCollection,
+  Paged,
+  OutlineNode,
+  Profile,
+  RevisionDetail,
+  RevisionSummary,
+  SystemComponent,
+  SystemSecurityPlan,
+  SystemSecurityPlanValidation,
+  SystemSecurityPlanVersion,
+  Tenant,
+} from "./types";
 
 /** Server-side call to FastAPI using the mode-specific bearer credential. */
 export async function backendFetch(
@@ -172,4 +189,72 @@ export function getMappingCollection(
   returnTo: string,
 ): Promise<MappingCollection> {
   return getJson(`/api/v1/tenants/${tenantId}/mapping-collections/${collectionId}`, returnTo);
+}
+
+export function listSystems(tenantId: string, returnTo: string): Promise<InformationSystem[]> {
+  return getJson(`/api/v1/tenants/${tenantId}/systems`, returnTo);
+}
+
+export function getSystem(
+  tenantId: string,
+  systemId: string,
+  returnTo: string,
+): Promise<InformationSystem> {
+  return getJson(`/api/v1/tenants/${tenantId}/systems/${systemId}`, returnTo);
+}
+
+export function listSystemComponents(
+  tenantId: string,
+  systemId: string,
+  returnTo: string,
+): Promise<SystemComponent[]> {
+  return getJson(`/api/v1/tenants/${tenantId}/systems/${systemId}/components`, returnTo);
+}
+
+export function listSystemSecurityPlans(
+  tenantId: string,
+  systemId: string,
+  returnTo: string,
+): Promise<SystemSecurityPlan[]> {
+  return getJson(
+    `/api/v1/tenants/${tenantId}/systems/${systemId}/system-security-plans`,
+    returnTo,
+  );
+}
+
+export function getSystemSecurityPlan(
+  tenantId: string,
+  planId: string,
+  returnTo: string,
+): Promise<SystemSecurityPlan> {
+  return getJson(`/api/v1/tenants/${tenantId}/system-security-plans/${planId}`, returnTo);
+}
+
+export function validateSystemSecurityPlan(
+  tenantId: string,
+  planId: string,
+  returnTo: string,
+): Promise<SystemSecurityPlanValidation> {
+  return getJson(
+    `/api/v1/tenants/${tenantId}/system-security-plans/${planId}/validation`,
+    returnTo,
+  );
+}
+
+export function listSystemSecurityPlanVersions(
+  tenantId: string,
+  planId: string,
+  returnTo: string,
+): Promise<SystemSecurityPlanVersion[]> {
+  return getJson(`/api/v1/tenants/${tenantId}/system-security-plans/${planId}/versions`, returnTo);
+}
+
+export function listImplementations(
+  tenantId: string,
+  returnTo: string,
+): Promise<Paged<Implementation>> {
+  return getJson(`/api/v1/tenants/${tenantId}/implementations`, returnTo, {
+    limit: 200,
+    offset: 0,
+  });
 }

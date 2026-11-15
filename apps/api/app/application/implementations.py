@@ -14,6 +14,7 @@ from app.domain.implementations import (
     ControlImplementation,
     ImplementationInformation,
     ImplementationStatus,
+    OscalImplementationStatus,
     Responsibility,
     ResponsibilityKind,
 )
@@ -136,6 +137,12 @@ class ImplementationService:
                 oscal_control_id=control_id,
                 description=information.description,
                 status=information.status.value,
+                oscal_implementation_status=(
+                    information.oscal_implementation_status.value
+                    if information.oscal_implementation_status
+                    else None
+                ),
+                oscal_status_explanation=information.oscal_status_explanation,
                 evidence_references=information.evidence_references,
                 created_by=actor,
                 updated_by=actor,
@@ -208,6 +215,9 @@ class ImplementationService:
             record.description = information.description
             record.status = information.status.value
             record.evidence_references = information.evidence_references
+            if information.oscal_implementation_status is not None:
+                record.oscal_implementation_status = information.oscal_implementation_status.value
+                record.oscal_status_explanation = information.oscal_status_explanation
             record.updated_by = actor
             record.updated_at = datetime.now(UTC)
             session.execute(
@@ -316,20 +326,28 @@ class ImplementationService:
         record: ControlImplementationRecord, responsibilities: list[Responsibility]
     ) -> ControlImplementation:
         return ControlImplementation(
-            record.id,
-            record.tenant_id,
-            record.organization_id,
-            record.profile_id,
-            record.profile_import_id,
-            record.catalog_id,
-            record.revision_id,
-            record.oscal_control_id,
-            record.description,
-            ImplementationStatus(record.status),
-            record.evidence_references,
-            responsibilities,
-            record.created_by,
-            record.updated_by,
-            record.created_at,
-            record.updated_at,
+            id=record.id,
+            tenant_id=record.tenant_id,
+            organization_id=record.organization_id,
+            profile_id=record.profile_id,
+            profile_import_id=record.profile_import_id,
+            catalog_id=record.catalog_id,
+            revision_id=record.revision_id,
+            oscal_control_id=record.oscal_control_id,
+            description=record.description,
+            status=ImplementationStatus(record.status),
+            evidence_references=record.evidence_references,
+            responsibilities=responsibilities,
+            created_by=record.created_by,
+            updated_by=record.updated_by,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+            system_id=record.system_id,
+            system_component_id=record.system_component_id,
+            oscal_implementation_status=(
+                OscalImplementationStatus(record.oscal_implementation_status)
+                if record.oscal_implementation_status
+                else None
+            ),
+            oscal_status_explanation=record.oscal_status_explanation,
         )
