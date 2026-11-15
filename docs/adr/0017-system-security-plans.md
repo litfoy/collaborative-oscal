@@ -63,6 +63,9 @@ Compliance Trestle remains an architectural dependency. Its locked 5.2.0 SSP mod
 declares OSCAL 1.2.1, so it is not used or described as native 1.2.3 SSP support.
 The SSP 1.2.3 model uses the existing JSON Schema compatibility path.
 
-The initial UI is a Systems workspace for characteristics, components, explicit
-contribution membership, validation diagnostics, and immutable version export.
-It does not provide assessment conclusions or compliance scores.
+The Systems overview links to shared operational workspaces for characteristics
+and concrete components. Each baseline-specific SSP workspace separates catalog
+exploration, contribution membership, validation, and immutable version history.
+Coverage identifies documented requirements only; it is not an assessment of
+compliance or effectiveness. Version exports read the stored snapshot rather
+than rebuilding it from current System data.

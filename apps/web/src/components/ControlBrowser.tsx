@@ -14,6 +14,7 @@ interface Props {
   revisionId: string;
   initialRoot: Paged<OutlineNode>;
   initialControl: ControlDetail | null;
+  documentedControlIds?: string[];
 }
 
 interface Children {
@@ -33,7 +34,7 @@ function nodeKey(node: OutlineNode): string {
   return `${node.kind}:${node.id}`;
 }
 
-export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, initialControl }: Props) {
+export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, initialControl, documentedControlIds }: Props) {
   const base = `tenants/${tenantId}/catalogs/${catalogId}/revisions/${revisionId}`;
   const searchId = useId();
   const treeLabelId = useId();
@@ -57,6 +58,35 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
   const [searching, setSearching] = useState(false);
   const itemRefs = useRef<Map<string, HTMLElement>>(new Map());
   const detailRequest = useRef(0);
+  const [coverage, setCoverage] = useState<"all" | "documented" | "undocumented">("all");
+  const [allControls, setAllControls] = useState<ControlListItem[] | null>(null);
+  const [coverageLoading, setCoverageLoading] = useState(false);
+
+  useEffect(() => {
+    if (coverage === "all" || allControls !== null) return;
+    const controller = new AbortController();
+    async function loadControls() {
+      setCoverageLoading(true);
+      try {
+        const items: ControlListItem[] = [];
+        let total: number;
+        do {
+          const page = await bffGet<Paged<ControlListItem>>(`${base}/controls`, { limit: 200, offset: items.length }, controller.signal);
+          if (!page.items.length && items.length < page.total) throw new Error("Unable to load all baseline controls.");
+          items.push(...page.items);
+          total = page.total;
+        } while (items.length < total);
+        setAllControls(items);
+      } catch (cause) {
+        if (!controller.signal.aborted) setError(cause instanceof ApiError ? cause : new ApiError("unavailable", 0, "Unable to load baseline controls."));
+      } finally {
+        if (!controller.signal.aborted) setCoverageLoading(false);
+      }
+    }
+    void loadControls();
+    return () => controller.abort();
+  }, [coverage, allControls, base]);
+  const documented = useMemo(() => new Set(documentedControlIds ?? []), [documentedControlIds]);
 
   useEffect(() => {
     if (!selected) return;
@@ -142,6 +172,7 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
     async (oscalId: string) => {
       const request = ++detailRequest.current;
       setSelected(oscalId);
+      setDetail(null);
       setError(null);
       setDetailLoading(true);
       try {
@@ -253,6 +284,7 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
 
   const submitSearch = (event: React.FormEvent) => {
     event.preventDefault();
+    if (coverage !== "all") return;
     const term = query.trim();
     if (!term) {
       clearSearch();
@@ -292,9 +324,32 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
           ) : null}
         </form>
 
+        {documentedControlIds ? (
+          <label className="field">Documentation
+            <select value={coverage} onChange={(event) => setCoverage(event.target.value as "all" | "documented" | "undocumented")}>
+              <option value="all">All controls</option>
+              <option value="documented">Documented</option>
+              <option value="undocumented">Undocumented</option>
+            </select>
+          </label>
+        ) : null}
         {error ? <ErrorNotice error={error} /> : null}
 
-        {activeQuery !== null && results ? (
+        {coverage !== "all" ? (
+          <section aria-label="Controls by documentation">
+            {coverageLoading ? <p role="status">Loading baseline controls…</p> : null}
+            {allControls ? (
+              <>
+              <p role="status">{allControls.filter((item) => documented.has(item.oscal_control_id) === (coverage === "documented") && `${item.oscal_control_id} ${item.title}`.toLowerCase().includes(query.trim().toLowerCase())).length} matching controls</p>
+              <ul className="result-list">
+                {allControls.filter((item) => documented.has(item.oscal_control_id) === (coverage === "documented") && `${item.oscal_control_id} ${item.title}`.toLowerCase().includes(query.trim().toLowerCase())).map((item) => (
+                  <li key={item.id}><button type="button" aria-current={selected === item.oscal_control_id ? "true" : undefined} onClick={() => void selectControl(item.oscal_control_id)}><span className="tree-id">{item.oscal_control_id}</span> {item.title}</button></li>
+                ))}
+              </ul>
+              </>
+            ) : null}
+          </section>
+        ) : activeQuery !== null && results ? (
           <section aria-label="Search results">
             <p role="status">
               {results.total === 0
@@ -310,6 +365,7 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
                     onClick={() => void selectControl(item.oscal_control_id)}
                   >
                     <span className="tree-id">{item.oscal_control_id}</span> {item.title}
+                    {documentedControlIds ? <span className="muted"> · {documented.has(item.oscal_control_id) ? "Documented" : "Undocumented"}</span> : null}
                     {item.group ? <span className="muted"> · {item.group.oscal_group_id ?? item.group.title}</span> : null}
                   </button>
                 </li>
@@ -337,6 +393,7 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
                     expanded={expanded.has(row.key)}
                     loading={children[row.key]?.loading ?? false}
                     selected={row.type === "node" && row.node.kind === "control" && row.node.oscal_id === selected}
+                    documentation={documentedControlIds && row.type === "node" && row.node.kind === "control" && row.node.oscal_id ? (documented.has(row.node.oscal_id) ? "Documented" : "Undocumented") : undefined}
                     focusable={row.key === (focusKey ?? rows[0].key)}
                     register={(element) => {
                       if (element) itemRefs.current.set(row.key, element);
@@ -372,6 +429,7 @@ function TreeRow({
   expanded,
   loading,
   selected,
+  documentation,
   focusable,
   register,
   onFocus,
@@ -381,6 +439,7 @@ function TreeRow({
   expanded: boolean;
   loading: boolean;
   selected: boolean;
+  documentation?: string;
   focusable: boolean;
   register: (element: HTMLElement | null) => void;
   onFocus: () => void;
@@ -428,6 +487,7 @@ function TreeRow({
       </span>
       {node.oscal_id ? <span className="tree-id">{node.oscal_id}</span> : null}
       <span>{node.title}</span>
+      {documentation ? <span className="muted"> · {documentation}</span> : null}
       {node.kind === "group" ? <span className="visually-hidden"> (group)</span> : null}
     </div>
   );

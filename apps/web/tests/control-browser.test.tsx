@@ -139,8 +139,11 @@ describe("ControlBrowser", () => {
     mockApi({ "/controls/ac-1": () => jsonResponse({ detail: "x" }, 404) });
     renderBrowser();
     await user.click(screen.getByRole("treeitem", { name: /Access Control/ }));
+    await user.click(await screen.findByRole("treeitem", { name: /ac-2.*Account Management/ }));
+    expect(await screen.findByRole("heading", { name: /ac-2.*Account Management/ })).toBeVisible();
     await user.click(await screen.findByRole("treeitem", { name: /ac-1.*Access Policy/ }));
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/could not be found/i));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("x"));
+    expect(screen.queryByRole("heading", { name: /ac-2.*Account Management/ })).not.toBeInTheDocument();
   });
 
   it("reports network failures", async () => {

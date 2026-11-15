@@ -9,6 +9,7 @@ import type {
   RevisionSummary,
   SystemComponent,
   SystemSecurityPlan,
+  SystemSecurityPlanVersion,
 } from "@/lib/types";
 
 interface RevisionOption {
@@ -21,6 +22,8 @@ export function SystemWorkspace({
   initialSystem,
   initialComponents,
   initialPlans,
+  initialVersions,
+  planRevisions,
   catalogs,
   revisions,
   definitions,
@@ -30,6 +33,8 @@ export function SystemWorkspace({
   initialSystem: InformationSystem;
   initialComponents: SystemComponent[];
   initialPlans: SystemSecurityPlan[];
+  initialVersions: Record<string, SystemSecurityPlanVersion[]>;
+  planRevisions: Record<string, RevisionSummary>;
   catalogs: Catalog[];
   revisions: RevisionOption[];
   definitions: ComponentDefinition[];
@@ -38,6 +43,9 @@ export function SystemWorkspace({
   const [system, setSystem] = useState(initialSystem);
   const [components, setComponents] = useState(initialComponents);
   const [plans, setPlans] = useState(initialPlans);
+  const [tab, setTab] = useState<"overview" | "components" | "plans">("overview");
+  const [componentForm, setComponentForm] = useState(false);
+  const [planForm, setPlanForm] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -48,24 +56,17 @@ export function SystemWorkspace({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [purpose, setPurpose] = useState("");
-  const [componentStatus, setComponentStatus] = useState("operational");
+  const [componentStatus, setComponentStatus] = useState("");
   const [componentRemarks, setComponentRemarks] = useState("");
   const [planTitle, setPlanTitle] = useState("");
   const [controlDescription, setControlDescription] = useState("");
   const [baseline, setBaseline] = useState("");
-  const [systemIdsText, setSystemIdsText] = useState(
-    system.system_ids
-      .map((item) => `${item.id}${item["identifier-type"] ? ` | ${item["identifier-type"]}` : ""}`)
-      .join("\n"),
-  );
-  const [informationTypesText, setInformationTypesText] = useState(
-    system.information_types.map((item) => `${item.title} | ${item.description}`).join("\n"),
-  );
+  const [systemIds, setSystemIds] = useState(system.system_ids);
+  const [informationTypes, setInformationTypes] = useState<Array<{ uuid?: string; title: string; description: string }>>(system.information_types);
 
   async function saveSystem(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await run(async () => {
-      const currentTypes = new Map(system.information_types.map((item) => [item.title, item.uuid]));
       const result = await request<InformationSystem>(
         `/bff/tenants/${tenantId}/systems/${system.id}`,
         "PUT",
@@ -73,40 +74,16 @@ export function SystemWorkspace({
           name: system.name,
           description: system.description,
           system_boundary: system.system_boundary,
-          system_ids: systemIdsText
-            .split("\n")
-            .map((line) => line.trim())
-            .filter(Boolean)
-            .map((line) => {
-              const [id, identifier_type] = line.split("|").map((part) => part.trim());
-              return { id, identifier_type: identifier_type || null };
-            }),
-          information_types: informationTypesText
-            .split("\n")
-            .map((line) => line.trim())
-            .filter(Boolean)
-            .map((line) => {
-              const [itemTitle, ...rest] = line.split("|").map((part) => part.trim());
-              return {
-                uuid: currentTypes.get(itemTitle),
-                title: itemTitle,
-                description: rest.join(" | "),
-              };
-            }),
+          system_ids: systemIds.map((item) => ({ id: item.id, identifier_type: item["identifier-type"] || null })),
+          information_types: informationTypes,
           operational_status: system.operational_status,
           status_remarks: system.status_remarks,
           security_sensitivity_level: system.security_sensitivity_level,
         },
       );
       setSystem(result);
-      setSystemIdsText(
-        result.system_ids
-          .map((item) => `${item.id}${item["identifier-type"] ? ` | ${item["identifier-type"]}` : ""}`)
-          .join("\n"),
-      );
-      setInformationTypesText(
-        result.information_types.map((item) => `${item.title} | ${item.description}`).join("\n"),
-      );
+      setSystemIds(result.system_ids);
+      setInformationTypes(result.information_types);
       return "System characteristics saved.";
     });
   }
@@ -148,6 +125,7 @@ export function SystemWorkspace({
           : [...current, result],
       );
       resetComponentForm();
+      setComponentForm(false);
       return editingComponent ? "System component updated." : "System component added.";
     });
   }
@@ -165,6 +143,7 @@ export function SystemWorkspace({
       setPlans((current) => [...current, result]);
       setPlanTitle("");
       setControlDescription("");
+      setPlanForm(false);
       return "SSP draft created with the selected pinned Catalog revision.";
     });
   }
@@ -190,7 +169,7 @@ export function SystemWorkspace({
       ?.components.find((item) => item.id === componentId);
     if (source) {
       setTitle(source.title);
-      setDescription(source.description);
+      setDescription("");
     }
   }
 
@@ -201,18 +180,37 @@ export function SystemWorkspace({
     setTitle("");
     setDescription("");
     setPurpose("");
-    setComponentStatus("operational");
+    setComponentStatus("");
     setComponentRemarks("");
+  }
+
+  function openComponentForm(mode: "new" | "adopt" | SystemComponent) {
+    const same = mode === "new" ? !editingComponent && !adopting : mode === "adopt" ? adopting : editingComponent === mode.id;
+    const hasDraft = !!(title || description || purpose || componentStatus || componentRemarks || sourceSelection);
+    if (!same && hasDraft && !window.confirm("Discard the current component draft?")) return;
+    if (!same) {
+      resetComponentForm();
+      if (mode === "adopt") setAdopting(true);
+      else if (mode !== "new") {
+        setEditingComponent(mode.id);
+        setTitle(mode.component.title);
+        setDescription(mode.component.description);
+        setPurpose(mode.component.purpose ?? "");
+        setComponentStatus(mode.component.status.state);
+        setComponentRemarks(mode.component.status.remarks ?? "");
+      }
+    }
+    setComponentForm(true);
   }
 
   const selectedSource = sourceSelection.split("|");
   const selectedDefinition = definitions.find((definition) => definition.id === selectedSource[0]);
   const availableRevisions = revisions.filter(
-    (item) => item.catalog.latest_revision?.lifecycle_status !== "withdrawn",
+    (item) => item.revision.lifecycle_status !== "withdrawn",
   );
 
   return (
-    <div className="workspace">
+    <div className="workspace system-workspace">
       <a href={`/t/${tenantId}/systems`}>← Systems</a>
       <h1>{system.name}</h1>
       <p className="muted">
@@ -221,8 +219,13 @@ export function SystemWorkspace({
       </p>
       {error ? <p role="alert">{error}</p> : null}
       {notice ? <p role="status">{notice}</p> : null}
+      <nav className="workspace-tabs" aria-label="System sections">
+        {([["overview", "Overview"], ["components", "Components"], ["plans", "Security plans"]] as const).map(([id, label]) => (
+          <button type="button" key={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>{label}</button>
+        ))}
+      </nav>
 
-      <section className="panel">
+      <section className="panel" hidden={tab !== "overview"}>
         <h2>System characteristics</h2>
         <form className="stack" onSubmit={saveSystem}>
           <label className="field">
@@ -250,24 +253,28 @@ export function SystemWorkspace({
               disabled={!canWrite || busy}
             />
           </label>
-          <label className="field">
-            User-provided             User-provided system identifiers (one per line; optional identifier-type URI after “|”)
-            <textarea
-              value={systemIdsText}
-              onChange={(event) => setSystemIdsText(event.target.value)}
-              disabled={!canWrite || busy}
-              placeholder="Use an identifier and identifier scheme meaningful to your organization."
-            />
-          </label>
-          <label className="field">
-            Information types (one per line: title | description)
-            <textarea
-              value={informationTypesText}
-              onChange={(event) => setInformationTypesText(event.target.value)}
-              disabled={!canWrite || busy}
-              placeholder="Employee identity data | Identity information used by this system."
-            />
-          </label>
+          <fieldset className="repeatable-fields">
+            <legend>System identifiers</legend>
+            {systemIds.map((item, index) => (
+              <div className="repeatable-row" key={index}>
+                <label className="field">Identifier<input required value={item.id} disabled={!canWrite || busy} onChange={(event) => setSystemIds(systemIds.map((row, i) => i === index ? { ...row, id: event.target.value } : row))} /></label>
+                <label className="field">Identifier type (optional)<input value={item["identifier-type"] ?? ""} disabled={!canWrite || busy} onChange={(event) => setSystemIds(systemIds.map((row, i) => i === index ? { ...row, "identifier-type": event.target.value } : row))} /></label>
+                {canWrite ? <button type="button" className="secondary" onClick={() => setSystemIds(systemIds.filter((_, i) => i !== index))}>Remove identifier</button> : null}
+              </div>
+            ))}
+            {canWrite ? <button type="button" className="secondary" onClick={() => setSystemIds([...systemIds, { id: "" }])}>Add identifier</button> : null}
+          </fieldset>
+          <fieldset className="repeatable-fields">
+            <legend>Information types</legend>
+            {informationTypes.map((item, index) => (
+              <div className="repeatable-row" key={index}>
+                <label className="field">Title<input required value={item.title} disabled={!canWrite || busy} onChange={(event) => setInformationTypes(informationTypes.map((row, i) => i === index ? { ...row, title: event.target.value } : row))} /></label>
+                <label className="field">Description<textarea required value={item.description} disabled={!canWrite || busy} onChange={(event) => setInformationTypes(informationTypes.map((row, i) => i === index ? { ...row, description: event.target.value } : row))} /></label>
+                {canWrite ? <button type="button" className="secondary" onClick={() => setInformationTypes(informationTypes.filter((_, i) => i !== index))}>Remove information type</button> : null}
+              </div>
+            ))}
+            {canWrite ? <button type="button" className="secondary" onClick={() => setInformationTypes([...informationTypes, { title: "", description: "" }])}>Add information type</button> : null}
+          </fieldset>
           <label className="field">
             OSCAL System operational status
             <select
@@ -305,12 +312,16 @@ export function SystemWorkspace({
         </form>
       </section>
 
-      <section className="panel">
+      <section className="panel" hidden={tab !== "components"}>
         <h2>Concrete System components</h2>
         <p className="muted">
           Components describe actual deployed components. Adopting reusable guidance
           does not assert deployment or control coverage.
         </p>
+        {canWrite ? <div className="workspace-actions">
+          <button type="button" onClick={() => openComponentForm("new")}>Add component</button>
+          <button type="button" className="secondary" disabled={!definitions.some((item) => item.components.length)} onClick={() => openComponentForm("adopt")}>Adopt reusable measure</button>
+        </div> : null}
         {components.length ? (
           <ul className="profile-list">
             {components.map((item) => (
@@ -322,18 +333,14 @@ export function SystemWorkspace({
                   {item.component.type} · {item.component.status.state}
                   {item.source_snapshot_id ? " · adopted immutable Component Definition snapshot" : ""}
                 </p>
+                {item.source_snapshot_id && item.source_component_uuid ? (
+                  <a href={`/bff/tenants/${tenantId}/component-definition-snapshots/${item.source_snapshot_id}/components/${item.source_component_uuid}/export`}>View source snapshot</a>
+                ) : null}
                 {canWrite ? (
                   <button
                     className="secondary"
                     type="button"
-                    onClick={() => {
-                      setEditingComponent(item.id);
-                      setTitle(item.component.title);
-                      setDescription(item.component.description);
-                      setPurpose(item.component.purpose ?? "");
-                      setComponentStatus(item.component.status.state);
-                      setComponentRemarks(item.component.status.remarks ?? "");
-                    }}
+                    onClick={() => openComponentForm(item)}
                   >
                     Edit component
                   </button>
@@ -342,7 +349,7 @@ export function SystemWorkspace({
             ))}
           </ul>
         ) : <p className="muted">No concrete components have been recorded.</p>}
-        {canWrite ? (
+        {canWrite && componentForm ? (
           <form className="stack" onSubmit={saveComponent}>
             <h3>{editingComponent ? "Edit component" : adopting ? "Adopt a reusable component" : "Add a concrete component"}</h3>
             {!editingComponent && !adopting ? (
@@ -360,18 +367,6 @@ export function SystemWorkspace({
                   <option value="this-system">This system (system-wide contributions)</option>
                 </select>
               </label>
-            ) : null}
-            {!editingComponent && definitions.length ? (
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => {
-                  setAdopting(!adopting);
-                  setEditingComponent(null);
-                }}
-              >
-                {adopting ? "Add a different component" : "Adopt from Our Measures & Controls"}
-              </button>
             ) : null}
             {adopting ? (
               <label className="field">
@@ -394,7 +389,7 @@ export function SystemWorkspace({
             ) : null}
             {selectedDefinition && adopting ? (
               <p className="muted">
-                Source snapshot: {selectedDefinition.title}, component {selectedSource[1]}. The
+                Source snapshot: {selectedDefinition.title}. The
                 full source document is retained immutably.
               </p>
             ) : null}
@@ -411,8 +406,9 @@ export function SystemWorkspace({
               <input value={purpose} onChange={(event) => setPurpose(event.target.value)} />
             </label>
             <label className="field">
-              OSCAL component operational status
-              <select value={componentStatus} onChange={(event) => setComponentStatus(event.target.value)}>
+              Component operational status
+              <select required value={componentStatus} onChange={(event) => setComponentStatus(event.target.value)}>
+                <option value="">Select a status</option>
                 <option value="operational">Operational</option>
                 <option value="under-development">Under development</option>
                 <option value="disposition">Disposition</option>
@@ -429,28 +425,29 @@ export function SystemWorkspace({
               <button disabled={busy || (adopting && !sourceSelection)}>
                 {busy ? "Saving…" : editingComponent ? "Save component" : adopting ? "Adopt component" : "Add component"}
               </button>
-              {editingComponent || adopting ? (
-                <button className="secondary" type="button" onClick={resetComponentForm}>Cancel</button>
-              ) : null}
+              <button className="secondary" type="button" onClick={() => setComponentForm(false)}>Close</button>
+              <button className="secondary" type="button" onClick={() => { resetComponentForm(); setComponentForm(false); }}>Discard draft</button>
             </div>
           </form>
         ) : null}
       </section>
 
-      <section className="panel">
-        <h2>SSP drafts and pinned baselines</h2>
+      <section className="panel" hidden={tab !== "plans"}>
+        <h2>Security plans</h2>
         <p className="muted">
           A baseline is the complete selected Catalog revision. Documented requirements
           below are a subset, not a reduced baseline or compliance score.
         </p>
+        {canWrite ? <button type="button" onClick={() => setPlanForm(true)}>New SSP</button> : null}
         {plans.length ? (
           <ul className="profile-list">
             {plans.map((plan) => (
               <li key={plan.id}>
                 <h3>{plan.title}</h3>
                 <p>
-                  {plan.catalog_name} · pinned revision <span className="mono">{plan.revision_id}</span>
+                  {plan.catalog_name} · pinned revision {planRevisions[plan.id]?.revision_number ?? revisions.find((item) => item.revision.id === plan.revision_id)?.revision.revision_number}
                 </p>
+                <p className="muted">{initialVersions[plan.id]?.length ?? 0} immutable versions{initialVersions[plan.id]?.length ? ` · ${initialVersions[plan.id].map((version) => version.document_version).join(", ")}` : ""}</p>
                 <p className="muted">
                   {plan.documented_control_count} explicitly documented controls of {plan.baseline_control_count} in the baseline
                 </p>
@@ -461,7 +458,7 @@ export function SystemWorkspace({
             ))}
           </ul>
         ) : <p className="muted">No SSP drafts exist for this System.</p>}
-        {canWrite ? (
+        {canWrite && planForm ? (
           <form className="stack" onSubmit={createPlan}>
             <h3>Create SSP draft</h3>
             <label className="field">
@@ -470,7 +467,7 @@ export function SystemWorkspace({
                 <option value="">Select a Catalog revision</option>
                 {availableRevisions.map(({ catalog, revision }) => (
                   <option key={`${catalog.id}|${revision.id}`} value={`${catalog.id}|${revision.id}`}>
-                    {catalog.name} · revision {revision.revision_number} · {revision.id}
+                    {catalog.name} · revision {revision.revision_number}{revision.source_version ? ` · version ${revision.source_version}` : ""}
                   </option>
                 ))}
               </select>
@@ -488,6 +485,7 @@ export function SystemWorkspace({
               />
             </label>
             <button disabled={busy || !baseline}>Create SSP draft</button>
+            <button type="button" className="secondary" onClick={() => setPlanForm(false)}>Close</button>
           </form>
         ) : null}
         {catalogs.length === 0 ? <p className="muted">Import a Catalog before creating an SSP.</p> : null}

@@ -1,6 +1,6 @@
 import { ApiProblem } from "@/components/ApiProblem";
 import { SystemsList } from "@/components/SystemsList";
-import { listSystems, listTenants } from "@/lib/api";
+import { listSystemComponents, listSystemSecurityPlans, listSystems, listTenants } from "@/lib/api";
 
 export default async function SystemsPage({
   params,
@@ -22,6 +22,7 @@ export default async function SystemsPage({
       <SystemsList
         tenantId={tenantId}
         initialSystems={result.systems}
+        initialCounts={result.counts}
         canWrite={result.canWrite}
       />
     </>
@@ -35,9 +36,17 @@ async function loadSystems(tenantId: string, returnTo: string) {
       listTenants(returnTo),
     ]);
     const tenant = tenants.items.find((item) => item.id === tenantId);
+    const counts = Object.fromEntries(await Promise.all(systems.map(async (system) => {
+      const [components, plans] = await Promise.all([
+        listSystemComponents(tenantId, system.id, returnTo),
+        listSystemSecurityPlans(tenantId, system.id, returnTo),
+      ]);
+      return [system.id, { components: components.length, plans: plans.length }];
+    })));
     return {
       ok: true as const,
       systems,
+      counts,
       canWrite: tenant?.permissions.includes("catalog:write") ?? false,
     };
   } catch (error) {

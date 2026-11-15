@@ -7,21 +7,29 @@ import type { InformationSystem } from "@/lib/types";
 export function SystemsList({
   tenantId,
   initialSystems,
+  initialCounts,
   canWrite,
 }: {
   tenantId: string;
   initialSystems: InformationSystem[];
+  initialCounts: Record<string, { components: number; plans: number }>;
   canWrite: boolean;
 }) {
   const [systems, setSystems] = useState(initialSystems);
+  const [counts, setCounts] = useState(initialCounts);
+  const [query, setQuery] = useState("");
+  const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const visibleSystems = systems.filter((system) => system.name.toLowerCase().includes(query.trim().toLowerCase()));
 
   async function createSystem(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       const response = await fetch(`/bff/tenants/${tenantId}/systems`, {
         method: "POST",
@@ -41,7 +49,11 @@ export function SystemsList({
       const result = await response.json();
       if (!response.ok) throw new Error(readError(result));
       setSystems((current) => [result as InformationSystem, ...current]);
+      setCounts((current) => ({ ...current, [result.id]: { components: 0, plans: 0 } }));
       setName("");
+      setQuery("");
+      setCreating(false);
+      setNotice("System created.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The System could not be created.");
     } finally {
@@ -51,7 +63,15 @@ export function SystemsList({
 
   return (
     <div className="workspace">
-      {canWrite ? (
+      {notice ? <p role="status">{notice}</p> : null}
+      {!creating ? <div className="workspace-actions workspace-heading">
+        <label className="field">
+          Search systems
+          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} />
+        </label>
+        {canWrite ? <button type="button" onClick={() => setCreating(true)}>New system</button> : null}
+      </div> : null}
+      {canWrite && creating ? (
         <form className="panel search-form" onSubmit={createSystem}>
           <label className="field">
             System name
@@ -64,25 +84,26 @@ export function SystemsList({
             />
           </label>
           <button type="submit" disabled={busy || !name.trim()}>
-            {busy ? "Creating…" : "Create System"}
+            {busy ? "Creating…" : "Create system"}
           </button>
+          <button type="button" className="secondary" onClick={() => setCreating(false)}>Close</button>
           {error ? <p role="alert">{error}</p> : null}
         </form>
-      ) : (
+      ) : !canWrite ? (
         <p className="muted">You need catalog:write permission to create or edit Systems.</p>
-      )}
-      <h2>Systems</h2>
-      {systems.length === 0 ? (
+      ) : null}
+      {!creating && systems.length === 0 ? (
         <div className="empty">No Systems have been created in this workspace.</div>
-      ) : (
+      ) : !creating && visibleSystems.length === 0 ? (
+        <div className="empty">No systems match your search.</div>
+      ) : !creating ? (
         <ul className="profile-list">
-          {systems.map((system) => (
+          {visibleSystems.map((system) => (
             <li className="panel" key={system.id}>
               <h3>{system.name}</h3>
-              <p>{system.description || "System characteristics are incomplete."}</p>
               <p className="muted">
-                {system.system_ids.length} system identifiers · {system.information_types.length}{" "}
-                information types · {system.operational_status ?? "operational status not set"}
+                {system.operational_status ?? "Operational status not set"} ·{" "}
+                {counts[system.id]?.components} components · {counts[system.id]?.plans} SSPs
               </p>
               <a className="button" href={`/t/${tenantId}/systems/${system.id}`}>
                 Open System
@@ -90,7 +111,7 @@ export function SystemsList({
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
     </div>
   );
 }

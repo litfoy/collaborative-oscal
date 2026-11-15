@@ -252,9 +252,10 @@ export function listSystemSecurityPlanVersions(
 export function listImplementations(
   tenantId: string,
   returnTo: string,
+  offset = 0,
 ): Promise<Paged<Implementation>> {
   return getJson(`/api/v1/tenants/${tenantId}/implementations`, returnTo, {
     limit: 200,
-    offset: 0,
+    offset,
   });
 }

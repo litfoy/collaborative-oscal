@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type FormEvent } from "react";
 
+import { ControlBrowser } from "@/components/ControlBrowser";
 import type {
   Implementation,
   InformationSystem,
@@ -10,6 +11,9 @@ import type {
   SystemSecurityPlanDiagnostic,
   SystemSecurityPlanValidation,
   SystemSecurityPlanVersion,
+  RevisionSummary,
+  OutlineNode,
+  Paged,
 } from "@/lib/types";
 
 const OSCAL_STATUSES = [
@@ -27,6 +31,8 @@ export function SystemSecurityPlanWorkspace({
   components,
   initialImplementations,
   initialVersions,
+  revision,
+  initialRoot,
   canWrite,
 }: {
   tenantId: string;
@@ -35,9 +41,15 @@ export function SystemSecurityPlanWorkspace({
   components: SystemComponent[];
   initialImplementations: Implementation[];
   initialVersions: SystemSecurityPlanVersion[];
+  revision: RevisionSummary;
+  initialRoot: Paged<OutlineNode>;
   canWrite: boolean;
 }) {
   const [plan, setPlan] = useState(initialPlan);
+  const [savedPlan, setSavedPlan] = useState(initialPlan);
+  const [tab, setTab] = useState<"baseline" | "implementation" | "validation" | "versions">("baseline");
+  const [editingContribution, setEditingContribution] = useState(false);
+  const [contributionQuery, setContributionQuery] = useState("");
   const [implementations, setImplementations] = useState(initialImplementations);
   const [versions, setVersions] = useState(initialVersions);
   const [validation, setValidation] = useState<SystemSecurityPlanValidation | null>(null);
@@ -63,6 +75,8 @@ export function SystemSecurityPlanWorkspace({
   const selected = candidates.find((item) => item.id === selectedId);
   const includedIds = new Set(plan.included_implementations.map((item) => item.implementation_id));
   const availableComponents = components;
+  const dirtyPlan = plan.title !== savedPlan.title || plan.control_implementation_description !== savedPlan.control_implementation_description;
+  const pendingContribution = !!selectedId;
 
   async function savePlan(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -76,6 +90,7 @@ export function SystemSecurityPlanWorkspace({
         },
       );
       setPlan(saved);
+      setSavedPlan(saved);
       setValidation(null);
       return "SSP working state saved.";
     });
@@ -103,17 +118,22 @@ export function SystemSecurityPlanWorkspace({
       setValidation(null);
       const alreadyIncluded = includedIds.has(updated.id);
       if (!alreadyIncluded) {
-        await request(
-          `/bff/tenants/${tenantId}/system-security-plans/${plan.id}/implementations/${updated.id}`,
-          "POST",
-          { system_component_id: componentId },
-        );
+        try {
+          await request(
+            `/bff/tenants/${tenantId}/system-security-plans/${plan.id}/implementations/${updated.id}`,
+            "POST",
+            { system_component_id: componentId },
+          );
+        } catch (reason) {
+          throw new Error(`The Implementation Register record was saved, but could not be included in this SSP: ${reason instanceof Error ? reason.message : "Request failed."}`);
+        }
         await refreshPlan();
       }
       setSelectedId("");
       setDescription("");
       setOscalStatus("");
       setStatusExplanation("");
+      setEditingContribution(false);
       return alreadyIncluded
         ? "Requirement contribution updated in the Implementation Register."
         : "The requirement contribution was explicitly added to this SSP.";
@@ -127,6 +147,7 @@ export function SystemSecurityPlanWorkspace({
         "DELETE",
       );
       await refreshPlan();
+      setValidation(null);
       return "Contribution removed from this SSP. The Implementation Register record remains.";
     });
   }
@@ -152,9 +173,6 @@ export function SystemSecurityPlanWorkspace({
         version,
         ...current.filter((item) => item.id !== version.id),
       ]);
-      setValidation(await getJson<SystemSecurityPlanValidation>(
-        `/bff/tenants/${tenantId}/system-security-plans/${plan.id}/validation`,
-      ));
       return version.created
         ? `Created immutable SSP version ${version.document_version}.`
         : "The working content is unchanged; the existing immutable version was reused.";
@@ -165,7 +183,8 @@ export function SystemSecurityPlanWorkspace({
     const updated = await getJson<SystemSecurityPlan>(
       `/bff/tenants/${tenantId}/system-security-plans/${plan.id}`,
     );
-    setPlan(updated);
+    setPlan((current) => ({ ...updated, title: current.title, control_implementation_description: current.control_implementation_description }));
+    setSavedPlan(updated);
   }
 
   async function run(action: () => Promise<string>) {
@@ -182,28 +201,42 @@ export function SystemSecurityPlanWorkspace({
   }
 
   function chooseImplementation(id: string) {
+    if (selectedId && id !== selectedId && !window.confirm("Discard the current contribution draft?")) return;
+    if (id === selectedId) return;
     setSelectedId(id);
     const item = candidates.find((candidate) => candidate.id === id);
     if (!item) return;
     setDescription(item.description);
     setOscalStatus(item.oscal_implementation_status ?? "");
     setStatusExplanation(item.oscal_status_explanation ?? "");
-    setComponentId(item.system_component_id ?? "");
+    setComponentId(plan.included_implementations.find((entry) => entry.implementation_id === id)?.system_component_id ?? item.system_component_id ?? "");
   }
 
   return (
-    <div className="workspace">
+    <div className="workspace system-workspace">
       <a href={`/t/${tenantId}/systems/${system.id}`}>← {system.name}</a>
       <h1>{plan.title}</h1>
       <p className="muted">
-        Working state · baseline {plan.catalog_name}, pinned revision{" "}
-        <span className="mono">{plan.revision_id}</span>. The SSP documents actual
+        Working state · baseline {plan.catalog_name}, pinned revision {revision.revision_number}
+        {revision.source_version ? ` · version ${revision.source_version}` : ""}. The SSP documents actual
         implementations; it does not assert assessment conclusions or compliance.
       </p>
       {error ? <p role="alert">{error}</p> : null}
       {notice ? <p role="status">{notice}</p> : null}
+      {dirtyPlan ? <p role="status">Unsaved working state changes. Save before validating or creating a version.</p> : null}
+      {pendingContribution ? <p role="status">Save or discard the contribution draft before validating or creating a version. Closing the form preserves the draft.</p> : null}
+      <nav className="workspace-tabs" aria-label="SSP sections">
+        {([["baseline", "Baseline"], ["implementation", "Control implementation"], ["validation", "Validation"], ["versions", "Versions"]] as const).map(([id, label]) => (
+          <button type="button" key={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>{label}</button>
+        ))}
+      </nav>
 
-      <section className="panel">
+      <section hidden={tab !== "baseline"}>
+        <h2>Baseline</h2>
+        <p className="muted">Documentation coverage: {plan.documented_control_count} of {plan.baseline_control_count} controls. This is not a compliance or effectiveness score.</p>
+        <ControlBrowser tenantId={tenantId} catalogId={plan.catalog_id} revisionId={plan.revision_id} initialRoot={initialRoot} initialControl={null} documentedControlIds={plan.included_implementations.map((item) => item.oscal_control_id)} />
+      </section>
+      <section className="panel" hidden={tab !== "implementation"}>
         <h2>Working state</h2>
         <form className="stack" onSubmit={savePlan}>
           <label className="field">
@@ -235,26 +268,31 @@ export function SystemSecurityPlanWorkspace({
           {plan.baseline_control_count} baseline controls. This is documentation
           coverage, not a compliance score.
         </p>
-      </section>
-
-      <section className="panel">
         <h2>Requirement-specific contributions</h2>
+        <label className="field">Search contributions
+          <input type="search" value={contributionQuery} onChange={(event) => setContributionQuery(event.target.value)} />
+        </label>
         {plan.included_implementations.length ? (
           <ul className="profile-list">
-            {plan.included_implementations.map((entry) => {
+            {plan.included_implementations.filter((entry) => {
+              const implementation = implementations.find((item) => item.id === entry.implementation_id);
+              return `${entry.oscal_control_id} ${implementation?.description ?? ""}`.toLowerCase().includes(contributionQuery.toLowerCase());
+            }).map((entry) => {
               const implementation = implementations.find((item) => item.id === entry.implementation_id);
               const component = components.find((item) => item.id === entry.system_component_id);
               return (
                 <li key={entry.implementation_id}>
                   <strong>{entry.oscal_control_id}</strong>
                   {" · "}
-                  {component?.component.title ?? "Component"}
-                  <p>{implementation?.description || "Implementation description is incomplete."}</p>
+                  Actual component: {component?.component.title ?? "Component unavailable"}
+                  <p>Requirement contribution: {implementation?.description || "Implementation description is incomplete."}</p>
                   <p className="muted">
                     Application workflow: {implementation?.status ?? "unknown"} · OSCAL status:{" "}
                     {implementation?.oscal_implementation_status ?? "not selected"}
                   </p>
                   {canWrite ? (
+                    <div className="workspace-actions">
+                    <button type="button" className="secondary" disabled={busy || !implementation} onClick={() => { chooseImplementation(entry.implementation_id); setEditingContribution(true); }}>Edit contribution</button>
                     <button
                       type="button"
                       className="secondary"
@@ -263,6 +301,7 @@ export function SystemSecurityPlanWorkspace({
                     >
                       Remove from this SSP
                     </button>
+                    </div>
                   ) : null}
                 </li>
               );
@@ -270,7 +309,8 @@ export function SystemSecurityPlanWorkspace({
           </ul>
         ) : <p className="muted">No Implementation Register records are included yet.</p>}
 
-        {canWrite ? (
+        {canWrite && !editingContribution ? <button type="button" onClick={() => setEditingContribution(true)}>{selectedId ? "Resume contribution" : "Add contribution"}</button> : null}
+        {canWrite && editingContribution ? (
           <form className="stack" onSubmit={includeImplementation}>
             <h3>Explicitly include an existing Implementation Register record</h3>
             <label className="field">
@@ -280,14 +320,14 @@ export function SystemSecurityPlanWorkspace({
                 {candidates.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.oscal_control_id} · {item.description || "No description"}
-                    {includedIds.has(item.id) ? " (included; selecting updates it)" : ""} · {item.id}
+                    {includedIds.has(item.id) ? " (included)" : ""}
                   </option>
                 ))}
               </select>
             </label>
             <label className="field">
-              Concrete system component (select explicitly)
-              <select value={componentId} onChange={(event) => setComponentId(event.target.value)}>
+              Actual system component
+              <select value={componentId} disabled={!!selected && includedIds.has(selected.id)} onChange={(event) => setComponentId(event.target.value)}>
                 <option value="">Select a component</option>
                 {availableComponents.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -318,6 +358,8 @@ export function SystemSecurityPlanWorkspace({
                 ? "Save requirement contribution changes"
                 : "Update record and include in SSP"}
             </button>
+            <button type="button" className="secondary" onClick={() => setEditingContribution(false)}>Close</button>
+            <button type="button" className="secondary" onClick={() => { setSelectedId(""); setComponentId(""); setDescription(""); setOscalStatus(""); setStatusExplanation(""); setEditingContribution(false); }}>Discard draft</button>
           </form>
         ) : null}
         {components.length === 0 ? (
@@ -325,23 +367,16 @@ export function SystemSecurityPlanWorkspace({
         ) : null}
       </section>
 
-      <section className="panel">
-        <h2>Validation and version creation</h2>
+      <section className="panel" hidden={tab !== "validation"}>
+        <h2>Validation</h2>
         <p>
           OSCAL document validity, baseline references, reported implementation
           statuses, and future assessment conclusions are distinct.
         </p>
         {canWrite ? (
           <div className="workspace-actions">
-            <button type="button" className="secondary" onClick={validate} disabled={busy}>
+            <button type="button" className="secondary" onClick={validate} disabled={busy || dirtyPlan || pendingContribution}>
               Validate working state
-            </button>
-            <button
-              type="button"
-              onClick={createVersion}
-              disabled={busy || (validation !== null && !validation.valid)}
-            >
-              Create immutable SSP version
             </button>
           </div>
         ) : null}
@@ -349,18 +384,19 @@ export function SystemSecurityPlanWorkspace({
         <p className="muted">A successful validation does not mean the System is compliant or assessed.</p>
       </section>
 
-      <section className="panel">
+      <section className="panel" hidden={tab !== "versions"}>
         <h2>Immutable SSP versions</h2>
+        <p className="muted">Versions are stored snapshots of saved working state, not assessments or approvals. Exports use the selected stored snapshot.</p>
+        {canWrite ? <button type="button" onClick={createVersion} disabled={busy || dirtyPlan || pendingContribution || (validation !== null && !validation.valid)}>Create immutable SSP version</button> : null}
         {versions.length ? (
           <ul className="profile-list">
             {versions.map((version) => (
               <li key={version.id}>
                 <strong>Version {version.document_version}</strong>
                 <p className="muted">
-                  OSCAL {version.oscal_version} · {version.oscal_document_uuid} ·{" "}
+                  OSCAL {version.oscal_version} ·{" "}
                   <time dateTime={version.last_modified}>{new Date(version.last_modified).toLocaleString()}</time>
                 </p>
-                <p className="mono">SHA-256 {version.content_sha256}</p>
                 <div className="workspace-actions">
                   <a
                     className="button secondary"
