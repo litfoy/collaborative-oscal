@@ -1,0 +1,102 @@
+name: collaborative-oscal-demo
+
+services:
+  credentials:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    user: "0:0"
+    entrypoint: ["python", "/opt/compose/init-credentials.py"]
+    volumes:
+      - credentials:/run/demo-credentials
+      - postgres_data:/var/lib/postgresql/data:ro
+    restart: "no"
+
+  db:
+    image: postgres:17.11
+    environment:
+      POSTGRES_DB: collaborative_oscal
+      POSTGRES_USER: collaborative_oscal
+      POSTGRES_PASSWORD_FILE: /run/demo-credentials/postgres-password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - credentials:/run/demo-credentials:ro
+    depends_on:
+      credentials:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U collaborative_oscal -d collaborative_oscal"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  db-init:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    entrypoint: ["/bin/sh", "/opt/compose/api-entrypoint.sh"]
+    command:
+      - /bin/sh
+      - -ec
+      - alembic -c /opt/app/alembic.ini upgrade head && python -m app.cli bootstrap-demo
+    environment: &api-environment
+      AUTH_MODE: demo
+      POSTGRES_DB: collaborative_oscal
+      POSTGRES_USER: collaborative_oscal
+      POSTGRES_HOST: db
+    group_add: ["10002"]
+    volumes:
+      - credentials:/run/demo-credentials:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    entrypoint: ["/bin/sh", "/opt/compose/api-entrypoint.sh"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: *api-environment
+    group_add: ["10002"]
+    volumes:
+      - credentials:/run/demo-credentials:ro
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+    entrypoint: ["/bin/sh", "/opt/compose/web-entrypoint.sh"]
+    command: ["node", "/opt/app/node_modules/next/dist/bin/next", "start", "--hostname", "0.0.0.0", "--port", "3000"]
+    environment:
+      AUTH_MODE: demo
+      APP_PUBLIC_URL: http://localhost:3000
+      API_BASE_URL: http://api:8000
+    volumes:
+      - credentials:/run/demo-credentials:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/', {headers: {host: 'localhost:3000'}}, r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  credentials:

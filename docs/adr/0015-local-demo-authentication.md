@@ -18,7 +18,13 @@ it in constant time and does not accept it in Keycloak mode. No provider failure
 causes a fallback. The browser never receives this credential or an OIDC session.
 
 An operator runs `python -m app.cli bootstrap-demo` against a dedicated demo
-database. Reserved UUIDs and a reserved issuer/subject identify the demo tenant,
+database. The default local Compose deployment runs this command after migrations,
+using credentials generated at runtime and persisted separately from database data.
+It refuses to generate a replacement database password if data already exists.
+The web container can read the demo credential but not the database password;
+neither is baked into an image or sent to the browser. The separate manual
+development Compose configuration remains available for Keycloak.
+Reserved UUIDs and a reserved issuer/subject identify the demo tenant,
 identity, and membership. Bootstrap inserts missing rows transactionally and
 rejects conflicts without modifying existing records. No business content is
 created. The API requires the expected active `catalog_editor` membership, confines

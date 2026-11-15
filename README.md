@@ -14,7 +14,40 @@ authorized browser and HTTP import adapter accept JSON; the CLI also accepts YAM
 See the [Catalog import guide](docs/catalog-import.md) for compatibility,
 validation limitations, security boundaries, and a development example.
 
-## Prerequisites
+## Zero-configuration demo
+
+With Docker and Docker Compose v2 installed, run from the repository root:
+
+```sh
+docker compose up
+```
+
+Once startup completes, open **http://localhost:3000**. The first run builds the
+application images, generates server-only credentials, starts PostgreSQL, applies
+the migrations, and creates the Acme Corp demo workspace. No `.env` file or
+Keycloak is needed. The workspace starts empty: use Catalog Explorer to import
+an OSCAL Catalog JSON file, for example
+`examples/catalogs/sample-data-handling.json`.
+
+This is **only a local demonstration**, not a production deployment. Anyone who
+can access the frontend can act as the demo user and make changes. Only the
+frontend is published, on localhost; the API and database use the Compose
+network. Do not expose this stack publicly or connect it to production data.
+
+Generated credentials and database data are kept in separate named volumes.
+`docker compose stop` / `docker compose start` and `docker compose down` /
+`docker compose up` retain both. To reset the demo completely, run:
+
+```sh
+docker compose down -v
+```
+
+**Warning:** this permanently deletes the Compose-managed demo database and
+generated credentials. Back up both volumes together if retaining the database;
+if the database credential is missing while data exists, startup fails instead of
+silently generating an incompatible password.
+
+## Manual development prerequisites
 
 - Python 3.12 or 3.13 and [uv](https://docs.astral.sh/uv/)
 - Node.js 22.13+ and npm 10
@@ -96,7 +129,7 @@ URL checks do not establish network isolation.
    ```
 
    `API_BASE_URL` is a server-side destination;
-   it may use an internal service address such as `http://api:8000` in a future
+   it may use an internal service address such as `http://api:8000` in an
    isolated deployment. Protect that network and the credential in transit.
    Open the app to enter the Acme Corp workspace as Demo User. The fixed
    `catalog_editor` membership retains normal tenant and permission checks.
