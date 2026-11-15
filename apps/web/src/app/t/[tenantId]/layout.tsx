@@ -17,13 +17,14 @@ export default async function TenantLayout({
   const { tenantId } = await params;
   const session = await requireSession(`/t/${tenantId}/catalogs`);
   const userName = session.name ?? session.email ?? "Signed in";
+  const demoMode = "kind" in session && session.kind === "demo";
 
   let tenants;
   try {
     tenants = (await listTenants(`/t/${tenantId}/catalogs`)).items;
   } catch (error) {
     return (
-      <AppShell userName={userName} tenants={[]}>
+      <AppShell userName={userName} tenants={[]} demoMode={demoMode}>
         <ApiProblem error={error} />
       </AppShell>
     );
@@ -32,14 +33,14 @@ export default async function TenantLayout({
   // The tenant list only contains workspaces the backend says the user belongs to.
   if (!isUuid(tenantId) || !tenants.some((tenant) => tenant.id === tenantId)) {
     return (
-      <AppShell userName={userName} tenants={tenants}>
+      <AppShell userName={userName} tenants={tenants} demoMode={demoMode}>
         <ApiProblem error={new ApiError("forbidden", 403, "forbidden")} />
       </AppShell>
     );
   }
 
   return (
-    <AppShell userName={userName} tenants={tenants} currentTenantId={tenantId}>
+    <AppShell userName={userName} tenants={tenants} currentTenantId={tenantId} demoMode={demoMode}>
       {children}
     </AppShell>
   );

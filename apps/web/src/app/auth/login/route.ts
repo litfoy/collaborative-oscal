@@ -9,6 +9,9 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const config = getConfig();
+  if (config.authMode === "demo") {
+    return NextResponse.redirect(new URL("/", config.appUrl), 303);
+  }
   const returnTo = safeReturnTo(request.nextUrl.searchParams.get("returnTo"));
   try {
     const { url, flow } = await beginAuthorization(returnTo);

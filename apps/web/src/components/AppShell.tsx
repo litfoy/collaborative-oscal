@@ -7,11 +7,13 @@ export function AppShell({
   userName,
   tenants,
   currentTenantId,
+  demoMode = false,
   children,
 }: {
   userName: string;
   tenants: Tenant[];
   currentTenantId?: string;
+  demoMode?: boolean;
   children: ReactNode;
 }) {
   const current = tenants.find((tenant) => tenant.id === currentTenantId);
@@ -37,12 +39,15 @@ export function AppShell({
           ) : null}
         </nav>
         <div className="shell-user">
+          {demoMode ? <strong>Demo Mode</strong> : null}
           <span>{userName}</span>
+          {!demoMode ? (
           <form action="/auth/logout" method="post">
             <button type="submit" className="secondary">
               Sign out
             </button>
           </form>
+          ) : null}
         </div>
       </header>
       <main id="main" className="page">

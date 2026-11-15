@@ -28,6 +28,7 @@ from app.api.catalog_schemas import (
 from app.api.dependencies import get_current_identity, require_tenant_permission
 from app.application.authorization import list_accessible_tenants
 from app.application.catalog_browsing import CatalogBrowsingService
+from app.authentication.demo import DEMO_TENANT_ID
 from app.config import get_settings
 from app.domain.catalogs.models import CatalogRevisionStatus
 from app.domain.catalogs.read_models import OutlineNodeKind
@@ -97,6 +98,12 @@ def _not_found(error: EntityNotFoundError) -> HTTPException:
 def list_tenants(identity: UserIdentity = Depends(get_current_identity)) -> TenantListResponse:
     with create_session_factory().begin() as session:
         accessible = list_accessible_tenants(SQLMembershipRepository(session), identity.id)
+    if get_settings().auth_mode == "demo":
+        accessible = [
+            item
+            for item in accessible
+            if item.tenant_id == DEMO_TENANT_ID and item.role == "catalog_editor"
+        ]
     return TenantListResponse(items=[TenantResponse.from_access(item) for item in accessible])
 
 

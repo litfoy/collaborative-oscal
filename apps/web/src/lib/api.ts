@@ -2,18 +2,26 @@ import "server-only";
 
 import { getConfig } from "./config";
 import { ApiError, ERROR_MESSAGES, kindForStatus } from "./errors";
-import { requireSession } from "./auth";
-import type { SessionData } from "./session-crypto";
+import { isDemoPrincipal, requireSession, type WebPrincipal } from "./auth";
 import type { Catalog, ComponentDefinition, ControlDetail, MappingCollection, Paged, OutlineNode, Profile, RevisionDetail, RevisionSummary, Tenant } from "./types";
 
-/** Server-side call to FastAPI using the session's API access token (never the ID token). */
+/** Server-side call to FastAPI using the mode-specific bearer credential. */
 export async function backendFetch(
-  session: SessionData,
+  session: WebPrincipal,
   path: string,
   search?: URLSearchParams,
   init?: { method: "POST" | "PUT" | "DELETE"; body: string | Uint8Array<ArrayBuffer>; timeoutMs?: number },
 ): Promise<Response> {
-  const url = new URL(`${getConfig().apiBaseUrl}${path}`);
+  const config = getConfig();
+  const url = new URL(`${config.apiBaseUrl}${path}`);
+  let accessToken: string;
+  if (isDemoPrincipal(session)) {
+    if (config.authMode !== "demo") throw new Error("Authentication mode mismatch.");
+    accessToken = config.demoAuthSecret;
+  } else {
+    if (config.authMode !== "keycloak") throw new Error("Authentication mode mismatch.");
+    accessToken = session.accessToken;
+  }
   if (search) url.search = search.toString();
   let response: Response;
   try {
@@ -21,7 +29,7 @@ export async function backendFetch(
       method: init?.method,
       body: init?.body,
       headers: {
-        Authorization: `Bearer ${session.accessToken}`,
+        Authorization: `Bearer ${accessToken}`,
         Accept: "application/json",
         ...(init ? { "Content-Type": "application/json" } : {}),
       },
@@ -53,6 +61,9 @@ export async function backendFetch(
         detail: validationLogDetail(body),
       });
     }
+  }
+  if (config.authMode === "demo" && response.status === 401) {
+    throw new ApiError("unavailable", 503, ERROR_MESSAGES.unavailable);
   }
   return response;
 }

@@ -1,8 +1,13 @@
 import "server-only";
 
-export interface WebConfig {
+interface CommonConfig {
   appUrl: URL;
   secureCookies: boolean;
+  apiBaseUrl: string;
+}
+
+export interface KeycloakConfig extends CommonConfig {
+  authMode: "keycloak";
   issuer: URL;
   clientId: string;
   clientSecret: string | undefined;
@@ -10,13 +15,19 @@ export interface WebConfig {
   authorizationParams: Record<string, string>;
   sessionSecret: string;
   sessionMaxAgeSeconds: number;
-  apiBaseUrl: string;
   allowInsecureIssuer: boolean;
 }
 
+export interface DemoConfig extends CommonConfig {
+  authMode: "demo";
+  demoAuthSecret: string;
+}
+
+export type WebConfig = KeycloakConfig | DemoConfig;
+
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-function required(env: NodeJS.ProcessEnv, name: string): string {
+function required(env: Readonly<Record<string, string | undefined>>, name: string): string {
   const value = env[name]?.trim();
   if (!value) {
     throw new Error(`Missing required environment variable ${name}.`);
@@ -67,17 +78,15 @@ function parseAuthorizationParams(raw: string | undefined): Record<string, strin
   return params;
 }
 
-export function parseConfig(env: NodeJS.ProcessEnv): WebConfig {
+export function parseConfig(env: Readonly<Record<string, string | undefined>>): WebConfig {
   const production = env.NODE_ENV === "production";
-  const appUrl = parseUrl("APP_PUBLIC_URL", required(env, "APP_PUBLIC_URL"));
-  const issuer = parseUrl("OIDC_ISSUER_URL", required(env, "OIDC_ISSUER_URL"));
-  const apiBaseUrl = required(env, "API_BASE_URL").replace(/\/+$/, "");
-  parseUrl("API_BASE_URL", apiBaseUrl);
-
-  const sessionSecret = required(env, "SESSION_SECRET");
-  if (sessionSecret.length < 32) {
-    throw new Error("SESSION_SECRET must be at least 32 characters.");
+  const authMode = env.AUTH_MODE ?? "keycloak";
+  if (authMode !== "keycloak" && authMode !== "demo") {
+    throw new Error("AUTH_MODE must be keycloak or demo.");
   }
+  const appUrl = parseUrl("APP_PUBLIC_URL", required(env, "APP_PUBLIC_URL"));
+  const apiBaseUrl = required(env, "API_BASE_URL").replace(/\/+$/, "");
+  const apiUrl = parseUrl("API_BASE_URL", apiBaseUrl);
 
   const appIsLocal = LOCAL_HOSTS.has(appUrl.hostname);
   if (appUrl.protocol !== "https:" && production && !appIsLocal) {
@@ -85,6 +94,26 @@ export function parseConfig(env: NodeJS.ProcessEnv): WebConfig {
   }
   if (appUrl.protocol !== "https:" && appUrl.protocol !== "http:") {
     throw new Error("APP_PUBLIC_URL must use http(s).");
+  }
+  if (authMode === "demo") {
+    if (!appIsLocal) throw new Error("Demo APP_PUBLIC_URL must be loopback.");
+    if (appUrl.username || appUrl.password || appUrl.pathname !== "/" || appUrl.search || appUrl.hash) {
+      throw new Error("Demo APP_PUBLIC_URL must be an origin without credentials.");
+    }
+    if (!["http:", "https:"].includes(apiUrl.protocol) || apiUrl.username || apiUrl.password || apiUrl.search || apiUrl.hash) {
+      throw new Error("Demo API_BASE_URL must be an HTTP(S) URL without credentials, query, or fragment.");
+    }
+    const demoAuthSecret = required(env, "DEMO_AUTH_SECRET");
+    if (!/^[0-9a-f]{64}$/.test(demoAuthSecret)) {
+      throw new Error("DEMO_AUTH_SECRET must be 32 random bytes encoded as lowercase hex.");
+    }
+    return { authMode, appUrl, secureCookies: appUrl.protocol === "https:", apiBaseUrl, demoAuthSecret };
+  }
+
+  const issuer = parseUrl("OIDC_ISSUER_URL", required(env, "OIDC_ISSUER_URL"));
+  const sessionSecret = required(env, "SESSION_SECRET");
+  if (sessionSecret.length < 32) {
+    throw new Error("SESSION_SECRET must be at least 32 characters.");
   }
 
   const issuerIsLocal = LOCAL_HOSTS.has(issuer.hostname);
@@ -98,6 +127,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): WebConfig {
   }
 
   return {
+    authMode,
     appUrl,
     secureCookies: appUrl.protocol === "https:",
     issuer,
@@ -117,6 +147,12 @@ let cached: WebConfig | undefined;
 export function getConfig(): WebConfig {
   cached ??= parseConfig(process.env);
   return cached;
+}
+
+export function getKeycloakConfig(): KeycloakConfig {
+  const config = getConfig();
+  if (config.authMode !== "keycloak") throw new Error("OIDC is unavailable in demo mode.");
+  return config;
 }
 
 export function resetConfigForTests(): void {

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { refreshSession } from "@/lib/oidc";
+import { getConfig } from "@/lib/config";
 import {
   applyMutations,
   hasSessionCookie,
@@ -43,6 +44,16 @@ function withCookies(request: NextRequest, mutations: CookieMutation[]): Headers
 }
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
+  const config = getConfig();
+  if (config.authMode === "demo") {
+    if (request.headers.get("host") !== config.appUrl.host) {
+      return NextResponse.json({ error: "invalid_host" }, { status: 400, headers: { "Cache-Control": "no-store" } });
+    }
+    return NextResponse.next();
+  }
+  if (request.nextUrl.pathname.startsWith("/auth/") || request.nextUrl.pathname === "/signed-out") {
+    return NextResponse.next();
+  }
   if (!hasSessionCookie(request.cookies)) {
     return NextResponse.next();
   }
@@ -66,5 +77,5 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  matcher: ["/((?!_next/|auth/|favicon.ico|signed-out).*)"],
+  matcher: ["/((?!_next/|favicon.ico).*)"],
 };

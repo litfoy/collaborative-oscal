@@ -115,6 +115,21 @@ describe("configuration", () => {
     API_BASE_URL: "https://api.example.com",
   };
 
+  it("defaults to keycloak and requires an explicit valid demo mode and credential", () => {
+    expect(parseConfig(base).authMode).toBe("keycloak");
+    expect(() => parseConfig({ ...base, AUTH_MODE: "unknown" })).toThrow(/AUTH_MODE/);
+    expect(() => parseConfig({ ...base, APP_PUBLIC_URL: "http://localhost:3000", AUTH_MODE: "demo" })).toThrow(/DEMO_AUTH_SECRET/);
+    const demo = {
+      AUTH_MODE: "demo",
+      APP_PUBLIC_URL: "http://localhost:3000",
+      API_BASE_URL: "http://api:8000",
+      DEMO_AUTH_SECRET: "0123456789abcdef".repeat(4),
+    };
+    expect(parseConfig(demo).authMode).toBe("demo");
+    expect(() => parseConfig({ ...demo, APP_PUBLIC_URL: "https://example.com" })).toThrow(/loopback/);
+    expect(() => parseConfig({ ...demo, DEMO_AUTH_SECRET: "invalid" })).toThrow(/DEMO_AUTH_SECRET/);
+  });
+
   it("requires a strong session secret", () => {
     expect(() => parseConfig({ ...base, SESSION_SECRET: "short" } as unknown as NodeJS.ProcessEnv)).toThrow(/32/);
   });
@@ -130,9 +145,9 @@ describe("configuration", () => {
     expect(() =>
       parseConfig({ ...base, WEB_OIDC_AUTHORIZATION_PARAMS: '{"state":"x"}' } as unknown as NodeJS.ProcessEnv),
     ).toThrow(/state/);
-    expect(
-      parseConfig({ ...base, WEB_OIDC_AUTHORIZATION_PARAMS: '{"audience":"api"}' } as unknown as NodeJS.ProcessEnv)
-        .authorizationParams,
-    ).toEqual({ audience: "api" });
+    const config = parseConfig({ ...base, WEB_OIDC_AUTHORIZATION_PARAMS: '{"audience":"api"}' } as unknown as NodeJS.ProcessEnv);
+    expect(config.authMode).toBe("keycloak");
+    if (config.authMode !== "keycloak") throw new Error("Expected Keycloak configuration.");
+    expect(config.authorizationParams).toEqual({ audience: "api" });
   });
 });

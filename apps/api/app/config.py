@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlsplit
@@ -14,9 +15,12 @@ class Settings(BaseSettings):
         env_file="../../.env",
         env_file_encoding="utf-8",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     api_cors_origins: list[str] = ["http://localhost:3000"]
+    auth_mode: Literal["keycloak", "demo"] = "keycloak"
+    demo_auth_secret: str | None = Field(default=None, repr=False)
     database_url: str | None = None
     postgres_db: str | None = None
     postgres_user: str | None = None
@@ -79,6 +83,15 @@ class Settings(BaseSettings):
         if not value or len(value) != len(set(value)) or not set(value) <= supported:
             raise ValueError("Configure one or more supported asymmetric JWT algorithms.")
         return value
+
+    @model_validator(mode="after")
+    def validate_demo_auth(self) -> Settings:
+        if self.auth_mode == "demo" and (
+            self.demo_auth_secret is None
+            or re.fullmatch(r"[0-9a-f]{64}", self.demo_auth_secret) is None
+        ):
+            raise ValueError("DEMO_AUTH_SECRET must be 32 random bytes encoded as lowercase hex.")
+        return self
 
     @model_validator(mode="after")
     def validate_page_sizes(self) -> Settings:

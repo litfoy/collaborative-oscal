@@ -2,14 +2,14 @@ import "server-only";
 
 import * as client from "openid-client";
 
-import { getConfig } from "./config";
+import { getKeycloakConfig } from "./config";
 import type { SessionData } from "./session-crypto";
 
 let configuration: Promise<client.Configuration> | undefined;
 
 export function getOidcConfiguration(): Promise<client.Configuration> {
   if (!configuration) {
-    const config = getConfig();
+    const config = getKeycloakConfig();
     const pending = client.discovery(
       config.issuer,
       config.clientId,
@@ -26,15 +26,15 @@ export function getOidcConfiguration(): Promise<client.Configuration> {
 }
 
 export function callbackUrl(): URL {
-  return new URL("/auth/callback", getConfig().appUrl);
+  return new URL("/auth/callback", getKeycloakConfig().appUrl);
 }
 
 export function signedOutUrl(): URL {
-  return new URL("/signed-out", getConfig().appUrl);
+  return new URL("/signed-out", getKeycloakConfig().appUrl);
 }
 
 export async function beginAuthorization(returnTo: string) {
-  const config = getConfig();
+  const config = getKeycloakConfig();
   const oidc = await getOidcConfiguration();
   const codeVerifier = client.randomPKCECodeVerifier();
   const state = client.randomState();
@@ -52,7 +52,7 @@ export async function beginAuthorization(returnTo: string) {
 }
 
 function toSession(tokens: client.TokenEndpointResponse, previous?: SessionData) {
-  const config = getConfig();
+  const config = getKeycloakConfig();
   const now = Math.floor(Date.now() / 1000);
   const claims = "id_token" in tokens && tokens.id_token ? decodeClaims(tokens.id_token) : null;
   const expiresIn = typeof tokens.expires_in === "number" ? tokens.expires_in : 300;
@@ -139,7 +139,7 @@ export async function endSession(session: SessionData): Promise<URL> {
     if (!oidc.serverMetadata().end_session_endpoint) return fallback;
     const parameters: Record<string, string> = {
       post_logout_redirect_uri: fallback.href,
-      client_id: getConfig().clientId,
+      client_id: getKeycloakConfig().clientId,
     };
     if (session.idToken) parameters.id_token_hint = session.idToken;
     return client.buildEndSessionUrl(oidc, parameters);

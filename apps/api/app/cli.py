@@ -1,7 +1,10 @@
 import argparse
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
+
+from sqlalchemy.dialects.postgresql import insert
 
 from app.application.catalog_import import (
     CatalogImportMetadata,
@@ -11,13 +14,70 @@ from app.application.catalog_import import (
 )
 from app.application.identity import IdentityService
 from app.application.services import GrcService
+from app.authentication.demo import (
+    DEMO_ISSUER,
+    DEMO_MEMBERSHIP_ID,
+    DEMO_NAME,
+    DEMO_SUBJECT,
+    DEMO_TENANT_ID,
+    DEMO_TENANT_NAME,
+    DEMO_TENANT_SLUG,
+    DEMO_USER_ID,
+    demo_state_valid,
+)
 from app.config import get_settings
 from app.domain.errors import EntityNotFoundError
 from app.persistence.database import create_session_factory, create_unit_of_work_factory
 from app.persistence.identity import SQLIdentityRepository, SQLMembershipRepository
-from app.persistence.models import TenantRecord
+from app.persistence.models import TenantMembershipRecord, TenantRecord, UserIdentityRecord
 
 logger = logging.getLogger(__name__)
+
+
+def _bootstrap_demo() -> None:
+    if get_settings().auth_mode != "demo":
+        raise ValueError("bootstrap-demo requires AUTH_MODE=demo.")
+    now = datetime.now(UTC)
+    with create_session_factory().begin() as session:
+        for model, values in (
+            (TenantRecord, dict(id=DEMO_TENANT_ID, name=DEMO_TENANT_NAME, slug=DEMO_TENANT_SLUG)),
+            (
+                UserIdentityRecord,
+                dict(
+                    id=DEMO_USER_ID,
+                    issuer=DEMO_ISSUER,
+                    subject=DEMO_SUBJECT,
+                    display_name=DEMO_NAME,
+                    email=None,
+                ),
+            ),
+            (
+                TenantMembershipRecord,
+                dict(
+                    id=DEMO_MEMBERSHIP_ID,
+                    tenant_id=DEMO_TENANT_ID,
+                    user_id=DEMO_USER_ID,
+                    role="catalog_editor",
+                    status="active",
+                ),
+            ),
+        ):
+            session.execute(
+                insert(model)
+                .values(**values, created_at=now, updated_at=now)
+                .on_conflict_do_nothing()
+            )
+            if model is not TenantMembershipRecord:
+                # Check immediately so conflicting parent records cannot be referenced.
+                if session.get(model, values["id"]) is None:
+                    raise ValueError("Demo bootstrap conflicts with an existing record.")
+        if not demo_state_valid(session):
+            raise ValueError("Demo bootstrap conflicts with existing identity or authorization.")
+    logger.info(
+        "demo_workspace_bootstrapped tenant_id=%s user_identity_id=%s",
+        DEMO_TENANT_ID,
+        DEMO_USER_ID,
+    )
 
 
 def _bootstrap_tenant_admin(
@@ -85,6 +145,7 @@ def _import_catalog(
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("bootstrap-demo", help="Provision the fixed local demo workspace.")
     bootstrap = commands.add_parser(
         "bootstrap-admin",
         help="Assign an OIDC identity the tenant-admin role for one existing tenant.",
@@ -110,7 +171,13 @@ def main() -> None:
     importer.add_argument("--license-identifier")
     arguments = parser.parse_args()
 
-    if arguments.command == "bootstrap-admin":
+    if arguments.command == "bootstrap-demo":
+        try:
+            _bootstrap_demo()
+        except ValueError as exc:
+            parser.error(str(exc))
+        print(f"Demo workspace {DEMO_TENANT_ID} is ready.")
+    elif arguments.command == "bootstrap-admin":
         logging.basicConfig(level=logging.INFO, format="%(message)s")
         try:
             identity_id, membership_id = _bootstrap_tenant_admin(

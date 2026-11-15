@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getConfig } from "./config";
+import { getKeycloakConfig } from "./config";
 import {
   chunk,
   isSessionData,
@@ -50,11 +50,11 @@ function readChunks(reader: CookieReader, name: string): string | null {
 }
 
 export function hasSessionCookie(reader: CookieReader): boolean {
-  return reader.get(`${sessionCookieName(getConfig().secureCookies)}.0`) !== undefined;
+  return reader.get(`${sessionCookieName(getKeycloakConfig().secureCookies)}.0`) !== undefined;
 }
 
 export async function readSession(reader: CookieReader): Promise<SessionData | null> {
-  const config = getConfig();
+  const config = getKeycloakConfig();
   const raw = readChunks(reader, sessionCookieName(config.secureCookies));
   if (!raw) return null;
   const data = await unseal<SessionData>(raw, config.sessionSecret, "session");
@@ -83,7 +83,7 @@ export async function sessionCookieMutations(
   existing: CookieReader,
   data: SessionData | null,
 ): Promise<CookieMutation[]> {
-  const config = getConfig();
+  const config = getKeycloakConfig();
   const name = sessionCookieName(config.secureCookies);
   const mutations: CookieMutation[] = [];
   let used = 0;
@@ -129,7 +129,7 @@ export interface LoginFlowState {
 }
 
 export async function flowCookie(flow: LoginFlowState): Promise<CookieMutation> {
-  const config = getConfig();
+  const config = getKeycloakConfig();
   return {
     name: flowCookieName(config.secureCookies),
     value: await seal(flow, config.sessionSecret, "flow", 600),
@@ -138,7 +138,7 @@ export async function flowCookie(flow: LoginFlowState): Promise<CookieMutation> 
 }
 
 export async function readFlow(reader: CookieReader): Promise<LoginFlowState | null> {
-  const config = getConfig();
+  const config = getKeycloakConfig();
   const raw = reader.get(flowCookieName(config.secureCookies))?.value;
   if (!raw) return null;
   const flow = await unseal<LoginFlowState>(raw, config.sessionSecret, "flow");
@@ -155,7 +155,7 @@ export async function readFlow(reader: CookieReader): Promise<LoginFlowState | n
 }
 
 export function clearFlowCookie(): CookieMutation {
-  const config = getConfig();
+  const config = getKeycloakConfig();
   return {
     name: flowCookieName(config.secureCookies),
     value: "",

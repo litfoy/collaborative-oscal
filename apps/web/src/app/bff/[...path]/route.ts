@@ -1,10 +1,9 @@
-import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { backendFetch } from "@/lib/api";
 import { getConfig } from "@/lib/config";
 import { filterBffQuery, isAllowedBffPath, isAllowedBffRequest, isCatalogImportPath } from "@/lib/bff-allowlist";
-import { readSession } from "@/lib/session";
+import { getRequestPrincipal } from "@/lib/auth";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 const MAX_PROFILE_BODY_BYTES = 3 * 1024 * 1024;
@@ -34,8 +33,8 @@ export async function GET(
   if (!isAllowedBffPath(path)) {
     return json({ error: "not_found" }, 404);
   }
-  const session = await readSession(await cookies());
-  if (!session || session.accessTokenExpiresAt <= Math.floor(Date.now() / 1000)) {
+  const session = await getRequestPrincipal();
+  if (!session) {
     return json({ error: "session_expired" }, 401);
   }
   let upstream: Response;
@@ -80,8 +79,8 @@ async function mutate(
   const declaredLength = Number(request.headers.get("content-length") ?? 0);
   if (declaredLength > maxBytes) return json({ error: "request_too_large" }, 413);
 
-  const session = await readSession(await cookies());
-  if (!session || session.accessTokenExpiresAt <= Math.floor(Date.now() / 1000)) {
+  const session = await getRequestPrincipal();
+  if (!session) {
     return json({ error: "session_expired" }, 401);
   }
   const reader = request.body?.getReader();

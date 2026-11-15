@@ -88,6 +88,14 @@ describe("home / tenant selection", () => {
 });
 
 describe("tenant layout", () => {
+  it("shows demo mode and hides sign out", async () => {
+    mocks.requireSession.mockResolvedValue({ kind: "demo", name: "Demo User" });
+    render(await TenantLayout({ children: <p>CONTENT</p>, params: Promise.resolve({ tenantId: TENANT }) }));
+    expect(screen.getByText("Demo Mode")).toBeInTheDocument();
+    expect(screen.getByText("Demo User")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+  });
+
   it("denies an unauthorized tenant without calling any catalog API", async () => {
     mocks.listTenants.mockResolvedValue({ items: [tenant("a", "Alpha")] });
     render(await TenantLayout({ children: <p>SECRET</p>, params: Promise.resolve({ tenantId: TENANT }) }));

@@ -13,6 +13,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (origin !== config.appUrl.origin) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+  if (config.authMode === "demo") {
+    return NextResponse.redirect(new URL("/", config.appUrl), 303);
+  }
   const session = await readSession(request.cookies);
   const destination = session ? await endSession(session) : new URL("/signed-out", config.appUrl);
   const response = NextResponse.redirect(destination, 303);

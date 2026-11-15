@@ -37,6 +37,10 @@ class SQLIdentityRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
+    def get_by_id(self, identity_id: UUID) -> UserIdentity | None:
+        record = self._session.get(UserIdentityRecord, identity_id)
+        return _identity(record) if record is not None else None
+
     def get_or_create(
         self,
         *,

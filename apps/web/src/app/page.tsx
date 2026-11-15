@@ -46,7 +46,7 @@ export default async function HomePage({
     tenants = (await listTenants("/")).items;
   } catch (error) {
     return (
-      <AppShell userName={session.name ?? session.email ?? "Signed in"} tenants={[]}>
+      <AppShell userName={session.name ?? session.email ?? "Signed in"} tenants={[]} demoMode={"kind" in session && session.kind === "demo"}>
         <ApiProblem error={error} />
       </AppShell>
     );
@@ -57,7 +57,7 @@ export default async function HomePage({
   }
 
   return (
-    <AppShell userName={session.name ?? session.email ?? "Signed in"} tenants={tenants}>
+    <AppShell userName={session.name ?? session.email ?? "Signed in"} tenants={tenants} demoMode={"kind" in session && session.kind === "demo"}>
       <h1>Choose a workspace</h1>
       {tenants.length === 0 ? (
         <div className="empty">

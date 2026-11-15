@@ -19,6 +19,7 @@ function redirectTo(path: string): NextResponse {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  if (getConfig().authMode === "demo") return redirectTo("/");
   const flow = await readFlow(request.cookies);
   if (!flow) {
     return redirectTo("/?error=login_failed");

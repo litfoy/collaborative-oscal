@@ -6,7 +6,10 @@ import type { SessionData } from "@/lib/session-crypto";
 
 import { stubWebEnv } from "./env";
 
-vi.mock("@/lib/auth", () => ({ requireSession: vi.fn() }));
+vi.mock("@/lib/auth", async (original) => ({
+  ...(await original<typeof import("@/lib/auth")>()),
+  requireSession: vi.fn(),
+}));
 
 const session: SessionData = {
   sub: "user",
@@ -20,6 +23,19 @@ beforeEach(() => {
 });
 
 describe("backend failure logging", () => {
+  it("sends the demo credential only upstream and treats rejected credentials as unavailable", async () => {
+    const secret = "0123456789abcdef".repeat(4);
+    stubWebEnv({ AUTH_MODE: "demo", DEMO_AUTH_SECRET: secret });
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(backendFetch({ kind: "demo", name: "Demo User" }, "/api/v1/tenants"))
+      .rejects.toMatchObject({ status: 503, kind: "unavailable" });
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(`Bearer ${secret}`);
+    expect(JSON.stringify(log.mock.calls)).not.toContain(secret);
+    await expect(backendFetch(session, "/api/v1/tenants")).rejects.toThrow(/mode mismatch/);
+  });
+
   it("logs safe connection diagnostics without error messages or credentials", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(

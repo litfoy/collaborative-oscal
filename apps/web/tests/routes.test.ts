@@ -23,6 +23,7 @@ vi.mock("@/lib/session", async (original) => ({
 import { GET as login } from "@/app/auth/login/route";
 import { POST as logout } from "@/app/auth/logout/route";
 import { DELETE as bffDelete, GET as bff, POST as bffPost, PUT as bffPut } from "@/app/bff/[...path]/route";
+import { proxy } from "@/proxy";
 
 const session = { sub: "u", accessToken: "SECRET-TOKEN", idToken: "ID", accessTokenExpiresAt: 9e9, expiresAt: 9e9 };
 const U = "11111111-1111-4111-8111-111111111111";
@@ -75,6 +76,23 @@ describe("login", () => {
 });
 
 describe("BFF proxy", () => {
+  it("accepts demo requests without cookies while retaining CSRF and path checks", async () => {
+    stubWebEnv({ AUTH_MODE: "demo", DEMO_AUTH_SECRET: "0123456789abcdef".repeat(4) });
+    mocks.readSession.mockResolvedValue(null);
+    mocks.backendFetch.mockResolvedValue(new Response("{}", { headers: { "content-type": "application/json" } }));
+    const res = await bff(new NextRequest("http://localhost:3000/bff/" + PATH.join("/")), ctx(PATH));
+    expect(res.status).toBe(200);
+    expect(mocks.backendFetch.mock.calls[0][0]).toEqual({ kind: "demo", name: "Demo User" });
+    const cross = await bffPost(new NextRequest("http://localhost:3000/bff/" + PATH.join("/"), {
+      method: "POST", headers: { origin: "https://evil.example", "content-type": "application/json" }, body: "{}",
+    }), ctx(PATH));
+    expect(cross.status).toBe(403);
+    const blocked = await bff(new NextRequest("http://localhost:3000/bff/me"), ctx(["me"]));
+    expect(blocked.status).toBe(404);
+    expect((await proxy(new NextRequest("http://localhost:3000/", { headers: { host: "evil.example" } }))).status).toBe(400);
+    expect((await proxy(new NextRequest("http://localhost:3000/", { headers: { host: "localhost:3000", cookie: "co_session.0=stale" } }))).status).toBe(200);
+  });
+
   it("forwards catalog import bytes without parsing or rewriting them", async () => {
     mocks.readSession.mockResolvedValue(session);
     mocks.backendFetch.mockResolvedValue(new Response("{}", { headers: { "content-type": "application/json" } }));

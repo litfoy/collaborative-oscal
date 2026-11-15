@@ -63,6 +63,47 @@ The application pins compatible dependency ranges in `apps/api/pyproject.toml` a
 
 Stop PostgreSQL with `docker compose --env-file .env -f infrastructure/docker/compose.yaml down`. Add `-v` only when intentionally deleting the local database volume.
 
+### Local demo without Keycloak
+
+Demo mode is **only for local development and controlled demonstrations**. Anyone
+who can reach its login-free frontend can act as the Demo User, including making
+changes. Never expose it publicly or connect it to production data. Use a dedicated
+non-production PostgreSQL database and bind the web app and API to loopback.
+URL checks do not establish network isolation.
+
+1. In the ignored `.env`, set `AUTH_MODE=demo` and set `DEMO_AUTH_SECRET` to the
+   output of `openssl rand -hex 32`. The same server-only secret must be available
+   to both web and API processes. Never use a `NEXT_PUBLIC_` variable, commit it,
+   or send it to a browser.
+2. Set `DATABASE_URL` to the dedicated demo database and apply the existing
+   migrations. Run the operator-controlled bootstrap from `apps/api`:
+
+   ```sh
+   uv run alembic -c ../../alembic.ini upgrade head
+   uv run python -m app.cli bootstrap-demo
+   ```
+
+   Bootstrap is transactional and repeatable; conflicting existing records cause
+   an error instead of being changed. It creates no catalogs or other business
+   content. Optional content can be imported separately.
+3. Keep `APP_PUBLIC_URL=http://localhost:3000` and bind both servers to loopback:
+
+   ```sh
+   # From apps/api:
+   uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+   # From the repository root, in a separate terminal:
+   npm --workspace apps/web run dev -- --hostname 127.0.0.1
+   ```
+
+   `API_BASE_URL` is a server-side destination;
+   it may use an internal service address such as `http://api:8000` in a future
+   isolated deployment. Protect that network and the credential in transit.
+   Open the app to enter the Acme Corp workspace as Demo User. The fixed
+   `catalog_editor` membership retains normal tenant and permission checks.
+
+Unset demo settings or set `AUTH_MODE=keycloak` to return to the existing OIDC
+flow. Authentication failures never switch modes.
+
 ## Tests and checks
 
 Run backend unit tests and lint:
