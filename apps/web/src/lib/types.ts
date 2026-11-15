@@ -62,6 +62,56 @@ export interface Profile {
   updated_at: string;
 }
 
+export interface ComponentRequirement {
+  catalog_id: string;
+  revision_id: string;
+  control_id: string;
+  description: string;
+}
+
+export interface ReusableComponent {
+  id: string;
+  oscal_uuid: string;
+  type: string;
+  title: string;
+  description: string;
+  requirements: ComponentRequirement[];
+}
+
+export interface ComponentDefinition {
+  id: string;
+  tenant_id: string;
+  title: string;
+  oscal_document_uuid: string;
+  oscal_version: string;
+  version: string;
+  components: ReusableComponent[];
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ComponentRequirementInput {
+  catalog_id: string;
+  revision_id: string;
+  control_id: string;
+  description: string;
+}
+
+export interface ReusableComponentInput {
+  id?: string;
+  type: string;
+  title: string;
+  description: string;
+  requirements: ComponentRequirementInput[];
+}
+
+export interface ComponentDefinitionInput {
+  title: string;
+  components: ReusableComponentInput[];
+}
+
 export interface MappingEntry {
   id: string;
   relationship: string;

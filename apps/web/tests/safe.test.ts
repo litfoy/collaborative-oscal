@@ -101,6 +101,21 @@ describe("BFF allowlist", () => {
     expect(isAllowedBffRequest(profile, "DELETE")).toBe(false);
   });
 
+  it("allows only explicit Component Definition operations", () => {
+    const documents = ["tenants", UUID, "component-definitions"];
+    const document = [...documents, UUID];
+    const component = [...document, "components", UUID];
+    expect(isAllowedBffRequest(documents, "GET")).toBe(true);
+    expect(isAllowedBffRequest(documents, "POST")).toBe(true);
+    expect(isAllowedBffRequest(document, "GET")).toBe(true);
+    expect(isAllowedBffRequest(document, "PUT")).toBe(true);
+    expect(isAllowedBffRequest([...document, "export"], "GET")).toBe(true);
+    expect(isAllowedBffRequest(document, "DELETE")).toBe(true);
+    expect(isAllowedBffRequest(component, "DELETE")).toBe(true);
+    expect(isAllowedBffRequest(component, "PUT")).toBe(false);
+    expect(isAllowedBffRequest([...document, "export"], "DELETE")).toBe(false);
+  });
+
   it("allows only the register's explicit operations and filters", () => {
     const records = ["tenants", UUID, "implementations"];
     const record = [...records, UUID];

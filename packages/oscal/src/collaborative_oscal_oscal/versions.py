@@ -12,6 +12,7 @@ from typing import Any
 
 class OscalDocumentModel(StrEnum):
     CATALOG = "catalog"
+    COMPONENT_DEFINITION = "component-definition"
     MAPPING = "mapping"
     PROFILE = "profile"
 
@@ -42,6 +43,7 @@ SUPPORTED_OSCAL_VERSIONS_BY_MODEL: Mapping[OscalDocumentModel, tuple[str, ...]] 
     MappingProxyType(
         {
             OscalDocumentModel.CATALOG: OSCAL_VERSION_ORDER,
+            OscalDocumentModel.COMPONENT_DEFINITION: ("1.2.3",),
             OscalDocumentModel.MAPPING: ("1.2.0", "1.2.1", "1.2.2", "1.2.3"),
             OscalDocumentModel.PROFILE: OSCAL_VERSION_ORDER,
         }
@@ -74,9 +76,12 @@ def schema_resource(model: OscalDocumentModel, version: str) -> Traversable:
         raise ValueError(
             f"No bundled JSON Schema is registered for OSCAL {model.value} version {version!r}."
         )
-    return files("collaborative_oscal_oscal").joinpath(
-        "schemas", f"oscal_{model.value}_schema_v{version}.json"
+    schema_name = (
+        "oscal_component_definition_schema"
+        if model is OscalDocumentModel.COMPONENT_DEFINITION
+        else f"oscal_{model.value}_schema"
     )
+    return files("collaborative_oscal_oscal").joinpath("schemas", f"{schema_name}_v{version}.json")
 
 
 @cache

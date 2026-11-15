@@ -286,6 +286,9 @@ def test_alembic_upgrade_and_downgrade(db_engine) -> None:
                 "user_identities",
                 "tenant_memberships",
                 "profile_imports",
+                "component_definitions",
+                "component_definition_components",
+                "component_definition_sources",
             } <= tables
         finally:
             transaction.rollback()

@@ -591,3 +591,122 @@ class ImplementationResponsibilityRecord(Base):
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     user_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
     role: Mapped[str] = mapped_column(String(255), nullable=False)
+
+
+class ComponentDefinitionRecord(Base):
+    __tablename__ = "component_definitions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_component_definitions_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id"],
+            ["tenants.id"],
+            name="fk_component_definitions_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(["created_by"], ["user_identities.id"], ondelete="RESTRICT"),
+        ForeignKeyConstraint(["updated_by"], ["user_identities.id"], ondelete="RESTRICT"),
+        Index("ix_component_definitions_tenant_updated", "tenant_id", "updated_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    document: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    updated_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ComponentDefinitionComponentRecord(Base):
+    __tablename__ = "component_definition_components"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "document_id", "id", name="uq_component_definition_component_identity"
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "document_id",
+            "oscal_component_uuid",
+            name="uq_component_definition_component_oscal_uuid",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "document_id"],
+            ["component_definitions.tenant_id", "component_definitions.id"],
+            name="fk_component_definition_component_document",
+            ondelete="CASCADE",
+        ),
+        Index("ix_component_definition_components_document", "tenant_id", "document_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    document_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    oscal_component_uuid: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+
+
+class ComponentDefinitionSourceRecord(Base):
+    __tablename__ = "component_definition_sources"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "component_id",
+            "control_implementation_uuid",
+            "implemented_requirement_uuid",
+            name="uq_component_definition_source_requirement",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "component_id",
+            "catalog_id",
+            "revision_id",
+            "oscal_control_id",
+            name="uq_component_definition_source_control",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "document_id", "component_id"],
+            [
+                "component_definition_components.tenant_id",
+                "component_definition_components.document_id",
+                "component_definition_components.id",
+            ],
+            name="fk_component_definition_source_component",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "catalog_id", "revision_id"],
+            [
+                "catalog_revisions.tenant_id",
+                "catalog_revisions.catalog_id",
+                "catalog_revisions.id",
+            ],
+            name="fk_component_definition_source_revision",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "revision_id", "oscal_control_id"],
+            [
+                "catalog_control_indexes.tenant_id",
+                "catalog_control_indexes.catalog_revision_id",
+                "catalog_control_indexes.oscal_control_id",
+            ],
+            name="fk_component_definition_source_control",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_component_definition_sources_control",
+            "tenant_id",
+            "catalog_id",
+            "revision_id",
+            "oscal_control_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    document_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    component_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    control_implementation_uuid: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    implemented_requirement_uuid: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    catalog_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    revision_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    oscal_control_id: Mapped[str] = mapped_column(String(255), nullable=False)

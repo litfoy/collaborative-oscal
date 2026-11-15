@@ -105,6 +105,13 @@ SHA-256 for the exact checked-in bytes.
 | [1.2.2](https://github.com/usnistgov/OSCAL/releases/tag/v1.2.2) | `fdc559f5dff6848b1ebbe1898a69cc08263479f7c796e2f056412059e7489d0c` | `04329bd68032f48825f712f79576b3fd00e129e59d3597beb56ed72c17277f66` |
 | [1.2.3](https://github.com/usnistgov/OSCAL/releases/tag/v1.2.3) | `ab95836e9e8dfebf6fde80007f6cc76fa3192f595d427c751a3f3923c3f474fc2` | `7c5ff5a92683b6a80ce6a3474dea04e0ea8680a4ecb60702ffa08ebfc677e6cb` |
 
+The measure library's OSCAL 1.2.3 Component Definition validation uses the
+official NIST `oscal_component_schema.json` release asset
+([SHA-256](https://github.com/usnistgov/OSCAL/releases/tag/v1.2.3)):
+`95e76881151ececd5cb1a93ff0f70ad74b8cc1aa58771626ac8b262bf2c8e001`.
+It is a separate model schema and does not change Catalog, Profile, or Control
+Mapping dispatch.
+
 The 1.2.2 and 1.2.3 schemas are version-specific, not aliases. Comparing the NIST
 release assets shows that 1.2.2 corrects JSON integer datatypes (the Catalog schema
 changes only its version identifier from 1.2.1).

@@ -13,6 +13,10 @@ const READ_PATHS = [
   new RegExp(`^tenants/${UUID}/profiles$`),
   new RegExp(`^tenants/${UUID}/profiles/${UUID}$`),
   new RegExp(`^tenants/${UUID}/profiles/${UUID}/export$`),
+  new RegExp(`^tenants/${UUID}/component-definitions$`),
+  new RegExp(`^tenants/${UUID}/component-definitions/${UUID}$`),
+  new RegExp(`^tenants/${UUID}/component-definitions/${UUID}/export$`),
+  new RegExp(`^tenants/${UUID}/component-definitions/${UUID}/components/${UUID}$`),
   new RegExp(`^tenants/${UUID}/mapping-collections$`),
   new RegExp(`^tenants/${UUID}/mapping-collections/${UUID}$`),
   new RegExp(`^tenants/${UUID}/mapping-collections/${UUID}/export$`),
@@ -23,6 +27,10 @@ const READ_PATHS = [
 ];
 const CREATE_PROFILE = new RegExp(`^tenants/${UUID}/profiles$`);
 const UPDATE_PROFILE = new RegExp(`^tenants/${UUID}/profiles/${UUID}$`);
+const CREATE_COMPONENT_DEFINITION = new RegExp(`^tenants/${UUID}/component-definitions$`);
+const UPDATE_COMPONENT_DEFINITION = new RegExp(`^tenants/${UUID}/component-definitions/${UUID}$`);
+const DELETE_COMPONENT_DEFINITION = new RegExp(`^tenants/${UUID}/component-definitions/${UUID}$`);
+const DELETE_COMPONENT = new RegExp(`^tenants/${UUID}/component-definitions/${UUID}/components/${UUID}$`);
 const CREATE_MAPPING_COLLECTION = new RegExp(`^tenants/${UUID}/mapping-collections$`);
 const UPDATE_MAPPING_COLLECTION = new RegExp(`^tenants/${UUID}/mapping-collections/${UUID}$`);
 const DELETE_MAPPING_COLLECTION = new RegExp(`^tenants/${UUID}/mapping-collections/${UUID}$`);
@@ -46,9 +54,9 @@ export function isAllowedBffRequest(segments: string[], method: string): boolean
   if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return false;
   const path = segments.join("/");
   if (method === "GET") return isAllowedBffPath(segments);
-  if (method === "POST") return CREATE_MAPPING_COLLECTION.test(path) || CREATE_PROFILE.test(path) || CREATE_IMPLEMENTATION.test(path) || IMPORT_CATALOG.test(path);
-  if (method === "PUT") return UPDATE_PROFILE.test(path) || UPDATE_IMPLEMENTATION.test(path) || UPDATE_MAPPING_COLLECTION.test(path);
-  if (method === "DELETE") return DELETE_MAPPING_COLLECTION.test(path);
+  if (method === "POST") return CREATE_MAPPING_COLLECTION.test(path) || CREATE_PROFILE.test(path) || CREATE_COMPONENT_DEFINITION.test(path) || CREATE_IMPLEMENTATION.test(path) || IMPORT_CATALOG.test(path);
+  if (method === "PUT") return UPDATE_PROFILE.test(path) || UPDATE_COMPONENT_DEFINITION.test(path) || UPDATE_IMPLEMENTATION.test(path) || UPDATE_MAPPING_COLLECTION.test(path);
+  if (method === "DELETE") return DELETE_MAPPING_COLLECTION.test(path) || DELETE_COMPONENT_DEFINITION.test(path) || DELETE_COMPONENT.test(path);
   return false;
 }
 

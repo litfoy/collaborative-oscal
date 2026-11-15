@@ -4,7 +4,7 @@ import { getConfig } from "./config";
 import { ApiError, ERROR_MESSAGES, kindForStatus } from "./errors";
 import { requireSession } from "./auth";
 import type { SessionData } from "./session-crypto";
-import type { Catalog, ControlDetail, MappingCollection, Paged, OutlineNode, Profile, RevisionDetail, RevisionSummary, Tenant } from "./types";
+import type { Catalog, ComponentDefinition, ControlDetail, MappingCollection, Paged, OutlineNode, Profile, RevisionDetail, RevisionSummary, Tenant } from "./types";
 
 /** Server-side call to FastAPI using the session's API access token (never the ID token). */
 export async function backendFetch(
@@ -46,8 +46,35 @@ export async function backendFetch(
       path: url.pathname,
       status: response.status,
     });
+    if (response.status === 422) {
+      const body: unknown = await response.clone().json().catch(() => null);
+      console.error("[backend] Validation response detail", {
+        path: url.pathname,
+        detail: validationLogDetail(body),
+      });
+    }
   }
   return response;
+}
+
+function validationLogDetail(body: unknown): string | { location: string; type: string; message: string }[] {
+  if (typeof body !== "object" || body === null || !("detail" in body)) {
+    return "No structured validation detail.";
+  }
+  const detail = body.detail;
+  if (typeof detail === "string") return detail;
+  if (!Array.isArray(detail)) return "Validation response has an unexpected detail format.";
+  return detail.map((item) => {
+    if (typeof item !== "object" || item === null) {
+      return { location: "", type: "unknown", message: "Invalid request." };
+    }
+    const entry = item as Record<string, unknown>;
+    return {
+      location: Array.isArray(entry.loc) ? entry.loc.map(String).join(".") : "",
+      type: typeof entry.type === "string" ? entry.type : "unknown",
+      message: typeof entry.msg === "string" ? entry.msg : "Validation error.",
+    };
+  });
 }
 
 async function getJson<T>(path: string, returnTo: string, query?: Record<string, string | number | undefined>): Promise<T> {
@@ -104,6 +131,13 @@ export function listProfiles(
   returnTo: string,
 ): Promise<Paged<Profile>> {
   return getJson(`/api/v1/tenants/${tenantId}/profiles`, returnTo, { limit: 200 });
+}
+
+export function listComponentDefinitions(
+  tenantId: string,
+  returnTo: string,
+): Promise<Paged<ComponentDefinition>> {
+  return getJson(`/api/v1/tenants/${tenantId}/component-definitions`, returnTo, { limit: 200 });
 }
 
 export function listMappingCollections(

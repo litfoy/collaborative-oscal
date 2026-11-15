@@ -28,6 +28,7 @@ export function AppShell({
           {current ? (
             <>
               <a href={`/t/${current.id}/catalogs`}>Catalogs</a>
+              <a href={`/t/${current.id}/measures`}>Our Measures &amp; Controls</a>
               <a href={`/t/${current.id}/mappings`}>Control mappings</a>
               <a href={`/t/${current.id}/profiles`}>Profiles</a>
               <span className="muted">Workspace: {current.name}</span>
