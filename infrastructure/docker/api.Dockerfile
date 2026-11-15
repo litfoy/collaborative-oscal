@@ -10,7 +10,8 @@ RUN uv sync --locked --no-dev
 COPY apps/api/app ./app
 COPY alembic.ini /opt/app/alembic.ini
 COPY migrations /opt/app/migrations
-COPY infrastructure/docker/init-credentials.py infrastructure/docker/api-entrypoint.sh /opt/compose/
+COPY apps/api/tests/fixtures/NIST_SP-800-53_rev5_catalog-min.json /opt/demo/nist-sp-800-53-rev5.json
+COPY infrastructure/docker/init-credentials.py infrastructure/docker/api-entrypoint.sh infrastructure/docker/seed-demo-catalog.py /opt/compose/
 ENV PATH="/opt/app/apps/api/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1
 USER 10001:10001

@@ -39,7 +39,7 @@ services:
     command:
       - /bin/sh
       - -ec
-      - alembic -c /opt/app/alembic.ini upgrade head && python -m app.cli bootstrap-demo
+      - alembic -c /opt/app/alembic.ini upgrade head && python -m app.cli bootstrap-demo && PYTHONPATH=/opt/app/apps/api python /opt/compose/seed-demo-catalog.py
     environment: &api-environment
       AUTH_MODE: demo
       POSTGRES_DB: collaborative_oscal

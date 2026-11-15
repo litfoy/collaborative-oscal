@@ -25,9 +25,13 @@ docker compose up
 Once startup completes, open **http://localhost:3000**. The first run builds the
 application images, generates server-only credentials, starts PostgreSQL, applies
 the migrations, and creates the Acme Corp demo workspace. No `.env` file or
-Keycloak is needed. The workspace starts empty: use Catalog Explorer to import
-an OSCAL Catalog JSON file, for example
-`examples/catalogs/sample-data-handling.json`.
+Keycloak is needed. The workspace includes the official NIST SP 800-53 Rev. 5.2.0
+catalog; use Catalog Explorer to browse it or import other OSCAL Catalog JSON
+files, for example `examples/catalogs/sample-data-handling.json`. The bundled
+NIST catalog is imported once per demo database; restarts do not replace changes
+or re-import a catalog that was later removed. After updating an existing checkout,
+run `docker compose up --build` to rebuild its images; existing demo databases
+then acquire the seed unless they already contain that OSCAL document.
 
 This is **only a local demonstration**, not a production deployment. Anyone who
 can access the frontend can act as the demo user and make changes. Only the

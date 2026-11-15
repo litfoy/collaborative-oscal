@@ -26,8 +26,12 @@ neither is baked into an image or sent to the browser. The separate manual
 development Compose configuration remains available for Keycloak.
 Reserved UUIDs and a reserved issuer/subject identify the demo tenant,
 identity, and membership. Bootstrap inserts missing rows transactionally and
-rejects conflicts without modifying existing records. No business content is
-created. The API requires the expected active `catalog_editor` membership, confines
+rejects conflicts without modifying existing records. The bootstrap command itself
+creates no business content. The Compose database initializer separately imports
+the checked-in NIST SP 800-53 Rev. 5.2.0 catalog once per demo database, using
+the normal catalog import service. A database-backed seed marker and import commit
+atomically, and an existing copy of the OSCAL document is not duplicated. The API
+requires the expected active `catalog_editor` membership, confines
 tenant selection and listing to the reserved tenant, and still performs normal
 permission checks. Unexpected roles and missing or modified bootstrap records
 fail closed.
