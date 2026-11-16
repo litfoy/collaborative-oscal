@@ -333,6 +333,113 @@ export interface SystemSecurityPlanVersion {
   created?: boolean;
 }
 
+export type AssessmentMethod = "EXAMINE" | "INTERVIEW" | "TEST";
+
+export interface AssessmentSourceObjective {
+  objective_id: string;
+  control_id: string;
+}
+
+export interface AssessmentLocalObjective {
+  objective_id: string;
+  control_id: string;
+  description: string;
+  methods: AssessmentMethod[];
+}
+
+export interface AssessmentActivityStep {
+  id: string;
+  title: string;
+  description: string;
+}
+
+export interface AssessmentActivity {
+  id: string;
+  title: string;
+  description: string;
+  methods: AssessmentMethod[];
+  steps: AssessmentActivityStep[];
+  control_ids: string[];
+  objective_ids: string[];
+  planned_evidence: string | null;
+}
+
+export interface AssessmentTask {
+  id: string;
+  title: string;
+  description: string | null;
+  activity_ids: string[];
+  subject_uuids: string[];
+  role_ids: string[];
+  on_date: string | null;
+  start: string | null;
+  end: string | null;
+}
+
+export interface AssessmentRole {
+  role_id: string;
+  title: string;
+  description: string | null;
+  party_uuids: string[];
+}
+
+export interface AssessmentParty {
+  uuid: string;
+  party_type: "person" | "organization";
+  name: string;
+}
+
+export interface AssessmentPlan {
+  id: string;
+  tenant_id: string;
+  system_id: string;
+  system_security_plan_id: string;
+  system_security_plan_version_id: string;
+  title: string;
+  description: string | null;
+  control_ids: string[];
+  source_objectives: AssessmentSourceObjective[];
+  local_objectives: AssessmentLocalObjective[];
+  subject_uuids: string[];
+  activities: AssessmentActivity[];
+  tasks: AssessmentTask[];
+  roles: AssessmentRole[];
+  parties: AssessmentParty[];
+  terms: string | null;
+  baseline_catalog_id: string;
+  baseline_revision_id: string;
+  ssp_oscal_version: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssessmentSourceObjectiveCatalogItem {
+  objective_id: string;
+  control_id: string;
+  title: string;
+  description: string | null;
+}
+
+export interface AssessmentPlanValidation {
+  valid: boolean;
+  diagnostics: SystemSecurityPlanDiagnostic[];
+  source_objectives: AssessmentSourceObjectiveCatalogItem[];
+}
+
+export interface AssessmentPlanVersion {
+  id: string;
+  assessment_plan_id: string;
+  system_security_plan_version_id: string;
+  oscal_document_uuid: string;
+  oscal_version: string;
+  document_version: string;
+  last_modified: string;
+  content_sha256: string;
+  diagnostics: SystemSecurityPlanDiagnostic[];
+  created_at: string;
+  created?: boolean;
+}
+
 export interface ProfileBrowserNode {
   key: string;
   parent_key: string | null;

@@ -6,7 +6,15 @@ import { SystemWorkspace } from "@/components/SystemWorkspace";
 import { SystemsList } from "@/components/SystemsList";
 import { SystemSecurityPlanWorkspace } from "@/components/SystemSecurityPlanWorkspace";
 import { LocaleProvider } from "@/lib/i18n/provider";
-import type { ComponentDefinition, Implementation, InformationSystem, SystemComponent, SystemSecurityPlan, SystemSecurityPlanVersion } from "@/lib/types";
+import type {
+  AssessmentPlan,
+  ComponentDefinition,
+  Implementation,
+  InformationSystem,
+  SystemComponent,
+  SystemSecurityPlan,
+  SystemSecurityPlanVersion,
+} from "@/lib/types";
 
 import { CATALOG, REVISION, TENANT, catalog, jsonResponse, page, revision } from "./fixtures";
 
@@ -44,10 +52,12 @@ const version: SystemSecurityPlanVersion = {
   content_sha256: "hash", diagnostics: [], created_at: "2025-01-01T00:00:00Z", created: true,
 };
 const validation = { valid: true, diagnostics: [], baseline_control_count: 2, documented_control_count: 1 };
+const assessmentPlans: AssessmentPlan[] = [];
 
 function renderSystem(locale: "en" | "de" = "en") {
   return render(<LocaleProvider locale={locale}><SystemWorkspace tenantId={TENANT} initialSystem={system} initialComponents={[component]}
     initialPlans={[plan]} initialVersions={{ [plan.id]: [version] }} catalogs={[catalog()]}
+    initialAssessmentPlans={assessmentPlans}
     planRevisions={{ [plan.id]: revision() }}
     revisions={[{ catalog: catalog(), revision: revision() }]} definitions={[definition]} canWrite /></LocaleProvider>);
 }

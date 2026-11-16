@@ -7,12 +7,15 @@ overview, see the [English README](../README.md) or the
 The project is licensed under Apache-2.0. Its current product surface includes
 OIDC browser sign-in through a Next.js Backend-for-Frontend, a tenant-scoped
 **Catalog Explorer** with command-line catalog import, basic Profile authoring,
-and a revision-pinned Control Implementation Register. The API provides OIDC
+and a revision-pinned Control Implementation Register. It also includes
+Assessment Plan authoring pinned to immutable SSP versions, with explicit
+assessment scope/objective/subject/activity/task planning and immutable
+OSCAL Assessment Plan exports. The API provides OIDC
 bearer-token authentication, internal identities, tenant memberships, and
 tenant-scoped RBAC. Profiles select controls from exact catalog revisions; full
 Profile resolution is not implemented. Register status is self-reported, not an
-assessment. Catalog editing, assessment workflows, and evidence file storage
-are not implemented. See [Catalog Explorer](architecture/catalog-explorer.md)
+assessment outcome. Catalog editing, Assessment Results workflows, and evidence
+file storage are not implemented. See [Catalog Explorer](architecture/catalog-explorer.md)
 for setup and [ADR 0009](adr/0009-revision-safe-control-implementations.md) for
 register behavior and limitations.
 

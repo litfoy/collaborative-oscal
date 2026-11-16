@@ -5,6 +5,7 @@ import { useState, type FormEvent } from "react";
 import { useI18n } from "@/lib/i18n/provider";
 import type { Translate } from "@/lib/i18n";
 import type {
+  AssessmentPlan,
   Catalog,
   ComponentDefinition,
   InformationSystem,
@@ -24,6 +25,7 @@ export function SystemWorkspace({
   initialSystem,
   initialComponents,
   initialPlans,
+  initialAssessmentPlans,
   initialVersions,
   planRevisions,
   catalogs,
@@ -35,6 +37,7 @@ export function SystemWorkspace({
   initialSystem: InformationSystem;
   initialComponents: SystemComponent[];
   initialPlans: SystemSecurityPlan[];
+  initialAssessmentPlans: AssessmentPlan[];
   initialVersions: Record<string, SystemSecurityPlanVersion[]>;
   planRevisions: Record<string, RevisionSummary>;
   catalogs: Catalog[];
@@ -46,9 +49,11 @@ export function SystemWorkspace({
   const [system, setSystem] = useState(initialSystem);
   const [components, setComponents] = useState(initialComponents);
   const [plans, setPlans] = useState(initialPlans);
+  const [assessmentPlans, setAssessmentPlans] = useState(initialAssessmentPlans);
   const [tab, setTab] = useState<"overview" | "components" | "plans">("overview");
   const [componentForm, setComponentForm] = useState(false);
   const [planForm, setPlanForm] = useState(false);
+  const [assessmentPlanForm, setAssessmentPlanForm] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -64,6 +69,9 @@ export function SystemWorkspace({
   const [planTitle, setPlanTitle] = useState("");
   const [controlDescription, setControlDescription] = useState("");
   const [baseline, setBaseline] = useState("");
+  const [assessmentPlanTitle, setAssessmentPlanTitle] = useState("");
+  const [assessmentPlanDescription, setAssessmentPlanDescription] = useState("");
+  const [assessmentSspVersion, setAssessmentSspVersion] = useState("");
   const [systemIds, setSystemIds] = useState(system.system_ids);
   const [informationTypes, setInformationTypes] = useState<Array<{ uuid?: string; title: string; description: string }>>(system.information_types);
 
@@ -170,6 +178,30 @@ export function SystemWorkspace({
     }
   }
 
+  async function createAssessmentPlan(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!assessmentSspVersion) return;
+    await run(async () => {
+      const result = await request<AssessmentPlan>(
+        `/bff/tenants/${tenantId}/systems/${system.id}/assessment-plans`,
+        "POST",
+        {
+          ssp_version_id: assessmentSspVersion,
+          title: assessmentPlanTitle,
+          description: assessmentPlanDescription || null,
+        },
+        t,
+        errorMessage,
+      );
+      setAssessmentPlans((current) => [...current, result]);
+      setAssessmentPlanTitle("");
+      setAssessmentPlanDescription("");
+      setAssessmentSspVersion("");
+      setAssessmentPlanForm(false);
+      return t("assessmentPlans.created");
+    });
+  }
+
   function chooseReusableComponent(value: string) {
     setSourceSelection(value);
     const [documentId, componentId] = value.split("|");
@@ -216,6 +248,13 @@ export function SystemWorkspace({
   const selectedDefinition = definitions.find((definition) => definition.id === selectedSource[0]);
   const availableRevisions = revisions.filter(
     (item) => item.revision.lifecycle_status !== "withdrawn",
+  );
+  const availableSspVersions = plans.flatMap((plan) =>
+    (initialVersions[plan.id] ?? []).map((version) => ({
+      plan,
+      version,
+      revision: planRevisions[plan.id],
+    })),
   );
 
   return (
@@ -490,6 +529,76 @@ export function SystemWorkspace({
           </form>
         ) : null}
         {catalogs.length === 0 ? <p className="muted">{t("systems.importCatalogFirst")}</p> : null}
+
+        <h3>{t("assessmentPlans.sectionTitle")}</h3>
+        <p className="muted">{t("assessmentPlans.sectionIntro")}</p>
+        {canWrite ? (
+          <button type="button" className="secondary" onClick={() => setAssessmentPlanForm(true)}>
+            {t("assessmentPlans.newPlan")}
+          </button>
+        ) : null}
+        {assessmentPlans.length ? (
+          <ul className="profile-list">
+            {assessmentPlans.map((plan) => (
+              <li key={plan.id}>
+                <h4>{plan.title}</h4>
+                <p className="muted">
+                  {t("assessmentPlans.pinnedSspVersion", {
+                    version: plan.system_security_plan_version_id,
+                  })}
+                </p>
+                <a
+                  className="button"
+                  href={`/t/${tenantId}/systems/${system.id}/assessment-plans/${plan.id}`}
+                >
+                  {t("assessmentPlans.openPlan")}
+                </a>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">{t("assessmentPlans.noPlans")}</p>
+        )}
+        {canWrite && assessmentPlanForm ? (
+          <form className="stack" onSubmit={createAssessmentPlan}>
+            <h4>{t("assessmentPlans.createTitle")}</h4>
+            <label className="field">
+              {t("assessmentPlans.sspVersion")}
+              <select
+                required
+                value={assessmentSspVersion}
+                onChange={(event) => setAssessmentSspVersion(event.target.value)}
+              >
+                <option value="">{t("assessmentPlans.selectSspVersion")}</option>
+                {availableSspVersions.map(({ plan, version, revision }) => (
+                  <option key={version.id} value={version.id}>
+                    {plan.title} · {version.document_version}
+                    {revision ? ` · ${t("systems.pinnedRevision", { revision: number(revision.revision_number) })}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              {t("assessmentPlans.title")}
+              <input
+                required
+                value={assessmentPlanTitle}
+                onChange={(event) => setAssessmentPlanTitle(event.target.value)}
+              />
+            </label>
+            <label className="field">
+              {t("assessmentPlans.description")}
+              <textarea
+                value={assessmentPlanDescription}
+                onChange={(event) => setAssessmentPlanDescription(event.target.value)}
+              />
+            </label>
+            <button disabled={busy || !assessmentSspVersion}>{t("assessmentPlans.createAction")}</button>
+            <button type="button" className="secondary" onClick={() => setAssessmentPlanForm(false)}>
+              {t("systems.close")}
+            </button>
+          </form>
+        ) : null}
       </section>
     </div>
   );

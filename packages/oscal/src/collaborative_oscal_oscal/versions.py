@@ -11,6 +11,7 @@ from typing import Any
 
 
 class OscalDocumentModel(StrEnum):
+    ASSESSMENT_PLAN = "assessment-plan"
     CATALOG = "catalog"
     COMPONENT_DEFINITION = "component-definition"
     MAPPING = "mapping"
@@ -58,6 +59,7 @@ OSCAL_VERSION_ORDER = (
 SUPPORTED_OSCAL_VERSIONS_BY_MODEL: Mapping[OscalDocumentModel, tuple[str, ...]] = (
     MappingProxyType(
         {
+            OscalDocumentModel.ASSESSMENT_PLAN: ("1.2.1",),
             OscalDocumentModel.CATALOG: OSCAL_VERSION_ORDER,
             OscalDocumentModel.COMPONENT_DEFINITION: ("1.2.1", "1.2.3"),
             OscalDocumentModel.MAPPING: ("1.2.0", "1.2.1", "1.2.2", "1.2.3"),
@@ -82,6 +84,7 @@ SUPPORTED_OSCAL_VERSIONS = frozenset(SUPPORTED_OSCAL_DOCUMENT_MODELS_BY_VERSION)
 AUTHORING_OSCAL_VERSION_BY_MODEL: Mapping[OscalDocumentModel, str] = (
     MappingProxyType(
         {
+            OscalDocumentModel.ASSESSMENT_PLAN: DEFAULT_AUTHORING_OSCAL_VERSION,
             OscalDocumentModel.PROFILE: DEFAULT_AUTHORING_OSCAL_VERSION,
             OscalDocumentModel.MAPPING: DEFAULT_AUTHORING_OSCAL_VERSION,
             OscalDocumentModel.COMPONENT_DEFINITION: DEFAULT_AUTHORING_OSCAL_VERSION,
@@ -136,6 +139,9 @@ def schema_resource(model: OscalDocumentModel, version: str) -> Traversable:
             f"No bundled JSON Schema is registered for OSCAL {model.value} version {version!r}."
         )
     schema_name = (
+        "oscal_assessment_plan_schema"
+        if model is OscalDocumentModel.ASSESSMENT_PLAN
+        else
         "oscal_component_definition_schema"
         if model is OscalDocumentModel.COMPONENT_DEFINITION
         else "oscal_ssp_schema"

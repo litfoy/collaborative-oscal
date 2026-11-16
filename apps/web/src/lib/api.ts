@@ -4,6 +4,9 @@ import { getConfig } from "./config";
 import { ApiError, ERROR_MESSAGES, kindForStatus } from "./errors";
 import { isDemoPrincipal, requireSession, type WebPrincipal } from "./auth";
 import type {
+  AssessmentPlan,
+  AssessmentPlanValidation,
+  AssessmentPlanVersion,
   Catalog,
   ComponentDefinition,
   ControlDetail,
@@ -247,6 +250,38 @@ export function listSystemSecurityPlanVersions(
   returnTo: string,
 ): Promise<SystemSecurityPlanVersion[]> {
   return getJson(`/api/v1/tenants/${tenantId}/system-security-plans/${planId}/versions`, returnTo);
+}
+
+export function listAssessmentPlans(
+  tenantId: string,
+  systemId: string,
+  returnTo: string,
+): Promise<AssessmentPlan[]> {
+  return getJson(`/api/v1/tenants/${tenantId}/systems/${systemId}/assessment-plans`, returnTo);
+}
+
+export function getAssessmentPlan(
+  tenantId: string,
+  planId: string,
+  returnTo: string,
+): Promise<AssessmentPlan> {
+  return getJson(`/api/v1/tenants/${tenantId}/assessment-plans/${planId}`, returnTo);
+}
+
+export function validateAssessmentPlan(
+  tenantId: string,
+  planId: string,
+  returnTo: string,
+): Promise<AssessmentPlanValidation> {
+  return getJson(`/api/v1/tenants/${tenantId}/assessment-plans/${planId}/validation`, returnTo);
+}
+
+export function listAssessmentPlanVersions(
+  tenantId: string,
+  planId: string,
+  returnTo: string,
+): Promise<AssessmentPlanVersion[]> {
+  return getJson(`/api/v1/tenants/${tenantId}/assessment-plans/${planId}/versions`, returnTo);
 }
 
 export function listImplementations(

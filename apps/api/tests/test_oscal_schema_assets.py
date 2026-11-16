@@ -6,6 +6,9 @@ import pytest
 from collaborative_oscal_oscal.versions import OscalDocumentModel, schema_resource
 
 SCHEMA_SHA256 = {
+    OscalDocumentModel.ASSESSMENT_PLAN: (
+        "0153e4e0414903c51c13732d4158d955630e33a3ef009d2691cf3e07336136f4"
+    ),
     OscalDocumentModel.CATALOG: "c0ae626d6bafe318db68692152d0cbbebf29ba7226b1596a5513cc5d1754504d",
     OscalDocumentModel.PROFILE: "3b92e83ef9043af573ca81a451f899adf6855440b0974fb448b9c635fead7983",
     OscalDocumentModel.MAPPING: "5b8f6f9b8117bb42ad8466d11d1695f0be9cc31350c2a3aea770614d96d70d3f",

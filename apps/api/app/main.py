@@ -5,6 +5,7 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.assessment_plan_routes import router as assessment_plan_router
 from app.api.catalog_import_routes import router as catalog_import_router
 from app.api.catalog_routes import router as catalog_router
 from app.api.component_definition_routes import router as component_definition_router
@@ -46,6 +47,7 @@ app.add_middleware(
     allow_headers=["Accept", "Authorization", "Content-Type"],
 )
 app.include_router(api_router)
+app.include_router(assessment_plan_router)
 app.include_router(catalog_router)
 app.include_router(component_definition_router)
 app.include_router(catalog_import_router)

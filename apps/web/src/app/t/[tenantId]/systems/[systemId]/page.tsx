@@ -2,6 +2,7 @@ import { ApiProblem } from "@/components/ApiProblem";
 import { SystemWorkspace } from "@/components/SystemWorkspace";
 import {
   getSystem,
+  listAssessmentPlans,
   getRevision,
   listCatalogs,
   listComponentDefinitions,
@@ -27,6 +28,7 @@ export default async function SystemDetailPage({
       initialSystem={result.system}
       initialComponents={result.components}
       initialPlans={result.plans}
+      initialAssessmentPlans={result.assessmentPlans}
       initialVersions={result.versions}
       planRevisions={result.planRevisions}
       catalogs={result.catalogs}
@@ -39,10 +41,11 @@ export default async function SystemDetailPage({
 
 async function loadSystem(tenantId: string, systemId: string, here: string) {
   try {
-    const [system, components, plans, catalogPage, definitions, tenants] = await Promise.all([
+    const [system, components, plans, assessmentPlans, catalogPage, definitions, tenants] = await Promise.all([
       getSystem(tenantId, systemId, here),
       listSystemComponents(tenantId, systemId, here),
       listSystemSecurityPlans(tenantId, systemId, here),
+      listAssessmentPlans(tenantId, systemId, here),
       listCatalogs(tenantId, { limit: 200, offset: 0 }, here),
       listComponentDefinitions(tenantId, here),
       listTenants(here),
@@ -71,6 +74,7 @@ async function loadSystem(tenantId: string, systemId: string, here: string) {
       system,
       components,
       plans,
+      assessmentPlans,
       versions,
       planRevisions,
       catalogs: catalogPage.items,
