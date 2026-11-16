@@ -31,14 +31,21 @@ those existing sources of truth. General Profile Resolution remains deferred
   immutable, digest-addressed snapshot of the complete source document. The
   generated `imported-from` link points to an authenticated endpoint serving that
   historical source snapshot.
-- Generate an OSCAL 1.2.3 SSP only from a consistent view of the System, SSP,
-  concrete components, explicit memberships, and Implementation Register records.
-  Store generated JSON as an immutable version. A normalized substantive-content
-  digest avoids duplicate versions when the working state is unchanged.
-- Validate the generated document with the bundled official NIST OSCAL 1.2.3 SSP
-  JSON Schema and application-level baseline and internal-reference checks.
-  Schema success is not a claim of exhaustive OSCAL Metaschema conformance,
-  regulatory compliance, or assessment results.
+- Generate an OSCAL 1.2.1 SSP when its required content is representable by
+  Compliance Trestle 5.2.0's generated SSP model; otherwise retain OSCAL 1.2.3
+  for the recognized 1.2.3-only component types `region`, `zone`, and
+  `resource-container`. The system-component type `network` is supported in
+  SSP 1.2.1 and does not by itself require a version exception. Independently
+  validate the final serialized document
+  against its official NIST schema and application-level
+  baseline, UUID, party-reference, and validation-link checks. Store generated
+  JSON as an immutable version. Compute the substantive-content digest from the
+  final serialized document, excluding only volatile document-level version
+  metadata, so unchanged content does not create duplicate versions.
+- Keep all existing immutable SSP versions' stored content unchanged in storage
+  and export. Never pass them through Trestle serialization. Schema success is not a
+  claim of exhaustive OSCAL Metaschema conformance, regulatory compliance, or
+  assessment results.
 - Keep operational workflow status separate from OSCAL implementation status.
   Require an explicitly authored OSCAL state for included contributions; require
   an explanation for planned, alternative, and not-applicable states. Do not infer
@@ -60,8 +67,8 @@ alter historical versions. New baselines use new SSP records, and historical
 versions remain pinned to their original Catalog revisions.
 
 Compliance Trestle remains an architectural dependency. Its locked 5.2.0 SSP model
-declares OSCAL 1.2.1, so it is not used or described as native 1.2.3 SSP support.
-The SSP 1.2.3 model uses the existing JSON Schema compatibility path.
+is used only for compatible 1.2.1 authoring; it is not treated as 1.2.3 support.
+The SSP 1.2.3 path uses the official JSON Schema and application-level safeguards.
 
 The Systems overview links to shared operational workspaces for characteristics
 and concrete components. Each baseline-specific SSP workspace separates catalog

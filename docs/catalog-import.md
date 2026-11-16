@@ -77,10 +77,11 @@ Both formats require UTF-8. No URLs or references are fetched.
 | Python | Trestle declares `>=3.11`; this repository targets Python 3.12–3.13 |
 | OSCAL versions accepted by Catalog import | `1.0.0`–`1.0.6`, `1.1.0`–`1.1.3`, `1.2.0`–`1.2.3` |
 | OSCAL versions accepted by Profile generation/export | `1.0.0`–`1.0.6`, `1.1.0`–`1.1.3`, `1.2.0`–`1.2.3` |
-| Default for newly generated Profiles | `1.2.3` |
+| Default for newly authored compatible Profiles | `1.2.1` |
 | OSCAL documents | Catalog JSON model only |
 | Input formats | JSON and YAML; optional safe first-character auto-detection |
-| Version-specific validation | compliance-trestle 5.2.0 models for 1.1.3, 1.2.0, and 1.2.1; bundled official NIST JSON Schema Draft 7 for the other supported versions |
+| Imported Catalog validation | compliance-trestle 5.2.0 models for 1.1.3, 1.2.0, and 1.2.1; bundled official NIST JSON Schema Draft 7 for the other supported versions |
+| Authored Profile validation | Trestle model serialization followed by the official NIST 1.2.1 JSON Schema by default; existing supported compatibility paths remain available |
 | Additional Catalog checks | Existing group/control projection and duplicate control-ID rejection |
 
 ### Official schema provenance
@@ -102,6 +103,7 @@ SHA-256 for the exact checked-in bytes.
 | [1.1.0](https://github.com/usnistgov/OSCAL/releases/tag/v1.1.0) | `936c53978eb47880dfa8b471640ae09b111b38d837686022ef7db07e26fa629d` | `e40698f88744d07ff4d06512d7359b18c10bf15ca97de6ce0b61d53bd82d19af` |
 | [1.1.1](https://github.com/usnistgov/OSCAL/releases/tag/v1.1.1) | `90fb059843026fcc99d38dfd1102ea4bc12d0f43a443ba79aa7d6ce3df6a9100` | `067c7da65da2a90017d9f42a81d4a9d73d1dba56990e2a0bf86c438dc167e241` |
 | [1.1.2](https://github.com/usnistgov/OSCAL/releases/tag/v1.1.2) | `5b069afa4f4ecc38d59914dab56098566d4247d3578a2123c030c80d36fc5104` | `c910ea1a852e9d4ccfb7f6a8d0898b0cd4f137e48f88886412a083c8d87d540a` |
+| [1.2.1](https://github.com/usnistgov/OSCAL/releases/tag/v1.2.1) | `c0ae626d6bafe318db68692152d0cbbebf29ba7226b1596a5513cc5d1754504d` | `3b92e83ef9043af573ca81a451f899adf6855440b0974fb448b9c635fead7983` |
 | [1.2.2](https://github.com/usnistgov/OSCAL/releases/tag/v1.2.2) | `fdc559f5dff6848b1ebbe1898a69cc08263479f7c796e2f056412059e7489d0c` | `04329bd68032f48825f712f79576b3fd00e129e59d3597beb56ed72c17277f66` |
 | [1.2.3](https://github.com/usnistgov/OSCAL/releases/tag/v1.2.3) | `ab95836e9e8dfebf6fde80007f6cc76fa3192f595d427c751a3f3923c3f474fc2` | `7c5ff5a92683b6a80ce6a3474dea04e0ea8680a4ecb60702ffa08ebfc677e6cb` |
 
@@ -111,6 +113,20 @@ official NIST `oscal_component_schema.json` release asset
 `95e76881151ececd5cb1a93ff0f70ad74b8cc1aa58771626ac8b262bf2c8e001`.
 It is a separate model schema and does not change Catalog, Profile, or Control
 Mapping dispatch.
+
+The application-authored OSCAL 1.2.1 Mapping, Component Definition, and SSP
+paths use their exact version-pinned official NIST JSON Schema release assets:
+
+| Model schema | OSCAL 1.2.1 SHA-256 |
+|---|---|
+| Mapping | `5b8f6f9b8117bb42ad8466d11d1695f0be9cc31350c2a3aea770614d96d70d3f` |
+| Component Definition | `ce95b3b3ea8de87c020ad4a91075241f6f863a77afe212ee828009830d6042d1` |
+| System Security Plan | `3027ffb23ba94a8ca4e43ce9417cf2b02f27b7c36d8a4ead8fe2905483c6d10a` |
+
+These are the exact bytes from the corresponding official
+[OSCAL 1.2.1 release](https://github.com/usnistgov/OSCAL/releases/tag/v1.2.1);
+the 1.2.3 SSP schema is likewise the exact release asset, with SHA-256
+`99b1bee2df5604a7d4f1faeab43148e0bd4c4a1f513cd0d2d0c7896aa216a1e7`.
 
 OSCAL System Security Plan validation uses the official NIST release asset
 [`oscal_ssp_schema.json`](https://github.com/usnistgov/OSCAL/releases/download/v1.2.3/oscal_ssp_schema.json)
@@ -140,22 +156,25 @@ those constraints rather than silently substituting another schema.
 
 The importer validates OSCAL 1.1.3, 1.2.0, and 1.2.1 Catalogs with compliance-trestle
 5.2.0's generated 1.2.1 model. OSCAL 1.0.0–1.0.6, 1.1.0–1.1.2, 1.2.2,
-and 1.2.3 Catalogs use their corresponding official NIST schemas. Profile validation
-uses the same version split. The BSI 1.1.3 Catalog and generated Profiles through
-1.2.1 are covered by application tests. Trestle models are used only for validation:
-the parsed input dictionary is returned and persisted without rewriting
-`metadata.oscal-version`, identifiers, or fields. Catalog `x-` extension keys are
-excluded from the validation view; their original values remain in the imported
-document and extension-specific constraints are not checked.
+and 1.2.3 Catalogs use their corresponding official NIST schemas. Existing Profile
+validation uses the same compatibility split. Newly authored compatible Profiles
+default to 1.2.1: Trestle validates and serializes the structured document, then
+the final output is independently checked against the official NIST 1.2.1 schema.
+Content loss, coercion, or omission of explicit authored values is rejected.
+Imported Catalogs continue returning and persisting their original document
+without Trestle reserialization or changes to `metadata.oscal-version`,
+identifiers, or fields. Catalog `x-` extension keys are excluded from the
+validation view; their original values remain in the imported document and
+extension-specific constraints are not checked.
 
 Trestle 5.2.0 does not guarantee backward compatibility with all older documents:
 for example, its 1.2.1 Profile model rejects the `merge.combine.method` construct
 accepted by the official OSCAL 1.0.0 Profile schema. Earlier versions therefore
 use their own official schemas rather than the Trestle model.
 
-The 1.2.2 and 1.2.3 schema paths are temporary compatibility bridges. Replace them
-with compliance-trestle validation when an approved Trestle release supports those
-versions; keep the version-specific compatibility tests and document-preservation
+The 1.2.2 and 1.2.3 schema paths remain compatibility paths. Replace them with
+compliance-trestle validation only when an approved Trestle release supports those
+versions; keep version-specific compatibility tests and document-preservation
 behavior.
 
 The BSI Grundschutz++ fixture declares OSCAL 1.1.3 and passes Trestle model
@@ -168,12 +187,13 @@ has SHA-256 `d820835aa54aeb2265bdacdf8e678af7530443a59556563df898addf012024cb`.
 The smaller local Catalog fixture used for other version cases is self-authored test
 data, not NIST content.
 
-Trestle model validation and Catalog/Profile JSON Schema validation are distinct
-from comprehensive OSCAL semantic validation. Catalog import also projects groups
-and controls and rejects duplicate control identifiers. Validation does not
-implement every NIST Metaschema semantic constraint. Profile validation does not
-resolve its imports or guarantee that a resolver can compose the referenced
-Catalogs. No Trestle CLI or remote schema download is used.
+Trestle model validation, Trestle serialization, official JSON Schema validation,
+and application-level integrity checks are distinct from comprehensive OSCAL
+semantic validation. Catalog import also projects groups and controls and rejects
+duplicate control identifiers. Validation does not implement every NIST Metaschema
+semantic constraint. Profile validation does not resolve its imports or guarantee
+that a resolver can compose the referenced Catalogs. No Trestle CLI or remote
+schema download is used.
 
 ## Provenance and security boundary
 

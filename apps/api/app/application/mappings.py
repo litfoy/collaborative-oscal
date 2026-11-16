@@ -7,13 +7,18 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from collaborative_oscal_oscal.authoring import format_oscal_timestamp
 from collaborative_oscal_oscal.mapping import (
     MATCHING_RATIONALES,
     RELATIONSHIP_TYPES,
     relationship_from_opposite_direction,
+    serialize_authored_mapping,
     validate_mapping_document,
 )
-from collaborative_oscal_oscal.versions import DEFAULT_MAPPING_OSCAL_VERSION
+from collaborative_oscal_oscal.versions import (
+    OscalDocumentModel,
+    authoring_version_for,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -397,9 +402,12 @@ class MappingService:
         *,
         previous: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], list[MappingMemberRecord]]:
-        modified = now.isoformat().replace("+00:00", "Z")
+        modified = format_oscal_timestamp(now)
         previous_collection = previous.get("mapping-collection", {}) if previous else {}
         previous_metadata = previous_collection.get("metadata", {})
+        oscal_version = previous_metadata.get(
+            "oscal-version", authoring_version_for(OscalDocumentModel.MAPPING)
+        )
         mapping_documents: list[dict[str, Any]] = []
         members: list[MappingMemberRecord] = []
         for pair in pairs:
@@ -462,7 +470,7 @@ class MappingService:
             "title": title,
             "last-modified": modified,
             "version": _next_document_version(previous_metadata.get("version")),
-            "oscal-version": DEFAULT_MAPPING_OSCAL_VERSION,
+            "oscal-version": oscal_version,
             "roles": [{"id": "creator", "title": "Creator"}],
             "parties": [
                 {
@@ -489,6 +497,8 @@ class MappingService:
                 "mappings": mapping_documents,
             }
         }
+        if oscal_version == authoring_version_for(OscalDocumentModel.MAPPING):
+            document = serialize_authored_mapping(document)
         return document, members
 
 

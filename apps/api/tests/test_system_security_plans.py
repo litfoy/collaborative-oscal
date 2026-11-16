@@ -266,7 +266,9 @@ def test_system_ssp_shared_components_explicit_memberships_and_immutable_version
 
     version_one = ssp.create_version(tenant.id, actor, plan_one["id"])
     assert version_one["created"]
+    assert version_one["oscal_version"] == "1.2.1"
     exported_before = ssp.export_version(tenant.id, plan_one["id"], version_one["id"])
+    assert exported_before["system-security-plan"]["metadata"]["oscal-version"] == "1.2.1"
     assert exported_before["system-security-plan"]["import-profile"]["href"].endswith(
         str(revision_one.id) + "/export"
     )
@@ -311,7 +313,9 @@ def test_system_ssp_shared_components_explicit_memberships_and_immutable_version
     assert version_two["created"]
     assert version_two["id"] != version_one["id"]
     assert version_two["oscal_document_uuid"] != version_one["oscal_document_uuid"]
-    assert ssp.create_version(tenant.id, actor, plan_one["id"])["created"] is False
+    unchanged = ssp.create_version(tenant.id, actor, plan_one["id"])
+    assert unchanged["created"] is False
+    assert unchanged["id"] == version_two["id"]
     assert ssp.export_version(tenant.id, plan_one["id"], version_one["id"]) == exported_before
 
     ssp.update_component(

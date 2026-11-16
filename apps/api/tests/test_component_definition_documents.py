@@ -2,8 +2,10 @@ from uuid import uuid4
 
 import pytest
 from collaborative_oscal_oscal.component_definition import (
+    DEFAULT_COMPONENT_OSCAL_VERSION,
     ComponentDefinitionValidationError,
     build_component_definition_document,
+    component_definition_authoring_version,
     validate_component_definition_document,
 )
 from collaborative_oscal_oscal.versions import (
@@ -21,6 +23,46 @@ def test_component_definition_123_uses_the_official_schema_path() -> None:
     assert not is_supported_oscal_version(OscalDocumentModel.COMPONENT_DEFINITION, "1.2.2")
     assert uses_trestle_model(OscalDocumentModel.CATALOG, "1.2.1")
     assert uses_trestle_model(OscalDocumentModel.PROFILE, "1.2.1")
+
+
+def test_compatible_component_definition_uses_trestle_and_official_121_schema() -> None:
+    document = build_component_definition_document(
+        document_uuid=uuid4(),
+        title="Identity policy",
+        components=[
+            {
+                "uuid": str(uuid4()),
+                "type": "policy",
+                "title": "Identity policy",
+                "description": "Require approved identity controls.",
+            }
+        ],
+    )
+
+    assert DEFAULT_COMPONENT_OSCAL_VERSION == "1.2.1"
+    assert document["component-definition"]["metadata"]["oscal-version"] == "1.2.1"
+    validate_component_definition_document(document)
+
+
+def test_component_definition_selects_123_for_newer_component_types() -> None:
+    assert component_definition_authoring_version(["region"]) == "1.2.3"
+    assert component_definition_authoring_version(["network"]) == "1.2.3"
+    assert component_definition_authoring_version(["policy", "service"]) == "1.2.1"
+    document = build_component_definition_document(
+        document_uuid=uuid4(),
+        title="Network measure",
+        components=[
+            {
+                "uuid": str(uuid4()),
+                "type": "network",
+                "title": "Network measure",
+                "description": "A network capability.",
+            }
+        ],
+        oscal_version=component_definition_authoring_version(["network"]),
+    )
+
+    validate_component_definition_document(document)
 
 
 def test_build_and_validate_component_definition_with_multiple_catalog_sources() -> None:

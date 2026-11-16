@@ -30,10 +30,14 @@ independent of Profiles, implementations, and assessment status.
 - Support the official relationships and rationales. Invert only directional
   subset/superset relationships for reverse display. Do not infer transitivity,
   equality, or no-relationship from absent data.
-- Generate OSCAL 1.2.3 collections. Dispatch Mapping validation through the
-  existing OSCAL version registry: Compliance Trestle 5.2.0 for 1.2.0–1.2.1
-  and official NIST schemas for 1.2.2–1.2.3. Do not generate OSCAL 1.1.3 Mapping
-  documents; referenced Catalog versions are independent.
+- Default new collections to OSCAL 1.2.1 and construct/serialize them with
+  Compliance Trestle 5.2.0's generated Mapping model. Independently validate the
+  serialized output against the official NIST 1.2.1 schema and retain relationship,
+  set, and revision-integrity checks. Continue to accept supported older/newer
+  versions through their existing validation paths. Ordinary edits preserve the
+  collection's declared OSCAL version.
+- Do not generate OSCAL 1.1.3 Mapping documents; referenced Catalog versions are
+  independent.
 - Reuse tenant permission dependencies and the existing BFF. Export catalog
   resources through the existing authenticated revision API URL pattern.
 

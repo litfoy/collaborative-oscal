@@ -8,9 +8,14 @@ from jsonschema import ValidationError as JsonSchemaValidationError
 from pydantic import ValidationError as PydanticValidationError
 from trestle.oscal.mapping import Model as TrestleMappingModel
 
+from collaborative_oscal_oscal.authoring import (
+    OscalAuthoringError,
+    serialize_authored_document,
+)
 from collaborative_oscal_oscal.catalog_import import _OSCAL_DRAFT7_VALIDATOR
 from collaborative_oscal_oscal.versions import (
     OscalDocumentModel,
+    authoring_version_for,
     is_supported_oscal_version,
     load_oscal_schema,
     uses_json_schema,
@@ -79,3 +84,17 @@ def relationship_from_opposite_direction(relationship: str) -> str:
     if relationship == "superset-of":
         return "subset-of"
     return relationship
+
+
+def serialize_authored_mapping(document: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        version = document["mapping-collection"]["metadata"]["oscal-version"]
+        if version != authoring_version_for(OscalDocumentModel.MAPPING):
+            raise OscalAuthoringError(
+                "Only the configured Mapping authoring version uses Trestle serialization."
+            )
+        return serialize_authored_document(
+            TrestleMappingModel, document, OscalDocumentModel.MAPPING, version
+        )
+    except OscalAuthoringError as error:
+        raise MappingDocumentValidationError(str(error)) from error

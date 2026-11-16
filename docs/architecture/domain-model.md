@@ -162,9 +162,10 @@ must follow OSCAL UUID and `last-modified` requirements.
 ## OSCAL and future domain boundaries
 
 `packages/oscal` computes a digest, projects group/control query indexes, safely
-parses JSON/YAML, and validates Catalog and Profile structures with Trestle models
-for OSCAL 1.1.3, 1.2.0, and 1.2.1 and version-specific NIST JSON Schemas for
-1.0.0–1.0.6, 1.1.0–1.1.2, 1.2.2, and 1.2.3.
+parses JSON/YAML, and owns versioned OSCAL validation and authoring. Trestle models
+validate Catalog/Profile 1.1.3, 1.2.0, and 1.2.1, Mapping 1.2.0 and 1.2.1, and
+compatible Component Definition/SSP 1.2.1 documents. Other supported versions use
+the corresponding official NIST JSON Schemas.
 The JSONB revision remains authoritative for
 metadata, parameters, parts, links, back matter, and extensions. The import service
 accepts OSCAL 1.0.0–1.0.6, 1.1.0–1.1.3, and 1.2.0–1.2.3; validation does not claim
@@ -175,19 +176,28 @@ Basic Profile creation, editing, and OSCAL JSON export are implemented. Profiles
 retain a stable reference to the source catalog revision and select controls using
 their OSCAL IDs. Profile resolution and catalog composition are not implemented.
 The implementation register preserves its original source reference when a Profile
-selection changes or a new revision arrives. Future domains are documented but not implemented: **Control Mappings** will relate
-controls across revisions without replacing their source artifacts; **Assets and Systems**, **Control
+selection changes or a new revision arrives. Future domains are documented but not implemented: **Control
 Risks**, **Assessments**, **Evidence**, **Collaboration**,
 **Workflows**, **Automation**, and **AI Governance** will each own their own domain
 rules and tenant-scoped persistence. They should reference stable catalog/revision
 and control-index identities as appropriate, not copy or flatten OSCAL documents.
 
+Newly authored compatible Profiles, Mapping collections, Component Definitions,
+and SSPs use the corresponding Trestle-generated model as the canonical
+in-memory OSCAL representation, defaulting to version 1.2.1. The serialized
+output is independently checked against the official version-specific NIST
+schema and application integrity rules. Component Definitions and SSPs retain
+1.2.3 where required component types cannot be represented in 1.2.1. Imported
+Catalogs, immutable SSP versions, and Component Definition adoption snapshots
+are not reserialized. Trestle validation, JSON Schema validation, integrity
+checks, and cross-document resolution are distinct guarantees.
+
 Planned integration seams:
 
-- **compliance-trestle:** the dependency remains pinned to 5.2.x, whose generated
-  models target the OSCAL 1.2.1 boundary. They validate Catalogs and Profiles for
-  1.1.3, 1.2.0, and 1.2.1; documents are never serialized back through those models.
-  Other supported versions use their corresponding official NIST JSON Schemas.
+- **compliance-trestle:** the dependency remains pinned to 5.2.x. Reuse its
+  generated models for compatible authored documents and retain independent
+  official-schema validation. Other supported versions use their corresponding
+  compatibility paths.
 - **OSCAL Profile resolution and Control Mapping:** future independent application
   services that consume immutable catalog revisions and retain their own source/output
   artifacts.

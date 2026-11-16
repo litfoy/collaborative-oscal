@@ -5,6 +5,7 @@
 - Treat this repository as a modular monolith. Do not introduce services, queues, or deployment infrastructure without a demonstrated requirement.
 - Keep GRC domain rules independent of FastAPI route handlers and persistence details.
 - Keep OSCAL parsing, validation, serialization, and IBM compliance-trestle integration behind the `packages/oscal` boundary. Domain entities must not mirror OSCAL serialization models.
+- For application-authored OSCAL documents, reuse maintained Compliance Trestle-generated models wherever version-compatible. Retain domain-to-OSCAL mapping, independent validation against the official version-specific NIST JSON Schema, and application-level integrity checks. Preserve imported normative documents and immutable historical snapshots without Trestle reserialization. Future Assessment Plans, Assessment Results, and POA&M implementations must follow this convention from the beginning wherever supported.
 - Keep tenant identity explicit in authorization and data access designs. Never rely on client-provided tenant IDs without an authorization check.
 - Authentication currently validates configured OIDC access tokens, persists external identities and tenant memberships, and exposes only `/api/v1/me`; do not imply that tenant-scoped GRC APIs, catalog management, workflows, or evidence storage are implemented.
 

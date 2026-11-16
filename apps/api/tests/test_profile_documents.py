@@ -29,7 +29,7 @@ def test_profile_document_is_valid_for_supported_oscal_versions(oscal_version: s
     assert document["profile"]["imports"][0]["include-controls"] == [{"with-ids": ["ac-1", "ac-2"]}]
 
 
-def test_new_profile_document_defaults_to_oscal_1_2_3() -> None:
+def test_new_profile_document_defaults_to_oscal_1_2_1() -> None:
     document = build_profile_document(
         profile_uuid=uuid4(),
         title="Selected controls",
@@ -37,8 +37,8 @@ def test_new_profile_document_defaults_to_oscal_1_2_3() -> None:
         control_ids=["ac-1"],
     )
 
-    assert DEFAULT_OSCAL_VERSION == "1.2.3"
-    assert document["profile"]["metadata"]["oscal-version"] == "1.2.3"
+    assert DEFAULT_OSCAL_VERSION == "1.2.1"
+    assert document["profile"]["metadata"]["oscal-version"] == "1.2.1"
     validate_profile_document(document)
 
 

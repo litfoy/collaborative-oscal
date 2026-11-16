@@ -4,11 +4,12 @@ from collections import defaultdict
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from collaborative_oscal_oscal.component_definition import (
     build_component_definition_document,
+    component_definition_authoring_version,
 )
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -82,6 +83,7 @@ class ComponentDefinitionService:
                 title=title,
                 components=[component_json],
                 last_modified=now,
+                oscal_version=component_definition_authoring_version([component_type]),
             )
             record = ComponentDefinitionRecord(
                 id=document_id,
@@ -198,12 +200,20 @@ class ComponentDefinitionService:
                 return current
 
             now = datetime.now(UTC)
+            previous_modified = datetime.fromisoformat(
+                old_json["metadata"]["last-modified"].replace("Z", "+00:00")
+            )
+            last_modified = max(
+                now.replace(microsecond=0),
+                previous_modified + timedelta(seconds=1),
+            )
             document = build_component_definition_document(
                 document_uuid=uuid4(),
                 title=title,
                 components=component_jsons,
-                last_modified=now,
+                last_modified=last_modified,
                 version=_next_version(old_json["metadata"]["version"]),
+                oscal_version=old_json["metadata"]["oscal-version"],
             )
             record.document = document
             record.updated_by = actor
@@ -270,6 +280,7 @@ class ComponentDefinitionService:
                 components=remaining_json,
                 last_modified=now,
                 version=_next_version(body["metadata"]["version"]),
+                oscal_version=body["metadata"]["oscal-version"],
             )
             record.updated_by = actor
             record.updated_at = now

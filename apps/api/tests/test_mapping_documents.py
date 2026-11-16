@@ -121,7 +121,7 @@ def test_generated_mapping_document_uses_official_root_and_stable_member_sets() 
     validate_mapping_document(document)
     collection = document["mapping-collection"]
     assert set(document) == {"mapping-collection"}
-    assert collection["metadata"]["oscal-version"] == "1.2.3"
+    assert collection["metadata"]["oscal-version"] == "1.2.1"
     assert collection["provenance"]["method"] == "human"
     assert collection["mappings"][0]["source-resource"]["href"].endswith(
         f"{source_revision_id}/export"
@@ -130,6 +130,45 @@ def test_generated_mapping_document_uses_official_root_and_stable_member_sets() 
     assert [member["id-ref"] for member in entry["sources"]] == ["AC-1", "AC-2"]
     assert [member["id-ref"] for member in entry["targets"]] == ["POL-1", "POL-2"]
     assert {member.side for member in members} == {"source", "target"}
+
+
+def test_mapping_edit_preserves_the_existing_oscal_version() -> None:
+    tenant_id = uuid4()
+    actor_id = uuid4()
+    source_catalog_id, source_revision_id = uuid4(), uuid4()
+    target_catalog_id, target_revision_id = uuid4(), uuid4()
+    actor = UserIdentity(
+        actor_id,
+        "https://identity.example.test",
+        "mapper",
+        "Mapping author",
+        None,
+        datetime.now(UTC),
+        datetime.now(UTC),
+    )
+    pair = MappingPairSpec(
+        None,
+        source_catalog_id,
+        source_revision_id,
+        target_catalog_id,
+        target_revision_id,
+        (MappingEntrySpec(None, ("AC-1",), ("POL-1",), "subset-of", "semantic", ""),),
+    )
+    previous = _mapping_document("1.2.3")
+
+    document, _ = MappingService._build_document(
+        tenant_id,
+        uuid4(),
+        actor,
+        "Synthetic collection",
+        "Synthetic test data",
+        [pair],
+        datetime.now(UTC),
+        previous=previous,
+    )
+
+    assert document["mapping-collection"]["metadata"]["oscal-version"] == "1.2.3"
+    validate_mapping_document(document)
 
 
 @pytest.mark.parametrize("version", ["1.0.0", "1.1.3", "1.2.4"])

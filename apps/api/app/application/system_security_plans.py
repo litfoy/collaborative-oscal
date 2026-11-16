@@ -11,9 +11,13 @@ from uuid import UUID, uuid4, uuid5
 
 from collaborative_oscal_oscal.catalog_index import canonical_json_sha256
 from collaborative_oscal_oscal.system_security_plan import (
-    DEFAULT_SSP_OSCAL_VERSION,
     SystemSecurityPlanValidationError,
+    serialize_authored_system_security_plan,
     validate_system_security_plan_document,
+)
+from collaborative_oscal_oscal.versions import (
+    OscalDocumentModel,
+    authoring_version_for_component_types,
 )
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -645,18 +649,19 @@ class SystemSecurityPlanService:
         with self._session_scope() as session:
             plan = self._get_plan(session, tenant_id, plan_id)
             draft, diagnostics, baseline_count, documented_count = self._build_draft(session, plan)
-            try:
-                validate_system_security_plan_document(
-                    draft,
-                    baseline_control_ids=self._baseline_control_ids(
-                        session, plan.revision_id
-                    ),
-                    expected_baseline_href=self._catalog_href(plan),
-                )
-            except SystemSecurityPlanValidationError as error:
-                diagnostics.append(
-                    {"severity": "error", "code": "oscal_schema", "message": str(error)}
-                )
+            if not any(item["code"] == "oscal_schema" for item in diagnostics):
+                try:
+                    validate_system_security_plan_document(
+                        draft,
+                        baseline_control_ids=self._baseline_control_ids(
+                            session, plan.revision_id
+                        ),
+                        expected_baseline_href=self._catalog_href(plan),
+                    )
+                except SystemSecurityPlanValidationError as error:
+                    diagnostics.append(
+                        {"severity": "error", "code": "oscal_schema", "message": str(error)}
+                    )
             return {
                 "valid": not any(item["severity"] == "error" for item in diagnostics),
                 "diagnostics": diagnostics,
@@ -672,37 +677,22 @@ class SystemSecurityPlanService:
                 session, tenant_id, plan.catalog_id, plan.revision_id, lock=True
             )
             draft, diagnostics, _, _ = self._build_draft(session, plan, revision=revision)
-            try:
-                validate_system_security_plan_document(
-                    draft,
-                    baseline_control_ids=self._baseline_control_ids(
-                        session, plan.revision_id
-                    ),
-                    expected_baseline_href=self._catalog_href(plan),
-                )
-            except SystemSecurityPlanValidationError as error:
-                diagnostics.append(
-                    {"severity": "error", "code": "oscal_schema", "message": str(error)}
-                )
+            if not any(item["code"] == "oscal_schema" for item in diagnostics):
+                try:
+                    validate_system_security_plan_document(
+                        draft,
+                        baseline_control_ids=self._baseline_control_ids(
+                            session, plan.revision_id
+                        ),
+                        expected_baseline_href=self._catalog_href(plan),
+                    )
+                except SystemSecurityPlanValidationError as error:
+                    diagnostics.append(
+                        {"severity": "error", "code": "oscal_schema", "message": str(error)}
+                    )
             errors = [item for item in diagnostics if item["severity"] == "error"]
             if errors:
                 raise InvalidSystemSecurityPlan(diagnostics)
-
-            stable_document = copy.deepcopy(draft)
-            body = stable_document["system-security-plan"]
-            body["uuid"] = ""
-            body["metadata"]["last-modified"] = ""
-            body["metadata"]["version"] = ""
-            digest = canonical_json_sha256(stable_document)
-            existing = session.scalar(
-                select(SystemSecurityPlanVersionRecord).where(
-                    SystemSecurityPlanVersionRecord.tenant_id == tenant_id,
-                    SystemSecurityPlanVersionRecord.system_security_plan_id == plan.id,
-                    SystemSecurityPlanVersionRecord.content_sha256 == digest,
-                )
-            )
-            if existing is not None:
-                return self._version_payload(existing, created=False)
 
             previous = session.scalars(
                 select(SystemSecurityPlanVersionRecord)
@@ -714,22 +704,56 @@ class SystemSecurityPlanService:
                 .limit(1)
             ).first()
             version = self._next_document_version(previous.document_version if previous else None)
-            now = datetime.now(UTC)
+            now = datetime.now(UTC).replace(microsecond=0)
+            body = draft["system-security-plan"]
             body["uuid"] = str(uuid4())
             body["metadata"]["last-modified"] = now.isoformat()
             body["metadata"]["version"] = version
+            try:
+                final_document = serialize_authored_system_security_plan(draft)
+                validate_system_security_plan_document(
+                    final_document,
+                    baseline_control_ids=self._baseline_control_ids(
+                        session, plan.revision_id
+                    ),
+                    expected_baseline_href=self._catalog_href(plan),
+                )
+            except SystemSecurityPlanValidationError as error:
+                diagnostics.append(
+                    {"severity": "error", "code": "oscal_schema", "message": str(error)}
+                )
+                raise InvalidSystemSecurityPlan(diagnostics) from error
+
+            stable_document = copy.deepcopy(final_document)
+            stable_body = stable_document["system-security-plan"]
+            stable_body["uuid"] = ""
+            stable_body["metadata"]["last-modified"] = ""
+            stable_body["metadata"]["version"] = ""
+            digest = canonical_json_sha256(stable_document)
+            existing = session.scalar(
+                select(SystemSecurityPlanVersionRecord).where(
+                    SystemSecurityPlanVersionRecord.tenant_id == tenant_id,
+                    SystemSecurityPlanVersionRecord.system_security_plan_id == plan.id,
+                    SystemSecurityPlanVersionRecord.content_sha256 == digest,
+                )
+            )
+            if existing is not None:
+                return self._version_payload(existing, created=False)
+
             record = SystemSecurityPlanVersionRecord(
                 id=uuid4(),
                 tenant_id=tenant_id,
                 system_security_plan_id=plan.id,
                 catalog_id=plan.catalog_id,
                 revision_id=plan.revision_id,
-                oscal_document_uuid=UUID(body["uuid"]),
-                oscal_version=DEFAULT_SSP_OSCAL_VERSION,
+                oscal_document_uuid=UUID(final_document["system-security-plan"]["uuid"]),
+                oscal_version=final_document["system-security-plan"]["metadata"][
+                    "oscal-version"
+                ],
                 document_version=version,
                 last_modified=now,
                 content_sha256=digest,
-                document=draft,
+                document=final_document,
                 diagnostics=diagnostics,
                 created_at=now,
             )
@@ -988,13 +1012,17 @@ class SystemSecurityPlanService:
             }
             for control_id, values in sorted(grouped.items())
         ]
+        authoring_version = authoring_version_for_component_types(
+            OscalDocumentModel.SYSTEM_SECURITY_PLAN,
+            [component.get("type", "") for component in component_json],
+        )
         body = {
             "uuid": str(uuid5(_VERSION_NAMESPACE, f"{plan.id}:draft-document")),
             "metadata": {
                 "title": plan.title,
                 "last-modified": "2000-01-01T00:00:00+00:00",
                 "version": "0.0.0",
-                "oscal-version": DEFAULT_SSP_OSCAL_VERSION,
+                "oscal-version": authoring_version,
             },
             "import-profile": {"href": self._catalog_href(plan)},
             "system-characteristics": {
@@ -1029,6 +1057,12 @@ class SystemSecurityPlanService:
                 system.security_sensitivity_level
             )
         document = {"system-security-plan": body}
+        try:
+            document = serialize_authored_system_security_plan(document)
+        except SystemSecurityPlanValidationError as error:
+            diagnostics.append(
+                {"severity": "error", "code": "oscal_schema", "message": str(error)}
+            )
         baseline_ids = self._baseline_control_ids(session, plan.revision_id)
         documented_ids = set(grouped)
         baseline_count = len(baseline_ids)

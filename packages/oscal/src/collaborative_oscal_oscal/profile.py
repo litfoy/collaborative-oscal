@@ -9,12 +9,18 @@ from jsonschema import ValidationError as JsonSchemaValidationError
 from pydantic import ValidationError as PydanticValidationError
 from trestle.oscal.profile import Model as TrestleProfileModel
 
+from collaborative_oscal_oscal.authoring import (
+    OscalAuthoringError,
+    format_oscal_timestamp,
+    serialize_authored_document,
+)
 from collaborative_oscal_oscal.catalog_import import (
     _OSCAL_DRAFT7_VALIDATOR,
 )
 from collaborative_oscal_oscal.versions import (
     DEFAULT_OSCAL_VERSION,
     OscalDocumentModel,
+    authoring_version_for,
     is_supported_oscal_version,
     load_oscal_schema,
     uses_json_schema,
@@ -52,7 +58,7 @@ def build_profile_document(
             "uuid": str(profile_uuid),
             "metadata": {
                 "title": title,
-                "last-modified": modified.isoformat().replace("+00:00", "Z"),
+                "last-modified": format_oscal_timestamp(modified),
                 "version": version,
                 "oscal-version": oscal_version,
             },
@@ -69,6 +75,17 @@ def build_profile_document(
     }
     if description:
         document["profile"]["metadata"]["remarks"] = description
+
+    if oscal_version == authoring_version_for(OscalDocumentModel.PROFILE):
+        try:
+            return serialize_authored_document(
+                TrestleProfileModel,
+                document,
+                OscalDocumentModel.PROFILE,
+                oscal_version,
+            )
+        except OscalAuthoringError as error:
+            raise ProfileDocumentValidationError(str(error)) from error
 
     validate_profile_document(document)
     return document

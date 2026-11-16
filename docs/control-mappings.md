@@ -8,16 +8,22 @@ that a requirement has been implemented or fulfilled.
 
 ## OSCAL model and supported versions
 
-Exports use the official OSCAL `mapping-collection` root model and default to
-OSCAL 1.2.3. Mapping collections support OSCAL 1.2.0 through 1.2.3; OSCAL 1.1.3
-is not a Mapping Model version. Mapping validation uses Compliance Trestle 5.2.0
-for 1.2.0 and 1.2.1, then the official NIST JSON Schemas for 1.2.2 and 1.2.3.
+Exports use the official OSCAL `mapping-collection` root model and new collections
+default to OSCAL 1.2.1. Mapping collections support OSCAL 1.2.0 through 1.2.3;
+OSCAL 1.1.3 is not a Mapping Model version. Newly authored 1.2.1 collections use
+Compliance Trestle 5.2.0's generated Mapping model for construction and
+serialization, followed by independent validation against the official NIST
+1.2.1 schema and existing application relationship/revision checks. Existing
+1.2.0/1.2.1 documents retain Trestle validation; 1.2.2 and 1.2.3 use the official
+version-specific NIST schemas. Ordinary edits preserve the collection's declared
+version.
 The 1.2.2 and 1.2.3 schema assets are from the
 [OSCAL 1.2.2](https://github.com/usnistgov/OSCAL/releases/tag/v1.2.2) and
 [OSCAL 1.2.3](https://github.com/usnistgov/OSCAL/releases/tag/v1.2.3) releases:
 
 | OSCAL schema | SHA-256 |
 |---|---|
+| 1.2.1 Mapping | `5b8f6f9b8117bb42ad8466d11d1695f0be9cc31350c2a3aea770614d96d70d3f` |
 | 1.2.2 Mapping | `45b4f909f72e17fbe8476e2a7f3d9f64ec42dc26ab2fe2d56c6b44fc57346022` |
 | 1.2.3 Mapping | `ed28b68c8e56cc7d39f0c6076a5d7da3e8100fbe25abf5bb731120bd34f8817e` |
 
@@ -84,8 +90,10 @@ OSCAL Mapping import is not implemented.
 
 ## Verification and limitations
 
-Focused unit tests validate the Trestle 1.2.0/1.2.1 and JSON Schema 1.2.2/1.2.3
-paths, unsupported versions, and inverse relationship semantics. PostgreSQL
+Focused unit tests validate Trestle-based 1.2.1 serialization, official-schema
+checks, preservation of explicit content, the legacy Trestle 1.2.0/1.2.1
+validation paths, JSON Schema 1.2.2/1.2.3 paths, unsupported versions, and inverse
+relationship semantics. PostgreSQL
 integration tests cover persisted mapping round trips, same-ID controls in
 different catalogs, set cardinality, tenant isolation, export validation, and
 revision protection; they require the dedicated `TEST_DATABASE_URL` ending in

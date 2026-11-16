@@ -12,10 +12,14 @@ Register and from future assessment conclusions.
 
 ## Decision
 
-- Store tenant-owned OSCAL 1.2.3 Component Definition JSON as the authoritative
-  document. Validate and export it through the `packages/oscal` boundary using
-  the official NIST 1.2.3 JSON Schema. Do not change Compliance Trestle or the
-  existing Catalog, Profile, and Mapping version dispatch.
+- Store tenant-owned Component Definition JSON as the authoritative document.
+  Default compatible authoring to OSCAL 1.2.1 using Compliance Trestle 5.2.0's
+  generated model, then validate the serialized document against the official
+  NIST 1.2.1 JSON Schema and retain application integrity checks. Use OSCAL 1.2.3
+  for the recognized 1.2.3-only component types `network`, `region`, `zone`,
+  and `resource-container`. Preserve an existing document's declared version on
+  ordinary edits. Imported or immutable source content is never rewritten by
+  this authoring path.
 - Keep multiple OSCAL components per document. Relational rows maintain stable
   internal document/component identities and project each implemented
   requirement's exact tenant Catalog, revision, and OSCAL control ID. They do

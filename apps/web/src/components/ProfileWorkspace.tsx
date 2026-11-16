@@ -346,6 +346,7 @@ export function ProfileWorkspace({
           {saved?.oscal_version
             ? <p>{t("profiles.profileOscalVersion")}: {saved.oscal_version}</p>
             : null}
+          <p className="muted">{t("profiles.authoringCompatibility")}</p>
           {source ? <p>{t("profiles.pinnedRevisionField")} <span className="mono">{source.revision_id}</span>{data ? ` · OSCAL ${data.revision.oscal_version}` : ""}</p> : null}
           {canWrite && sources.length > 1 ? <button className="secondary" type="button" onClick={() => {
             if (!source || !window.confirm(t("profiles.removeSourceConfirm"))) return;

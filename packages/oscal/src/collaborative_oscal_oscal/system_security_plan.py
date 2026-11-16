@@ -6,20 +6,48 @@ from uuid import UUID
 
 from jsonschema import Draft7Validator
 from jsonschema import ValidationError as JsonSchemaValidationError
+from pydantic import ValidationError as PydanticValidationError
+from trestle.oscal.ssp import Model as TrestleSystemSecurityPlanModel
 
+from collaborative_oscal_oscal.authoring import (
+    OscalAuthoringError,
+    serialize_authored_document,
+)
 from collaborative_oscal_oscal.catalog_import import _OSCAL_DRAFT7_VALIDATOR
 from collaborative_oscal_oscal.versions import (
+    BUNDLED_JSON_SCHEMA_OSCAL_VERSIONS,
     OscalDocumentModel,
+    authoring_version_for,
     is_supported_oscal_version,
     load_oscal_schema,
-    uses_json_schema,
+    uses_trestle_model,
 )
 
-DEFAULT_SSP_OSCAL_VERSION = "1.2.3"
+DEFAULT_SSP_OSCAL_VERSION = authoring_version_for(
+    OscalDocumentModel.SYSTEM_SECURITY_PLAN
+)
 
 
 class SystemSecurityPlanValidationError(ValueError):
     pass
+
+
+def serialize_authored_system_security_plan(
+    document: Mapping[str, Any],
+) -> dict[str, Any]:
+    try:
+        version = document["system-security-plan"]["metadata"]["oscal-version"]
+        if uses_trestle_model(OscalDocumentModel.SYSTEM_SECURITY_PLAN, version):
+            return serialize_authored_document(
+                TrestleSystemSecurityPlanModel,
+                document,
+                OscalDocumentModel.SYSTEM_SECURITY_PLAN,
+                version,
+            )
+        validate_system_security_plan_document(document)
+        return dict(document)
+    except OscalAuthoringError as error:
+        raise SystemSecurityPlanValidationError(str(error)) from error
 
 
 def validate_system_security_plan_document(
@@ -37,14 +65,19 @@ def validate_system_security_plan_document(
             raise SystemSecurityPlanValidationError(
                 "Unsupported OSCAL System Security Plan version."
             )
-        if not uses_json_schema(OscalDocumentModel.SYSTEM_SECURITY_PLAN, version):
+        if uses_trestle_model(OscalDocumentModel.SYSTEM_SECURITY_PLAN, version):
+            TrestleSystemSecurityPlanModel.model_validate(document)
+        if version not in BUNDLED_JSON_SCHEMA_OSCAL_VERSIONS and not uses_trestle_model(
+            OscalDocumentModel.SYSTEM_SECURITY_PLAN, version
+        ):
             raise SystemSecurityPlanValidationError(
                 "No validator is configured for the declared SSP version."
             )
-        _OSCAL_DRAFT7_VALIDATOR(
-            load_oscal_schema(OscalDocumentModel.SYSTEM_SECURITY_PLAN, version),
-            format_checker=Draft7Validator.FORMAT_CHECKER,
-        ).validate(document)
+        if version in BUNDLED_JSON_SCHEMA_OSCAL_VERSIONS:
+            _OSCAL_DRAFT7_VALIDATOR(
+                load_oscal_schema(OscalDocumentModel.SYSTEM_SECURITY_PLAN, version),
+                format_checker=Draft7Validator.FORMAT_CHECKER,
+            ).validate(document)
         if (
             expected_baseline_href is not None
             and body["import-profile"]["href"] != expected_baseline_href
@@ -90,7 +123,8 @@ def validate_system_security_plan_document(
                     )
                 if component_id in by_component_ids:
                     raise SystemSecurityPlanValidationError(
-                        f"Requirement {control_id!r} has duplicate contributions from one component."
+                        f"Requirement {control_id!r} has duplicate contributions "
+                        "from one component."
                     )
                 by_component_ids.add(component_id)
                 contribution_id = UUID(contribution["uuid"])
@@ -99,6 +133,51 @@ def validate_system_security_plan_document(
             raise SystemSecurityPlanValidationError(
                 "SSP subject UUIDs must be unique across the document."
             )
+        party_ids = {
+            UUID(party["uuid"])
+            for party in body["metadata"].get("parties", [])
+            if "uuid" in party
+        }
+        document_uuid_fragments: set[str] = set()
+
+        def collect_uuids(value: Any) -> None:
+            if isinstance(value, Mapping):
+                item_uuid = value.get("uuid")
+                if isinstance(item_uuid, str):
+                    document_uuid_fragments.add(item_uuid)
+                for item in value.values():
+                    collect_uuids(item)
+            elif isinstance(value, list):
+                for item in value:
+                    collect_uuids(item)
+
+        collect_uuids(body)
+
+        def validate_references(value: Any) -> None:
+            if isinstance(value, Mapping):
+                party_uuid = value.get("party-uuid")
+                if party_uuid is not None and UUID(party_uuid) not in party_ids:
+                    raise SystemSecurityPlanValidationError(
+                        f"SSP party reference {party_uuid!r} does not identify a metadata party."
+                    )
+                party_uuids = value.get("party-uuids", [])
+                if any(UUID(item) not in party_ids for item in party_uuids):
+                    raise SystemSecurityPlanValidationError(
+                        "SSP responsible-party references must identify metadata parties."
+                    )
+                if value.get("rel") == "validation":
+                    href = value.get("href", "")
+                    if not href.startswith("#") or href[1:] not in document_uuid_fragments:
+                        raise SystemSecurityPlanValidationError(
+                            "SSP validation links must reference an internal UUID fragment."
+                        )
+                for item in value.values():
+                    validate_references(item)
+            elif isinstance(value, list):
+                for item in value:
+                    validate_references(item)
+
+        validate_references(body)
     except SystemSecurityPlanValidationError:
         raise
     except OSError as error:
@@ -110,7 +189,7 @@ def validate_system_security_plan_document(
         raise SystemSecurityPlanValidationError(
             f"OSCAL SSP schema validation failed at {path}: {error.message}"
         ) from error
-    except (KeyError, TypeError, ValueError) as error:
+    except (KeyError, TypeError, ValueError, PydanticValidationError) as error:
         raise SystemSecurityPlanValidationError(
             "Document does not conform to its declared OSCAL System Security Plan model."
         ) from error
