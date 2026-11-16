@@ -40,6 +40,7 @@ export function AppShell({
               <a href={`/t/${current.id}/mappings`}>{t("nav.mappings")}</a>
               <a href={`/t/${current.id}/profiles`}>{t("nav.profiles")}</a>
               <a href={`/t/${current.id}/systems`}>{t("nav.systems")}</a>
+              <a href={`/t/${current.id}/assessment-plans`}>{t("nav.assessmentPlans")}</a>
               <span className="muted">{t("nav.workspace")} {current.name}</span>
               {tenants.length > 1 ? <Link href="/">{t("nav.switchWorkspace")}</Link> : null}
             </>

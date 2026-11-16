@@ -5,6 +5,12 @@
     "node": ">=22.13.0 <23",
     "npm": ">=10 <11"
   },
+  "devDependencies": {
+    "jsdom": "26.1.0"
+  },
+  "overrides": {
+    "jsdom": "26.1.0"
+  },
   "workspaces": [
     "apps/web"
   ]

@@ -256,6 +256,12 @@ export function SystemWorkspace({
       revision: planRevisions[plan.id],
     })),
   );
+  const sspVersionLabelById = Object.fromEntries(
+    availableSspVersions.map(({ plan, version }) => [
+      version.id,
+      `${plan.title} · ${version.document_version}`,
+    ]),
+  );
 
   return (
     <div className="workspace system-workspace">
@@ -544,7 +550,9 @@ export function SystemWorkspace({
                 <h4>{plan.title}</h4>
                 <p className="muted">
                   {t("assessmentPlans.pinnedSspVersion", {
-                    version: plan.system_security_plan_version_id,
+                    version:
+                      sspVersionLabelById[plan.system_security_plan_version_id] ??
+                      plan.system_security_plan_version_id,
                   })}
                 </p>
                 <a
