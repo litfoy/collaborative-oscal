@@ -2,7 +2,7 @@ FROM node:22-bookworm-slim
 WORKDIR /opt/app
 COPY package.json package-lock.json ./
 COPY apps/web/package.json ./apps/web/package.json
-RUN npm ci
+RUN npm ci --omit=optional
 COPY apps/web ./apps/web
 RUN npm --workspace apps/web run build
 COPY infrastructure/docker/web-entrypoint.sh /opt/compose/web-entrypoint.sh
