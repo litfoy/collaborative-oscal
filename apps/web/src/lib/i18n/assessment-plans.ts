@@ -101,8 +101,15 @@ export const en = {
   "assessmentPlans.validationOutdated": "Validation results are outdated because the working state changed.",
   "assessmentPlans.validationDetails": "Technical validation details",
   "assessmentPlans.oscalDetails": "OSCAL details (read-only)",
+  "assessmentPlans.oscalDraftCandidate": "Generated OSCAL draft candidate from the current saved working state.",
+  "assessmentPlans.validationPath": "Validation path",
   "assessmentPlans.validationAction": "Suggested action: {action}",
   "assessmentPlans.validationScope": "Affected section: {section}",
+  "assessmentPlans.validationOscalModel": "OSCAL model validation failed. Review the indicated field and ensure required document metadata and structures are valid.",
+  "assessmentPlans.validationOscalSchema": "OSCAL schema validation failed. Review the indicated location and required property/constraint.",
+  "assessmentPlans.validationReference": "A reference points to an unknown or out-of-scope item. Fix identifiers and cross-references in the indicated section.",
+  "assessmentPlans.validationIntegrity": "The working state contains conflicting or duplicate identifiers. Resolve the identifier conflict and validate again.",
+  "assessmentPlans.validationReviewDiagnostic": "Review the diagnostic code and path, correct the indicated field, and run validation again.",
   "assessmentPlans.validationSaveFirst": "Save the working state before validating or creating a version.",
   "assessmentPlans.localObjectiveConflict": "A local objective with this identifier already exists.",
   "assessmentPlans.activityInUse": "This activity is referenced by one or more tasks.",
@@ -226,8 +233,15 @@ export const de: Record<keyof typeof en, string> = {
   "assessmentPlans.validationOutdated": "Die Validierungsergebnisse sind veraltet, weil sich der Arbeitsstand geaendert hat.",
   "assessmentPlans.validationDetails": "Technische Validierungsdetails",
   "assessmentPlans.oscalDetails": "OSCAL-Details (nur Lesen)",
+  "assessmentPlans.oscalDraftCandidate": "Generierter OSCAL-Entwurfskandidat aus dem aktuell gespeicherten Arbeitsstand.",
+  "assessmentPlans.validationPath": "Validierungspfad",
   "assessmentPlans.validationAction": "Empfohlene Aktion: {action}",
   "assessmentPlans.validationScope": "Betroffener Bereich: {section}",
+  "assessmentPlans.validationOscalModel": "Die OSCAL-Modellvalidierung ist fehlgeschlagen. Pruefen Sie das angegebene Feld sowie erforderliche Metadaten und Strukturen.",
+  "assessmentPlans.validationOscalSchema": "Die OSCAL-Schemavalidierung ist fehlgeschlagen. Pruefen Sie die angegebene Stelle und die geforderte Eigenschaft bzw. Regel.",
+  "assessmentPlans.validationReference": "Eine Referenz zeigt auf ein unbekanntes oder ausserhalb des Umfangs liegendes Element. Korrigieren Sie Kennungen und Verweise im betroffenen Bereich.",
+  "assessmentPlans.validationIntegrity": "Der Arbeitsstand enthaelt doppelte oder widerspruechliche Kennungen. Beheben Sie den Konflikt und validieren Sie erneut.",
+  "assessmentPlans.validationReviewDiagnostic": "Pruefen Sie Code und Pfad der Diagnose, korrigieren Sie das betroffene Feld und validieren Sie erneut.",
   "assessmentPlans.validationSaveFirst": "Speichern Sie den Arbeitsstand vor der Validierung oder Versionserstellung.",
   "assessmentPlans.localObjectiveConflict": "Ein lokales Pruefziel mit dieser Kennung existiert bereits.",
   "assessmentPlans.activityInUse": "Diese Pruefaktivitaet wird von mindestens einer Pruefaufgabe referenziert.",
@@ -247,6 +261,7 @@ export const de: Record<keyof typeof en, string> = {
   "assessmentPlans.versionCreated": "Unveraenderliche Pruefplan-Version {version} erstellt.",
   "assessmentPlans.versionUnchanged": "Der Arbeitsinhalt ist unveraendert; die vorhandene unveraenderliche Version wurde wiederverwendet.",
 };
+
 
 
 

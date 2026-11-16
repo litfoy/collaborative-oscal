@@ -204,6 +204,7 @@ class AssessmentPlanValidationResponse(BaseModel):
     valid: bool
     diagnostics: list[dict]
     source_objectives: list[AssessmentSourceObjectiveCatalogItem]
+    oscal_candidate: dict[str, object] | None = None
 
 
 class AssessmentPlanVersionResponse(BaseModel):
@@ -218,5 +219,6 @@ class AssessmentPlanVersionResponse(BaseModel):
     diagnostics: list[dict]
     created_at: datetime
     created: bool = False
+
 
 

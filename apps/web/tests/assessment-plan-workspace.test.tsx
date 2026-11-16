@@ -91,6 +91,11 @@ const validation: AssessmentPlanValidation = {
       description: "Check policy statement.",
     },
   ],
+  oscal_candidate: {
+    "assessment-plan": {
+      metadata: { title: "Assessment Alpha", version: "draft", "oscal-version": "1.2.1" },
+    },
+  },
 };
 
 const versions: AssessmentPlanVersion[] = [];
@@ -336,6 +341,34 @@ describe("AssessmentPlanWorkspace", () => {
     expect(hrefs).toContain(`/bff/tenants/${TENANT}/assessment-plans/plan/versions/ap-version-1/export`);
   });
 
+  it("shows generated OSCAL draft candidate and path-aware diagnostics", async () => {
+    const user = userEvent.setup();
+    renderWorkspace({
+      initialValidation: {
+        ...validation,
+        valid: false,
+        diagnostics: [
+          {
+            severity: "error",
+            code: "oscal_model",
+            category: "oscal_model",
+            path: "assessment-plan.metadata.version",
+            message:
+              "OSCAL Assessment Plan model validation failed at assessment-plan.metadata.version: Value does not match required pattern.",
+          },
+        ],
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Validation & Versions" }));
+
+    expect(screen.getByText(/Validation path:/i)).toBeVisible();
+    expect(screen.getByText("assessment-plan.metadata.version")).toBeVisible();
+    await user.click(screen.getByText("OSCAL details (read-only)"));
+    expect(screen.getByText(/Generated OSCAL draft candidate/i)).toBeVisible();
+    expect(screen.getByText(/"version": "draft"/)).toBeVisible();
+  });
+
   it("propagates role-party assignments into saved task payloads", async () => {
     const user = userEvent.setup();
     const updatedPlan: AssessmentPlan = {
@@ -428,6 +461,10 @@ describe("AssessmentPlanWorkspace", () => {
     expect(body.tasks[0].activity_ids).toEqual([]);
   });
 });
+
+
+
+
 
 
 

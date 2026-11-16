@@ -76,6 +76,46 @@ def test_assessment_plan_validation_rejects_subject_not_in_pinned_ssp() -> None:
         )
 
 
+def test_assessment_plan_validation_reports_model_path_for_empty_version() -> None:
+    document = _document()
+    document["assessment-plan"]["metadata"]["version"] = ""
+    with pytest.raises(
+        AssessmentPlanValidationError,
+        match="assessment-plan.metadata.version",
+    ) as error:
+        validate_assessment_plan_document(document)
+    assert error.value.category == "oscal_model"
+    assert error.value.path == "assessment-plan.metadata.version"
+
+
+def test_assessment_plan_local_objective_identity_uses_objective_part_id() -> None:
+    document = _document()
+    document["assessment-plan"]["reviewed-controls"][
+        "control-objective-selections"
+    ] = [{"include-objectives": [{"objective-id": "local-ac-1-1"}]}]
+    document["assessment-plan"]["local-definitions"] = {
+        "objectives-and-methods": [
+            {
+                "control-id": "ac-1",
+                "description": "Assess local objective.",
+                "parts": [
+                    {
+                        "id": "local-ac-1-1",
+                        "name": "objective",
+                        "prose": "Assess local objective.",
+                    }
+                ],
+            }
+        ]
+    }
+    validate_assessment_plan_document(
+        document,
+        expected_ssp_href=SSP_HREF,
+        baseline_control_ids={"ac-1"},
+        allowed_subject_uuids={SUBJECT_UUID},
+    )
+
+
 def test_assessment_plan_121_serialize_uses_trestle_path() -> None:
     serialized = serialize_authored_assessment_plan(_document())
     assert serialized["assessment-plan"]["metadata"]["oscal-version"] == "1.2.1"
@@ -94,5 +134,6 @@ def test_bundled_assessment_plan_schema_has_recorded_upstream_digest() -> None:
     assert hashlib.sha256(schema).hexdigest() == (
         "0153e4e0414903c51c13732d4158d955630e33a3ef009d2691cf3e07336136f4"
     )
+
 
 

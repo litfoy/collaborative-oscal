@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import select
 
 from app.application.assessment_plans import AssessmentPlanService, InvalidAssessmentPlan
 from app.application.implementations import ImplementationService
@@ -16,9 +17,13 @@ from app.domain.implementations import (
     OscalImplementationStatus,
 )
 from app.persistence.identity import SQLIdentityRepository, SQLMembershipRepository
+from app.persistence.models import CatalogControlIndexRecord
 
 pytestmark = pytest.mark.integration
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "oscal_catalog.json"
+ARCH_FIXTURE_PATH = (
+    Path(__file__).parents[3] / "examples" / "catalogs" / "Grundschutz++-resolved_catalog.json"
+)
 
 
 def _actor(session_factory, tenant_id: UUID) -> UUID:
@@ -38,12 +43,28 @@ def _actor(session_factory, tenant_id: UUID) -> UUID:
         return identity.id
 
 
-def _prepare_ssp_version(grc_service, session_factory) -> tuple[UUID, UUID, UUID, UUID, UUID]:
+def _prepare_ssp_version(
+    grc_service,
+    session_factory,
+    *,
+    fixture_path: Path = FIXTURE_PATH,
+    component_type: str = "service",
+) -> tuple[UUID, UUID, UUID, UUID, UUID, list[str]]:
     tenant = grc_service.create_tenant("AP tenant", f"ap-{uuid4().hex}")
     actor = _actor(session_factory, tenant.id)
     catalog = grc_service.create_catalog(tenant.id, "Security baseline", CatalogOriginType.CUSTOM)
-    catalog_document = json.loads(FIXTURE_PATH.read_text())
+    catalog_document = json.loads(fixture_path.read_text())
     revision = grc_service.create_draft_catalog_revision(tenant.id, catalog.id, catalog_document)
+
+    with session_factory.begin() as session:
+        baseline_controls = session.scalars(
+            select(CatalogControlIndexRecord.oscal_control_id)
+            .where(
+                CatalogControlIndexRecord.tenant_id == tenant.id,
+                CatalogControlIndexRecord.catalog_revision_id == revision.id,
+            )
+            .order_by(CatalogControlIndexRecord.oscal_control_id)
+        ).all()
 
     ssp_service = SystemSecurityPlanService(lambda: session_factory.begin())
     implementations = ImplementationService(lambda: session_factory.begin())
@@ -70,7 +91,7 @@ def _prepare_ssp_version(grc_service, session_factory) -> tuple[UUID, UUID, UUID
         tenant.id,
         actor,
         system["id"],
-        component_type="service",
+        component_type=component_type,
         title="Identity provider",
         description="Production identity service deployment.",
         purpose="Authenticate employees",
@@ -91,7 +112,7 @@ def _prepare_ssp_version(grc_service, session_factory) -> tuple[UUID, UUID, UUID
         actor,
         catalog.id,
         revision.id,
-        "ac-1",
+        baseline_controls[0],
         None,
         None,
         ImplementationInformation(
@@ -111,13 +132,27 @@ def _prepare_ssp_version(grc_service, session_factory) -> tuple[UUID, UUID, UUID
         component["id"],
     )
     version = ssp_service.create_version(tenant.id, actor, plan["id"])
-    return tenant.id, actor, system["id"], version["id"], UUID(component["oscal_component_uuid"])
+    component_uuid = component["oscal_component_uuid"]
+    subject_uuid = component_uuid if isinstance(component_uuid, UUID) else UUID(component_uuid)
+    return (
+        tenant.id,
+        actor,
+        system["id"],
+        version["id"],
+        subject_uuid,
+        baseline_controls,
+    )
 
 
 def test_assessment_plan_lifecycle_uses_pinned_ssp_snapshot(grc_service, session_factory) -> None:
-    tenant_id, actor, system_id, ssp_version_id, subject_uuid = _prepare_ssp_version(
-        grc_service, session_factory
-    )
+    (
+        tenant_id,
+        actor,
+        system_id,
+        ssp_version_id,
+        subject_uuid,
+        _baseline_controls,
+    ) = _prepare_ssp_version(grc_service, session_factory)
     service = AssessmentPlanService(lambda: session_factory.begin())
 
     plan = service.create_plan(
@@ -220,9 +255,14 @@ def test_assessment_plan_lifecycle_uses_pinned_ssp_snapshot(grc_service, session
 def test_assessment_plan_rejects_controls_or_subjects_outside_pinned_snapshot(
     grc_service, session_factory
 ) -> None:
-    tenant_id, actor, system_id, ssp_version_id, _subject_uuid = _prepare_ssp_version(
-        grc_service, session_factory
-    )
+    (
+        tenant_id,
+        actor,
+        system_id,
+        ssp_version_id,
+        _subject_uuid,
+        _baseline_controls,
+    ) = _prepare_ssp_version(grc_service, session_factory)
     service = AssessmentPlanService(lambda: session_factory.begin())
 
     plan = service.create_plan(
@@ -253,5 +293,244 @@ def test_assessment_plan_rejects_controls_or_subjects_outside_pinned_snapshot(
                 "terms": None,
             },
         )
+
+
+def test_assessment_plan_minimal_scope_validates_repeatedly_without_state_changes(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        ssp_version_id,
+        subject_uuid,
+        baseline_controls,
+    ) = _prepare_ssp_version(
+        grc_service,
+        session_factory,
+        fixture_path=ARCH_FIXTURE_PATH,
+        component_type="region",
+    )
+    service = AssessmentPlanService(lambda: session_factory.begin())
+    selected_controls = baseline_controls[:13]
+
+    plan = service.create_plan(
+        tenant_id,
+        actor,
+        system_id,
+        ssp_version_id=ssp_version_id,
+        title="ARCH Minimal AP",
+        description="Minimal AP with immutable SSP 1.2.3 reference.",
+    )
+
+    service.update_plan(
+        tenant_id,
+        actor,
+        plan["id"],
+        title="ARCH Minimal AP",
+        description="Minimal AP with immutable SSP 1.2.3 reference.",
+        working_data={
+            "control_ids": selected_controls,
+            "source_objectives": [],
+            "local_objectives": [],
+            "subject_uuids": [str(subject_uuid)],
+            "activities": [],
+            "tasks": [],
+            "roles": [],
+            "parties": [],
+            "terms": None,
+        },
+    )
+
+    first_validation = service.validate_plan(tenant_id, plan["id"])
+    second_validation = service.validate_plan(tenant_id, plan["id"])
+    assert first_validation["valid"] is True
+    assert second_validation["valid"] is True
+    assert first_validation["oscal_candidate"]["assessment-plan"]["metadata"]["version"] == "draft"
+
+    first_version = service.create_version(tenant_id, actor, plan["id"])
+    assert first_version["created"] is True
+    assert first_version["oscal_version"] == "1.2.1"
+
+    exported = service.export_version(tenant_id, plan["id"], first_version["id"])
+    metadata = exported["assessment-plan"]["metadata"]
+    assert metadata["version"] == first_version["document_version"]
+    assert metadata["version"] != "draft"
+    assert exported["assessment-plan"]["import-ssp"]["href"].endswith(
+        f"/{ssp_version_id}/export"
+    )
+
+    reused = service.create_version(tenant_id, actor, plan["id"])
+    assert reused["created"] is False
+    assert reused["id"] == first_version["id"]
+
+
+def test_assessment_plan_local_objectives_support_same_control_and_reference_integrity(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        ssp_version_id,
+        subject_uuid,
+        _baseline_controls,
+    ) = _prepare_ssp_version(grc_service, session_factory)
+    service = AssessmentPlanService(lambda: session_factory.begin())
+
+    plan = service.create_plan(
+        tenant_id,
+        actor,
+        system_id,
+        ssp_version_id=ssp_version_id,
+        title="Objective Integrity AP",
+        description=None,
+    )
+
+    updated = service.update_plan(
+        tenant_id,
+        actor,
+        plan["id"],
+        title="Objective Integrity AP",
+        description=None,
+        working_data={
+            "control_ids": ["ac-1"],
+            "source_objectives": [],
+            "local_objectives": [
+                {
+                    "objective_id": "local-ac-1-1",
+                    "control_id": "ac-1",
+                    "description": "First local objective.",
+                    "methods": ["EXAMINE"],
+                },
+                {
+                    "objective_id": "local-ac-1-2",
+                    "control_id": "ac-1",
+                    "description": "Second local objective.",
+                    "methods": ["TEST"],
+                },
+            ],
+            "subject_uuids": [str(subject_uuid)],
+            "activities": [
+                {
+                    "title": "Assess objective one",
+                    "description": "Activity uses first local objective.",
+                    "methods": ["EXAMINE"],
+                    "steps": [],
+                    "control_ids": ["ac-1"],
+                    "objective_ids": ["local-ac-1-1"],
+                    "planned_evidence": None,
+                }
+            ],
+            "tasks": [],
+            "roles": [],
+            "parties": [],
+            "terms": None,
+        },
+    )
+    assert len(updated["local_objectives"]) == 2
+    assert service.validate_plan(tenant_id, plan["id"])["valid"] is True
+
+    exported = service.export_version(
+        tenant_id,
+        plan["id"],
+        service.create_version(tenant_id, actor, plan["id"])["id"],
+    )
+    local_defs = exported["assessment-plan"]["local-definitions"]["objectives-and-methods"]
+    assert all(item["control-id"] == "ac-1" for item in local_defs)
+    assert {item["parts"][0]["id"] for item in local_defs} == {"local-ac-1-1", "local-ac-1-2"}
+
+
+def test_assessment_plan_rejects_invalid_objective_references_and_conflicts(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        ssp_version_id,
+        subject_uuid,
+        _baseline_controls,
+    ) = _prepare_ssp_version(grc_service, session_factory)
+    service = AssessmentPlanService(lambda: session_factory.begin())
+    plan = service.create_plan(
+        tenant_id,
+        actor,
+        system_id,
+        ssp_version_id=ssp_version_id,
+        title="Diagnostics AP",
+        description=None,
+    )
+
+    with pytest.raises(InvalidAssessmentPlan) as error:
+        service.update_plan(
+            tenant_id,
+            actor,
+            plan["id"],
+            title="Diagnostics AP",
+            description=None,
+            working_data={
+                "control_ids": ["ac-1"],
+                "source_objectives": [],
+                "local_objectives": [
+                    {
+                        "objective_id": "local-ac-1-1",
+                        "control_id": "ac-1",
+                        "description": "desc",
+                        "methods": ["EXAMINE"],
+                    }
+                ],
+                "subject_uuids": [str(subject_uuid)],
+                "activities": [
+                    {
+                        "title": "Bad objective reference",
+                        "description": "This references a missing objective id.",
+                        "methods": ["EXAMINE"],
+                        "steps": [],
+                        "control_ids": ["ac-1"],
+                        "objective_ids": ["missing-local-objective"],
+                        "planned_evidence": None,
+                    }
+                ],
+                "tasks": [],
+                "roles": [],
+                "parties": [],
+                "terms": None,
+            },
+        )
+    diagnostics = error.value.diagnostics
+    assert any(item["code"] == "activity_unknown_objective" for item in diagnostics)
+
+    with pytest.raises(InvalidAssessmentPlan) as conflict_error:
+        service.update_plan(
+            tenant_id,
+            actor,
+            plan["id"],
+            title="Diagnostics AP",
+            description=None,
+            working_data={
+                "control_ids": ["ac-1"],
+                "source_objectives": [{"objective_id": "shared-id", "control_id": "ac-1"}],
+                "local_objectives": [
+                    {
+                        "objective_id": "shared-id",
+                        "control_id": "ac-1",
+                        "description": "conflict",
+                        "methods": ["EXAMINE"],
+                    }
+                ],
+                "subject_uuids": [str(subject_uuid)],
+                "activities": [],
+                "tasks": [],
+                "roles": [],
+                "parties": [],
+                "terms": None,
+            },
+        )
+    assert any(item["code"] == "objective_id_conflict" for item in conflict_error.value.diagnostics)
+
+
+
+
 
 

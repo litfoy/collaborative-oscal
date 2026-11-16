@@ -645,10 +645,11 @@ export function AssessmentPlanWorkspace({
             {canWrite ? <button type="button" onClick={() => void createVersion()} disabled={busy || dirty || validationStale || !validation.valid}>{t("assessmentPlans.createVersion")}</button> : null}
           </div>
           <p className="muted">{validation.valid ? t("assessmentPlans.validationPassed") : t("assessmentPlans.validationIssues")}</p>
-          {validation.diagnostics.length ? <ul className="diagnostics">{validation.diagnostics.map((item, index) => <li key={`${item.code}:${index}`}><strong>{enumLabel(item.severity)}: {item.code}</strong> - {item.message}<p className="muted">{diagnosticGuidance(item.code, t)}</p></li>)}</ul> : <p>{t("assessmentPlans.noValidationDiagnostics")}</p>}
+          {validation.diagnostics.length ? <ul className="diagnostics">{validation.diagnostics.map((item, index) => <li key={`${item.code}:${index}`}><strong>{enumLabel(item.severity)}: {item.code}</strong> - {item.message}{item.path ? <p className="muted">{t("assessmentPlans.validationPath")}: <span className="mono">{item.path}</span></p> : null}<p className="muted">{diagnosticGuidance(item.code, item.category, t)}</p></li>)}</ul> : <p>{t("assessmentPlans.noValidationDiagnostics")}</p>}
           <details>
             <summary>{t("assessmentPlans.oscalDetails")}</summary>
-            <pre>{JSON.stringify(plan, null, 2)}</pre>
+            <p className="muted">{t("assessmentPlans.oscalDraftCandidate")}</p>
+            <pre>{JSON.stringify(validation.oscal_candidate ?? null, null, 2)}</pre>
           </details>
           <h3>{t("systems.versions")}</h3>
           {versions.length ? <ul className="profile-list">{versions.map((version) => <li key={version.id}><strong>{t("common.version")} {version.document_version}</strong><p className="muted">OSCAL {version.oscal_version} · {date(version.created_at)}</p><a href={`/bff/tenants/${tenantId}/assessment-plans/${plan.id}/versions/${version.id}/export`}>{t("systems.exportStoredOscalJson")}</a></li>)}</ul> : <p className="muted">{t("systems.noImmutableVersions")}</p>}
@@ -775,7 +776,23 @@ function methodLabel(method: AssessmentMethod, t?: (key: never, values?: Record<
   return t("assessmentPlans.method.test" as never);
 }
 
-function diagnosticGuidance(code: string, t: (key: never, values?: Record<string, string | number>) => string) {
+function diagnosticGuidance(
+  code: string,
+  category: string | undefined,
+  t: (key: never, values?: Record<string, string | number>) => string,
+) {
+  if (category === "oscal_model") {
+    return t("assessmentPlans.validationOscalModel" as never);
+  }
+  if (category === "oscal_schema") {
+    return t("assessmentPlans.validationOscalSchema" as never);
+  }
+  if (category === "application_reference") {
+    return t("assessmentPlans.validationReference" as never);
+  }
+  if (category === "application_integrity") {
+    return t("assessmentPlans.validationIntegrity" as never);
+  }
   if (code.includes("control") || code.includes("objective")) {
     return t("assessmentPlans.validationScope" as never, {
       section: t("assessmentPlans.scope" as never),
@@ -791,9 +808,7 @@ function diagnosticGuidance(code: string, t: (key: never, values?: Record<string
       section: t("assessmentPlans.tasks" as never),
     });
   }
-  return t("assessmentPlans.validationAction" as never, {
-    action: t("assessmentPlans.validationSaveFirst" as never),
-  });
+  return t("assessmentPlans.validationReviewDiagnostic" as never);
 }
 
 function toLocalInput(value: string | null): string {
@@ -818,6 +833,7 @@ function toIsoInput(value: string): string | null {
 function generateId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
+
 
 
 

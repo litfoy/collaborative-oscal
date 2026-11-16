@@ -309,6 +309,8 @@ export interface SystemSecurityPlanDiagnostic {
   severity: "error" | "warning";
   code: string;
   message: string;
+  category?: string;
+  path?: string;
 }
 
 export interface SystemSecurityPlanValidation {
@@ -424,6 +426,7 @@ export interface AssessmentPlanValidation {
   valid: boolean;
   diagnostics: SystemSecurityPlanDiagnostic[];
   source_objectives: AssessmentSourceObjectiveCatalogItem[];
+  oscal_candidate?: Record<string, unknown> | null;
 }
 
 export interface AssessmentPlanVersion {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
@@ -29,7 +30,18 @@ DEFAULT_ASSESSMENT_PLAN_OSCAL_VERSION = authoring_version_for(
 
 
 class AssessmentPlanValidationError(ValueError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        category: str = "oscal_model",
+        path: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        self.category = category
+        self.path = path
+        self.reason = reason
+        super().__init__(message)
 
 
 def serialize_authored_assessment_plan(document: Mapping[str, Any]) -> dict[str, Any]:
@@ -107,16 +119,37 @@ def validate_assessment_plan_document(
         raise
     except OSError as error:
         raise AssessmentPlanValidationError(
-            "The schema for the declared Assessment Plan version is unavailable."
+            "The schema for the declared Assessment Plan version is unavailable.",
+            category="oscal_schema",
+            reason="Schema resource unavailable.",
         ) from error
     except JsonSchemaValidationError as error:
         path = ".".join(str(item) for item in error.absolute_path) or "<root>"
+        reason = _schema_reason(error)
         raise AssessmentPlanValidationError(
-            f"OSCAL Assessment Plan schema validation failed at {path}: {error.message}"
+            f"OSCAL Assessment Plan schema validation failed at {path}: {reason}",
+            category="oscal_schema",
+            path=path,
+            reason=reason,
         ) from error
-    except (KeyError, TypeError, ValueError, PydanticValidationError) as error:
+    except PydanticValidationError as error:
+        detail = _first_pydantic_error(error)
+        path = detail["path"]
+        reason = detail["reason"]
         raise AssessmentPlanValidationError(
-            "Document does not conform to its declared OSCAL Assessment Plan model."
+            f"OSCAL Assessment Plan model validation failed at {path}: {reason}",
+            category="oscal_model",
+            path=path,
+            reason=reason,
+        ) from error
+    except (KeyError, TypeError, ValueError) as error:
+        path = _exception_path(error)
+        reason = _exception_reason(error)
+        raise AssessmentPlanValidationError(
+            f"OSCAL Assessment Plan model validation failed at {path}: {reason}",
+            category="oscal_model",
+            path=path,
+            reason=reason,
         ) from error
 
 
@@ -151,14 +184,65 @@ def _collect_objective_ids(body: Mapping[str, Any]) -> set[str]:
                 )
             objective_ids.add(objective_id)
 
+    local_ids: set[str] = set()
     for objective in body.get("local-definitions", {}).get("objectives-and-methods", []):
-        objective_id = objective["control-id"]
-        if objective_id in objective_ids:
+        objective_id = _local_objective_identity(objective)
+        if objective_id in local_ids:
             raise AssessmentPlanValidationError(
-                f"Local objective identifier {objective_id!r} conflicts with selected objectives."
+                f"Local objective identifier {objective_id!r} is defined more than once."
             )
-        objective_ids.add(objective_id)
-    return objective_ids
+        local_ids.add(objective_id)
+    return objective_ids.union(local_ids)
+
+
+def _local_objective_identity(objective: Mapping[str, Any]) -> str:
+    for part in objective.get("parts", []):
+        if part.get("name") == "objective" and part.get("id"):
+            return str(part["id"])
+    return str(objective["control-id"])
+
+
+def _first_pydantic_error(error: PydanticValidationError) -> dict[str, str]:
+    items = error.errors(include_url=False, include_input=False)
+    if not items:
+        return {"path": "<root>", "reason": "Model validation failed."}
+    first = items[0]
+    location = ".".join(str(item) for item in first.get("loc", ())) or "<root>"
+    reason = str(first.get("msg", "Model validation failed."))
+    return {"path": location, "reason": reason}
+
+
+def _exception_path(error: Exception) -> str:
+    if isinstance(error, KeyError):
+        key = error.args[0] if error.args else "unknown"
+        return f"<root>.{key}"
+    return "<root>"
+
+
+def _exception_reason(error: Exception) -> str:
+    if isinstance(error, KeyError):
+        key = error.args[0] if error.args else "unknown"
+        return f"Missing required property {key!r}."
+    if isinstance(error, TypeError):
+        return "Unexpected value type encountered while reading the document."
+    if isinstance(error, ValueError):
+        return str(error) or "Invalid value encountered while reading the document."
+    return "Model validation failed."
+
+
+def _schema_reason(error: JsonSchemaValidationError) -> str:
+    if error.validator == "required":
+        match = re.search(r"'([^']+)' is a required property", error.message)
+        if match:
+            return f"Missing required property {match.group(1)!r}."
+        return "Missing required property."
+    if error.validator == "pattern":
+        return "Value does not match the required pattern."
+    if error.validator == "type":
+        return "Value has an invalid type."
+    if error.validator == "enum":
+        return "Value is not one of the allowed options."
+    return f"Schema constraint {error.validator!r} is not satisfied."
 
 
 def _collect_assessment_subject_ids(body: Mapping[str, Any]) -> set[UUID]:
@@ -262,4 +346,5 @@ def _validate_responsible_role(
             raise AssessmentPlanValidationError(
                 "Responsible role references a party that is not declared in metadata.parties."
             )
+
 

@@ -147,6 +147,7 @@ class AssessmentPlanService:
                 "valid": len(errors) == 0,
                 "diagnostics": diagnostics,
                 "source_objectives": source_objectives,
+                "oscal_candidate": draft,
             }
 
     def create_version(
@@ -189,13 +190,7 @@ class AssessmentPlanService:
                     ),
                 )
             except AssessmentPlanValidationError as error:
-                diagnostics.append(
-                    {
-                        "severity": "error",
-                        "code": "oscal_schema",
-                        "message": str(error),
-                    }
-                )
+                diagnostics.append(self._oscal_diagnostic(error))
                 raise InvalidAssessmentPlan(diagnostics) from error
 
             stable_document = copy.deepcopy(final_document)
@@ -316,7 +311,7 @@ class AssessmentPlanService:
         metadata: dict[str, Any] = {
             "title": plan.title,
             "last-modified": now.isoformat(),
-            "version": "",
+            "version": "draft",
             "oscal-version": oscal_version,
         }
 
@@ -359,9 +354,9 @@ class AssessmentPlanService:
             )
             local_objectives.append(
                 {
-                    "control-id": local["objective_id"],
+                    "control-id": local["control_id"],
                     "description": local["description"],
-                    "parts": parts,
+                    "parts": [{"id": local["objective_id"], **parts[0]}, *parts[1:]],
                 }
             )
         if local_objectives:
@@ -522,9 +517,7 @@ class AssessmentPlanService:
                 allowed_subject_uuids=allowed_subject_uuids,
             )
         except AssessmentPlanValidationError as error:
-            diagnostics.append(
-                {"severity": "error", "code": "oscal_schema", "message": str(error)}
-            )
+            diagnostics.append(self._oscal_diagnostic(error))
 
         source_by_id = {item["objective_id"]: item for item in source_objectives}
         for selection in plan.working_data.get("source_objectives", []):
@@ -533,6 +526,7 @@ class AssessmentPlanService:
                 diagnostics.append(
                     {
                         "severity": "error",
+                        "category": "application_reference",
                         "code": "unknown_source_objective",
                         "message": (
                             "Selected source objective "
@@ -545,6 +539,7 @@ class AssessmentPlanService:
                 diagnostics.append(
                     {
                         "severity": "error",
+                        "category": "application_reference",
                         "code": "source_objective_control_mismatch",
                         "message": (
                             "Source objective "
@@ -569,6 +564,7 @@ class AssessmentPlanService:
         if len(control_ids) != len(set(control_ids)):
             diagnostics.append(
                 {
+                    "category": "application_integrity",
                     "code": "duplicate_controls",
                     "message": "Reviewed controls must be unique.",
                 }
@@ -577,6 +573,7 @@ class AssessmentPlanService:
         if unknown_controls:
             diagnostics.append(
                 {
+                    "category": "application_reference",
                     "code": "control_outside_baseline",
                     "message": (
                         "Reviewed controls are outside the pinned baseline: "
@@ -594,6 +591,7 @@ class AssessmentPlanService:
         if missing_subjects:
             diagnostics.append(
                 {
+                    "category": "application_reference",
                     "code": "unknown_ssp_subject",
                     "message": (
                         "Assessment subjects are not present in the pinned SSP snapshot: "
@@ -611,6 +609,7 @@ class AssessmentPlanService:
         if len(local_objective_ids) != len(set(local_objective_ids)):
             diagnostics.append(
                 {
+                    "category": "application_integrity",
                     "code": "duplicate_local_objectives",
                     "message": "Local objective identifiers must be unique.",
                 }
@@ -619,6 +618,7 @@ class AssessmentPlanService:
         if conflicts:
             diagnostics.append(
                 {
+                    "category": "application_integrity",
                     "code": "objective_id_conflict",
                     "message": (
                         "Local objective identifiers conflict with selected source objectives: "
@@ -643,6 +643,7 @@ class AssessmentPlanService:
             if control_id not in selected_controls:
                 diagnostics.append(
                     {
+                        "category": "application_reference",
                         "code": "objective_outside_scope",
                         "message": (
                             f"Objective {objective_id!r} references control {control_id!r} "
@@ -657,6 +658,7 @@ class AssessmentPlanService:
         if len(activity_ids) != len(set(activity_ids)):
             diagnostics.append(
                 {
+                    "category": "application_integrity",
                     "code": "duplicate_activity_ids",
                     "message": "Activity UUIDs must be unique.",
                 }
@@ -666,6 +668,7 @@ class AssessmentPlanService:
         if len(role_ids) != len(set(role_ids)):
             diagnostics.append(
                 {
+                    "category": "application_integrity",
                     "code": "duplicate_roles",
                     "message": "Assessment role identifiers must be unique.",
                 }
@@ -675,6 +678,7 @@ class AssessmentPlanService:
         if len(party_ids) != len(set(party_ids)):
             diagnostics.append(
                 {
+                    "category": "application_integrity",
                     "code": "duplicate_parties",
                     "message": "Assessment party UUIDs must be unique.",
                 }
@@ -690,6 +694,7 @@ class AssessmentPlanService:
             if unknown_refs:
                 diagnostics.append(
                     {
+                        "category": "application_reference",
                         "code": "activity_unknown_objective",
                         "message": (
                             f"Activity {activity.get('id')} references unknown objectives: "
@@ -703,6 +708,7 @@ class AssessmentPlanService:
             if unknown_activity_controls:
                 diagnostics.append(
                     {
+                        "category": "application_reference",
                         "code": "activity_control_outside_scope",
                         "message": (
                             f"Activity {activity.get('id')} references controls outside scope: "
@@ -717,6 +723,7 @@ class AssessmentPlanService:
         if len(task_ids) != len(set(task_ids)):
             diagnostics.append(
                 {
+                    "category": "application_integrity",
                     "code": "duplicate_task_ids",
                     "message": "Task UUIDs must be unique.",
                 }
@@ -733,6 +740,7 @@ class AssessmentPlanService:
             if unknown_task_activities:
                 diagnostics.append(
                     {
+                        "category": "application_reference",
                         "code": "task_unknown_activity",
                         "message": (
                             f"Task {task.get('id')} references unknown activities: "
@@ -750,6 +758,7 @@ class AssessmentPlanService:
             if unknown_task_subjects:
                 diagnostics.append(
                     {
+                        "category": "application_reference",
                         "code": "task_unknown_subject",
                         "message": (
                             f"Task {task.get('id')} references unknown subjects: "
@@ -761,6 +770,7 @@ class AssessmentPlanService:
             if unknown_task_roles:
                 diagnostics.append(
                     {
+                        "category": "application_reference",
                         "code": "task_unknown_role",
                         "message": (
                             f"Task {task.get('id')} references unknown roles: "
@@ -772,10 +782,28 @@ class AssessmentPlanService:
         if diagnostics:
             raise InvalidAssessmentPlan(
                 [
-                    {"severity": "error", "code": item["code"], "message": item["message"]}
+                    {
+                        "severity": "error",
+                        "category": item["category"],
+                        "code": item["code"],
+                        "message": item["message"],
+                    }
                     for item in diagnostics
                 ]
             )
+
+    @staticmethod
+    def _oscal_diagnostic(error: AssessmentPlanValidationError) -> dict[str, str]:
+        code = "oscal_model" if error.category == "oscal_model" else "oscal_schema"
+        diagnostic: dict[str, str] = {
+            "severity": "error",
+            "category": error.category,
+            "code": code,
+            "message": str(error),
+        }
+        if error.path:
+            diagnostic["path"] = error.path
+        return diagnostic
 
     @staticmethod
     def _default_working_data() -> dict[str, Any]:
@@ -1094,5 +1122,6 @@ class AssessmentPlanService:
         if plan is None:
             raise EntityNotFoundError("Assessment Plan not found.")
         return plan
+
 
 
