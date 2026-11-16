@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { refreshSession } from "@/lib/oidc";
 import { getConfig } from "@/lib/config";
+import { LOCALE_COOKIE, resolveLocale } from "@/lib/i18n/locale";
 import {
   applyMutations,
   hasSessionCookie,
@@ -20,6 +21,8 @@ function sessionEnded(request: NextRequest, mutations: CookieMutation[]): NextRe
   } else if (path === "/") {
     const forwarded = new Headers(request.headers);
     forwarded.delete("cookie");
+    const locale = request.cookies.get(LOCALE_COOKIE)?.value;
+    if (locale) forwarded.set("cookie", `${LOCALE_COOKIE}=${resolveLocale(locale)}`);
     response = NextResponse.next({ request: { headers: forwarded } });
   } else {
     const url = request.nextUrl.clone();

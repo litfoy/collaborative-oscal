@@ -3,6 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 
 import { bffGet } from "@/lib/bff-client";
+import { useI18n } from "@/lib/i18n/provider";
 import { inBranch, indexBrowser, matchesProperties } from "@/lib/profile-browser";
 import type { ControlDetail, ProfileBrowserNode } from "@/lib/types";
 
@@ -32,6 +33,7 @@ export function MappingControlPicker({
   disabled: boolean;
   unavailable?: string[];
 }) {
+  const { t, number, errorMessage } = useI18n();
   const [loaded, setLoaded] = useState<{ base: string; attempt: number; nodes: ProfileBrowserNode[]; error: string | null } | null>(null);
   const [query, setQuery] = useState("");
   const [branch, setBranch] = useState("");
@@ -51,12 +53,12 @@ export function MappingControlPicker({
             base,
             attempt,
             nodes: [],
-            error: cause instanceof Error ? cause.message : "Unable to load catalog controls.",
+            error: errorMessage(cause) || t("mappings.loadControlsError"),
           });
         }
       });
     return () => controller.abort();
-  }, [base, attempt]);
+  }, [base, attempt, errorMessage, t]);
 
   const nodes = loaded?.base === base && loaded.attempt === attempt ? loaded.nodes : EMPTY_NODES;
   const error = loaded?.base === base && loaded.attempt === attempt ? loaded.error : null;
@@ -94,16 +96,16 @@ export function MappingControlPicker({
 
   return (
     <fieldset className="mapping-control-picker">
-      <legend>{label} controls ({selected.length} selected)</legend>
+      <legend>{label} controls ({t("mappings.controlCount", { count: number(selected.length) })})</legend>
       <div className="mapping-control-filters">
         <label className="field">
-          Search {label.toLocaleLowerCase()} controls
-          <input type="search" value={query} maxLength={200} placeholder="Control ID, title or requirement text"
+          {t("mappings.searchControls", { name: label.toLocaleLowerCase() })}
+          <input type="search" value={query} maxLength={200} placeholder={t("mappings.controlSearchPlaceholder")}
             onChange={(event) => { setQuery(event.target.value); setPage(0); }} />
         </label>
-        <label className="field">Catalog section · {label}
+        <label className="field">{t("mappings.catalogSection", { name: label })}
           <select value={branch} onChange={(event) => { setBranch(event.target.value); setPage(0); }}>
-            <option value="">All catalog sections</option>
+            <option value="">{t("mappings.allCatalogSections")}</option>
             {groups.map((group) => <option key={group.key} value={group.key}>
               {location(group) ? `${location(group)} › ` : ""}{group.title}
             </option>)}
@@ -111,7 +113,7 @@ export function MappingControlPicker({
         </label>
       </div>
       {index.facets.length ? <details>
-        <summary>Catalog filters</summary>
+        <summary>{t("mappings.catalogFilters")}</summary>
         <div className="mapping-control-filters">
           {index.facets.map((facet) => <label className="field" key={facet.key}>
             {facet.label}{facet.ns ? ` (${facet.ns})` : ""}
@@ -119,30 +121,30 @@ export function MappingControlPicker({
               setFilters((current) => ({ ...current, [facet.key]: event.target.value }));
               setPage(0);
             }}>
-              <option value="">All</option>
+              <option value="">{t("mappings.all")}</option>
               {[...facet.values].sort().map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </label>)}
         </div>
       </details> : null}
       {error ? <p role="alert" className="alert">{error}{" "}
-        <button type="button" className="secondary" onClick={() => setAttempt((value) => value + 1)}>Retry controls</button>
+        <button type="button" className="secondary" onClick={() => setAttempt((value) => value + 1)}>{t("mappings.retryControls")}</button>
       </p> : null}
-      {loading ? <p role="status">Loading controls from the selected revision…</p> : null}
-      {!loading && !error ? <p role="status">{results.length} matching controls · {selected.length} selected</p> : null}
-      <section className="mapping-selection-summary" aria-label={`${label} selected controls`}>
+      {loading ? <p role="status">{t("mappings.loadingControls")}</p> : null}
+      {!loading && !error ? <p role="status">{t(results.length === 1 ? "mappings.matchingControlOne" : "mappings.matchingControlOther", { count: number(results.length), selected: number(selected.length) })}</p> : null}
+      <section className="mapping-selection-summary" aria-label={t("mappings.selectedControlsAria", { name: label })}>
         <div className="workspace-actions">
-          <strong>Selected {label.toLocaleLowerCase()} controls ({selected.length})</strong>
+          <strong>{t(selected.length === 1 ? "mappings.selectedControlOne" : "mappings.selectedControlOther", { name: label.toLocaleLowerCase(), count: number(selected.length) })}</strong>
           {selected.length > 0 ? <button type="button" className="secondary" disabled={disabled}
-            onClick={() => onChange([])}>Clear selection</button> : null}
+            onClick={() => onChange([])}>{t("mappings.clearSelection")}</button> : null}
         </div>
         {selected.length > 0 ? <ul className="mapping-selected-controls">
           {selected.map((id) => <li key={id}>
             <span><span className="mono">{id}</span>{controlTitles[id] ? ` — ${controlTitles[id]}` : ""}</span>
             <button type="button" className="secondary" disabled={disabled} onClick={() => toggle(id, false)}
-              aria-label={`Remove ${id} from ${label.toLocaleLowerCase()} selection`}>Remove</button>
+              aria-label={t("mappings.removeControlAria", { control: id, name: label.toLocaleLowerCase() })}>{t("mappings.remove")}</button>
           </li>)}
-        </ul> : <p className="muted">No controls selected.</p>}
+        </ul> : <p className="muted">{t("mappings.noControlsSelected")}</p>}
       </section>
       <ul className="requirement-list">
         {visible.map((node) => {
@@ -153,7 +155,7 @@ export function MappingControlPicker({
               <input type="checkbox" checked={selected.includes(controlId)} disabled={disabled || unavailable.includes(controlId)}
                 onChange={(event) => toggle(controlId, event.target.checked)} />
               <span><span className="mono">{controlId}</span> <strong>{node.title}</strong>
-                {unavailable.includes(controlId) ? " (already associated)" : null}
+                {unavailable.includes(controlId) ? t("mappings.alreadyAssociated") : null}
                 {location(node) ? <span className="muted mapping-control-location">{location(node)}</span> : null}
               </span>
             </label>
@@ -163,10 +165,10 @@ export function MappingControlPicker({
           </li>;
         })}
       </ul>
-      {pageCount > 1 ? <nav className="pagination" aria-label={`${label} control results`}>
-        <button type="button" className="secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button>
-        <span>Page {currentPage + 1} of {pageCount}</span>
-        <button type="button" className="secondary" disabled={currentPage >= pageCount - 1} onClick={() => setPage(currentPage + 1)}>Next</button>
+      {pageCount > 1 ? <nav className="pagination" aria-label={t("mappings.controlResultsAria", { name: label })}>
+        <button type="button" className="secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>{t("mappings.previous")}</button>
+        <span>{t("mappings.page", { current: number(currentPage + 1), total: number(pageCount) })}</span>
+        <button type="button" className="secondary" disabled={currentPage >= pageCount - 1} onClick={() => setPage(currentPage + 1)}>{t("mappings.next")}</button>
       </nav> : null}
     </fieldset>
   );
@@ -180,6 +182,7 @@ export function MappingControlDetails({
   revisionId: string;
   controlId: string;
 }) {
+  const { t, errorMessage } = useI18n();
   const [control, setControl] = useState<ControlDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -200,7 +203,7 @@ export function MappingControlDetails({
     bffGet<ControlDetail>(path, undefined, controller.signal).then((result) => {
       if (!controller.signal.aborted) setControl(result);
     }).catch((cause: unknown) => {
-      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Unable to load this control definition.");
+      if (!controller.signal.aborted) setError(errorMessage(cause) || t("mappings.loadControlDefinitionError"));
     }).finally(() => {
       if (!controller.signal.aborted) {
         request.current = null;
@@ -210,9 +213,9 @@ export function MappingControlDetails({
   }
 
   return <details className="mapping-control-detail" onToggle={toggleDetails}>
-    <summary>View full control definition</summary>
-    {loading ? <p role="status">Loading control definition…</p> : null}
-    {error ? <p role="alert" className="alert">{error} Close and reopen this section to retry.</p> : null}
+    <summary>{t("mappings.viewControlDefinition")}</summary>
+    {loading ? <p role="status">{t("mappings.loadingControlDefinition")}</p> : null}
+    {error ? <p role="alert" className="alert">{error} {t("mappings.retryControlDefinition")}</p> : null}
     {control ? <ControlDetailView control={control} presentation="profile" /> : null}
   </details>;
 }

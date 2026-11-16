@@ -35,5 +35,10 @@ the local demo with `docker compose up` and open
 [http://localhost:3000](http://localhost:3000). The demo is for local use only:
 do not expose it publicly or use it with production data.
 
+Use the header language selector to switch between **English** (default) and
+**Deutsch**. The browser remembers your choice; both languages are included in
+the same image. Only the interface is translated, never imported OSCAL content
+or your authored descriptions.
+
 For setup, development, and technical details, see the
 [developer guide](docs/development.md).

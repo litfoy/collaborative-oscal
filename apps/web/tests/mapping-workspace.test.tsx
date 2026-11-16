@@ -151,12 +151,12 @@ describe("MappingWorkspace", () => {
     const section = screen.getByLabelText(/Catalog section · Source/);
     await user.selectOptions(section, "/catalog/groups/accounts");
     expect(screen.queryByRole("checkbox", { name: /AC-1 Access Control Policy/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/Selected source.*controls \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Selected source.*control \(1\)/)).toBeInTheDocument();
     await user.selectOptions(section, "");
     expect(await screen.findByRole("checkbox", { name: /AC-1 Access Control Policy/ })).toBeChecked();
     await user.type(sourceSearch, "unmatched term");
     expect(screen.queryByRole("checkbox", { name: /AC-1 Access Control Policy/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/Selected source.*controls \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Selected source.*control \(1\)/)).toBeInTheDocument();
     await user.clear(sourceSearch);
     expect(await screen.findByRole("checkbox", { name: /AC-1 Access Control Policy/ })).toBeChecked();
     await user.click(screen.getByRole("checkbox", { name: /AC-2 Account Management/ }));
@@ -166,7 +166,7 @@ describe("MappingWorkspace", () => {
     expect(addButton).toBeDisabled();
     await user.selectOptions(screen.getByLabelText("Relationship"), "subset-of");
     expect(addButton).toBeEnabled();
-    expect(screen.getByText("Source set is a subset of Target set")).toBeInTheDocument();
+    expect(screen.getByText("Source set is a subset of Target set (subset-of)")).toBeInTheDocument();
     await user.click(addButton);
     expect(screen.getByText("Source set (2)")).toBeInTheDocument();
     expect(screen.getByText("Target set (1)")).toBeInTheDocument();
@@ -176,7 +176,7 @@ describe("MappingWorkspace", () => {
     await user.selectOptions(screen.getByLabelText("Relationship"), "superset-of");
     await user.type(screen.getByLabelText("Justification"), "Updated comparison.");
     await user.click(screen.getByRole("button", { name: "Update mapping entry" }));
-    expect(screen.getByText("Source set is a superset of Target set")).toBeInTheDocument();
+    expect(screen.getByText("Source set is a superset of Target set (superset-of)")).toBeInTheDocument();
     expect(screen.getByText("Updated comparison.")).toBeInTheDocument();
   });
 

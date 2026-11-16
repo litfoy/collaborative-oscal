@@ -1,17 +1,20 @@
 import { parameterText, renderProse } from "@/lib/safe";
+import { useI18n } from "@/lib/i18n/provider";
+import type { Translate } from "@/lib/i18n";
 import { propertyLabel } from "@/lib/profile-browser";
 import type { ControlDetail, Link, Part, Property, RelatedMapping } from "@/lib/types";
 
 import { SafeLink } from "./SafeLink";
 
 function Props({ items, labels }: { items: Property[]; labels: ReadonlyMap<string, string> }) {
+  const { t } = useI18n();
   if (items.length === 0) return null;
   return (
     <table>
       <thead>
         <tr>
-          <th scope="col">Property</th>
-          <th scope="col">Value</th>
+          <th scope="col">{t("controls.property")}</th>
+          <th scope="col">{t("controls.value")}</th>
         </tr>
       </thead>
       <tbody>
@@ -21,8 +24,8 @@ function Props({ items, labels }: { items: Property[]; labels: ReadonlyMap<strin
             <td>
               <span className="prose">{renderProse(item.value, labels)}</span>
               {item.remarks ? <p className="prose">{renderProse(item.remarks, labels)}</p> : null}
-              {item.ns ? <div className="muted mono">Namespace: {item.ns}</div> : null}
-              {item.class ? <div className="muted">Class: {item.class}</div> : null}
+              {item.ns ? <div className="muted mono">{t("controls.namespace")}: {item.ns}</div> : null}
+              {item.class ? <div className="muted">{t("controls.class")}: {item.class}</div> : null}
             </td>
           </tr>
         ))}
@@ -68,12 +71,13 @@ function PartView({ part, labels, readable = false }: { part: Part; labels: Read
 }
 
 function References({ control, labels, anchorIds = true }: { control: ControlDetail; labels: ReadonlyMap<string, string>; anchorIds?: boolean }) {
+  const { t } = useI18n();
   if (control.links.length === 0 && control.references.length === 0) return null;
-  return <section aria-label="References">
-    <h2>References</h2>
+  return <section aria-label={t("controls.references")}>
+    <h2>{t("controls.references")}</h2>
     <Links items={control.links} labels={labels} />
     <ul>{control.references.map((reference) => <li key={reference.uuid} id={anchorIds ? reference.uuid : undefined}>
-      <strong>{renderProse(reference.title ?? "Untitled reference", labels)}</strong>
+      <strong>{renderProse(reference.title ?? t("controls.untitledReference"), labels)}</strong>
       {reference.citation ? <span> — {renderProse(reference.citation, labels)}</span> : null}
       {reference.description ? <p className="prose">{renderProse(reference.description, labels)}</p> : null}
       {reference.rlinks.map((rlink, index) => <div key={index}><SafeLink href={rlink.href}>{rlink.href}</SafeLink></div>)}
@@ -91,6 +95,7 @@ export function ControlDetailView({
   relatedError?: string | null;
   relatedLoading?: boolean;
 }) {
+  const { t, number, enumLabel } = useI18n();
   const labels = parameterText(control.parameters);
   const { source_catalog: catalog, source_revision: revision } = control;
   const location = control.ancestors.map((ancestor) => ancestor.oscal_id ?? ancestor.title);
@@ -108,34 +113,34 @@ export function ControlDetailView({
     const guidance = control.parts.filter((part) => part.name !== "statement");
     return <article className="panel control-detail readable-detail" aria-label={`${control.oscal_control_id} ${control.title}`}>
       <h2><span className="mono">{control.oscal_control_id}</span> {renderProse(control.title, labels)}</h2>
-      {statements.length > 0 ? <section aria-label="Requirement statement">
-        <h3>Requirement statement</h3>
+      {statements.length > 0 ? <section aria-label={t("controls.requirementStatement")}>
+        <h3>{t("controls.requirementStatement")}</h3>
         {statements.map((part, index) => <PartView key={index} part={part} labels={labels} readable />)}
       </section> : null}
       <dl className="meta-list">
         {["modal_verb", "sec_level", "target_object_categories"].map((name) => {
           const values = [...new Set(properties.filter((prop) => prop.name === name).map((prop) => prop.value))];
-          return values.length ? <div className="requirement-fact" key={name}><dt>{propertyLabel(name)}</dt><dd>{renderProse(values.join(", "), labels)}</dd></div> : null;
+          return values.length ? <div className="requirement-fact" key={name}><dt>{propertyLabel(name, t)}</dt><dd>{renderProse(values.join(", "), labels)}</dd></div> : null;
         })}
       </dl>
-      {guidance.length > 0 ? <section aria-label="Guidance and additional information">
-        <h3>Guidance and additional information</h3>
+      {guidance.length > 0 ? <section aria-label={t("controls.guidanceAdditionalInfo")}>
+        <h3>{t("controls.guidanceAdditionalInfo")}</h3>
         {guidance.map((part, index) => <PartView key={index} part={part} labels={labels} readable />)}
       </section> : null}
-      {control.parameters.length > 0 ? <section aria-label="Requirement parameters">
-        <h3>Requirement parameters</h3>
-        <p className="muted">Assigned values appear in the requirement text. Brackets indicate an unassigned or unavailable parameter.</p>
+      {control.parameters.length > 0 ? <section aria-label={t("controls.requirementParameters")}>
+        <h3>{t("controls.requirementParameters")}</h3>
+        <p className="muted">{t("controls.assignedValuesInfo")}</p>
         {control.parameters.map((parameter) => <div key={parameter.id}>
           <strong>{renderProse(parameter.label ?? parameter.id, labels)}</strong>
           {parameter.values.length > 0 ? <p className="prose">{renderProse(parameter.values.join(", "), labels)}</p> : null}
-          {parameter.select ? <p className="prose">{parameter.select.how_many ? `${parameter.select.how_many}: ` : ""}{renderProse(parameter.select.choices.join(" | "), labels)}</p> : null}
+          {parameter.select ? <p className="prose">{parameter.select.how_many ? `${enumLabel(parameter.select.how_many)}: ` : ""}{renderProse(parameter.select.choices.join(" | "), labels)}</p> : null}
           {parameter.usage ? <p className="prose">{renderProse(parameter.usage, labels)}</p> : null}
           {parameter.guidelines.map((text, index) => <p key={index} className="prose">{renderProse(text, labels)}</p>)}
         </div>)}
       </section> : null}
       <References control={control} labels={labels} />
       <details className="technical-details">
-        <summary>Technical OSCAL details</summary>
+        <summary>{t("controls.technicalOscalDetails")}</summary>
         <ControlDetailView control={control} presentation="technical" />
       </details>
     </article>;
@@ -148,21 +153,21 @@ export function ControlDetailView({
         <span>{renderProse(control.title, labels)}</span>
       </h1>
       <p className="source-banner">
-        Source: <strong>{catalog.name}</strong> · revision {revision.revision_number}{" "}
+        {t("controls.source")}: <strong>{catalog.name}</strong> · {t("controls.revisionLower", { name: number(revision.revision_number) })}{" "}
         <span className={revision.lifecycle_status === "published" ? "badge" : "badge badge-warn"}>
-          {revision.lifecycle_status}
+          {enumLabel(revision.lifecycle_status)}
         </span>{" "}
         · OSCAL {revision.oscal_version}
-        {catalog.origin_type === "imported" ? " · imported" : " · internally authored"}
+        {catalog.origin_type === "imported" ? ` · ${t("controls.imported")}` : ` · ${t("controls.internallyAuthored")}`}
       </p>
       {location.length > 0 ? (
         <p className="muted">
-          Location: {location.join(" › ")} › <span className="mono">{control.oscal_control_id}</span>
+          {t("controls.location")}: {location.join(" › ")} › <span className="mono">{control.oscal_control_id}</span>
         </p>
       ) : null}
       {control.parts.length > 0 ? (
         <section aria-labelledby="control-content">
-          <h2 id="control-content">Control content</h2>
+          <h2 id="control-content">{t("controls.content")}</h2>
           {control.parts.map((part, index) => (
             <PartView key={part.id ?? index} part={part} labels={labels} />
           ))}
@@ -171,13 +176,13 @@ export function ControlDetailView({
 
       {control.parameters.length > 0 ? (
         <section aria-labelledby="control-params">
-          <h2 id="control-params">Parameters</h2>
+          <h2 id="control-params">{t("controls.parameters")}</h2>
           <table>
             <thead>
               <tr>
-                <th scope="col">ID</th>
-                <th scope="col">Label</th>
-                <th scope="col">Value / choices</th>
+                <th scope="col">{t("controls.id")}</th>
+                <th scope="col">{t("controls.label")}</th>
+                <th scope="col">{t("controls.valueChoices")}</th>
               </tr>
             </thead>
             <tbody>
@@ -189,7 +194,7 @@ export function ControlDetailView({
                     {parameter.values.length > 0
                       ? renderProse(parameter.values.join(", "), labels)
                       : parameter.select
-                        ? `${parameter.select.how_many ?? "choose"}: ${renderProse(parameter.select.choices.join(" | "), labels)}`
+                        ? `${parameter.select.how_many ? enumLabel(parameter.select.how_many) : t("controls.choose")}: ${renderProse(parameter.select.choices.join(" | "), labels)}`
                         : renderProse(parameter.usage ?? "—", labels)}
                   </td>
                 </tr>
@@ -198,9 +203,9 @@ export function ControlDetailView({
           </table>
           {control.parameters.map((parameter) => (
             <details key={parameter.id}>
-              <summary>Parameter details: {parameter.id}</summary>
+              <summary>{t("controls.parameterDetails", { name: parameter.id })}</summary>
               {parameter.usage ? <p className="prose">{renderProse(parameter.usage, labels)}</p> : null}
-              {parameter.depends_on ? <p>Depends on: {parameter.depends_on}</p> : null}
+              {parameter.depends_on ? <p>{t("controls.dependsOn")}: {parameter.depends_on}</p> : null}
               <Props items={parameter.props} labels={labels} />
               {parameter.constraints.map((constraint, index) => <div key={index}>
                 {constraint.description ? <p className="prose">{renderProse(constraint.description, labels)}</p> : null}
@@ -210,13 +215,13 @@ export function ControlDetailView({
               <Links items={parameter.links} labels={labels} />
             </details>
           ))}
-          <p className="muted">Assigned parameter values are shown in the text. Unassigned parameters remain in brackets; original insertion syntax is preserved in the source OSCAL JSON.</p>
+          <p className="muted">{t("controls.assignedValuesShown")}</p>
         </section>
       ) : null}
 
       {control.properties.length > 0 ? (
         <section aria-labelledby="control-props">
-          <h2 id="control-props">Properties</h2>
+          <h2 id="control-props">{t("controls.properties")}</h2>
           <Props items={control.properties} labels={labels} />
         </section>
       ) : null}
@@ -227,35 +232,34 @@ export function ControlDetailView({
         loading={relatedLoading ?? false} /> : null}
 
       <section aria-labelledby="control-source">
-        <h2 id="control-source">Source identity</h2>
+        <h2 id="control-source">{t("controls.sourceIdentity")}</h2>
         <dl className="meta-list">
-          <dt>Catalog</dt>
+          <dt>{t("controls.catalog")}</dt>
           <dd>
             {catalog.name}
             {catalog.source_organization ? ` (${catalog.source_organization})` : ""}
           </dd>
-          <dt>Catalog ID</dt>
+          <dt>{t("controls.catalogId")}</dt>
           <dd className="mono">{control.reference.catalog_id}</dd>
-          <dt>Revision ID</dt>
+          <dt>{t("controls.revisionId")}</dt>
           <dd className="mono">{control.reference.revision_id}</dd>
-          <dt>Control ID</dt>
+          <dt>{t("controls.controlId")}</dt>
           <dd className="mono">{control.reference.oscal_control_id}</dd>
-          <dt>OSCAL document</dt>
+          <dt>{t("controls.oscalDocument")}</dt>
           <dd className="mono">{control.oscal_document_uuid}</dd>
           {catalog.license_identifier ? (
             <>
-              <dt>License</dt>
+              <dt>{t("controls.license")}</dt>
               <dd>{catalog.license_identifier}</dd>
             </>
           ) : null}
         </dl>
         <p className="muted">
-          Source catalogs may carry their own licence terms; availability here does not imply public
-          redistribution rights.
+          {t("controls.licenseNotice")}
         </p>
       </section>
       {control.raw_control ? <details>
-        <summary>Advanced technical view: source OSCAL JSON</summary>
+        <summary>{t("controls.advancedTechnicalView")}</summary>
         <pre className="raw-oscal">{JSON.stringify(control.raw_control, null, 2)}</pre>
       </details> : null}
     </article>
@@ -271,31 +275,35 @@ function RelatedMappingsSection({
   error: string | null;
   loading: boolean;
 }) {
+  const { t, number, enumLabel } = useI18n();
   return <section aria-labelledby="related-controls-title">
-    <h2 id="related-controls-title">Related controls</h2>
+    <h2 id="related-controls-title">{t("controls.relatedRequirements")}</h2>
     {error ? <p role="alert" className="alert">{error}</p> : null}
-    {!error && loading ? <p role="status">Loading related mappings…</p> : null}
-    {!error && !loading && mappings.length === 0 ? <p className="muted">No explicit Control Mapping relationships are defined for this catalog revision.</p> : null}
+    {!error && loading ? <p role="status">{t("controls.loadingRelatedMappings")}</p> : null}
+    {!error && !loading && mappings.length === 0 ? <p className="muted">{t("controls.noMappings")}</p> : null}
     {mappings.map((mapping) => {
       const selectedSet = mapping.matched_side === "source" ? mapping.sources : mapping.targets;
       const relatedSet = mapping.matched_side === "source" ? mapping.targets : mapping.sources;
       return <article className="related-mapping" key={`${mapping.collection_id}:${mapping.entry_uuid}`}>
         <h3>{mapping.relationship}</h3>
         <p>
-          Viewed from the {mapping.matched_side}, this control participates in a mapping between
-          the selected {mappingSetLabel(selectedSet.length)} and related {mappingSetLabel(relatedSet.length)}.
+          {t("controls.viewedFrom", {
+            side: t(mapping.matched_side === "source" ? "controls.sourceSide" : "controls.targetSide"),
+            selected: mappingSetLabel(selectedSet.length, t, number),
+            related: mappingSetLabel(relatedSet.length, t, number),
+          })}
         </p>
         {selectedSet.length > 1 || relatedSet.length > 1
-          ? <p className="muted">This is a relationship between sets, not separate pairwise assertions.</p> : null}
+          ? <p className="muted">{t("controls.relationshipBetweenSets")}</p> : null}
         <dl className="meta-list">
-          <dt>Matching rationale</dt><dd>{mapping.matching_rationale}</dd>
-          <dt>Mapping collection</dt>
+          <dt>{t("controls.matchingRationale")}</dt><dd>{mapping.matching_rationale}</dd>
+          <dt>{t("controls.mappingCollection")}</dt>
           <dd><a href={`/t/${tenantId}/mappings/${mapping.collection_id}`}>{mapping.collection_title}</a></dd>
         </dl>
-        <h4>Related set</h4>
+        <h4>{t("controls.relatedSet")}</h4>
         <ul>{relatedSet.map((related) => <li key={`${related.catalog_id}:${related.revision_id}:${related.control_id}`}>
           <a href={`/t/${tenantId}/catalogs/${related.catalog_id}?${new URLSearchParams({ revision: related.revision_id, control: related.control_id })}`}>
-            {related.catalog_name} · revision {related.revision_number} · <span className="mono">{related.control_id}</span> — {related.title}
+            {related.catalog_name} · {t("controls.revisionLower", { name: number(related.revision_number) })} · <span className="mono">{related.control_id}</span> — {related.title}
           </a>
         </li>)}</ul>
       </article>;
@@ -303,6 +311,6 @@ function RelatedMappingsSection({
   </section>;
 }
 
-function mappingSetLabel(count: number): string {
-  return count === 1 ? "control" : `set of ${count} controls`;
+function mappingSetLabel(count: number, t: Translate, number: (value: number) => string): string {
+  return count === 1 ? t("controls.oneRequirement") : t("controls.requirementSet", { name: number(count) });
 }

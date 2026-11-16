@@ -4,6 +4,8 @@ import { getCatalog, getControl, getOutline, getRevision, listRevisions } from "
 import { ApiError } from "@/lib/errors";
 import { classifyHref, isOscalId, isUuid } from "@/lib/safe";
 import type { ControlDetail } from "@/lib/types";
+import type { Translate } from "@/lib/i18n";
+import { getI18n } from "@/lib/i18n/server";
 
 export default async function CatalogPage({
   params,
@@ -12,6 +14,7 @@ export default async function CatalogPage({
   params: Promise<{ tenantId: string; catalogId: string }>;
   searchParams: Promise<{ revision?: string; control?: string }>;
 }) {
+  const { t, number, date, enumLabel } = await getI18n();
   const { tenantId, catalogId } = await params;
   const { revision: revisionParam, control: controlParam } = await searchParams;
   const here = `/t/${tenantId}/catalogs/${catalogId}`;
@@ -21,9 +24,9 @@ export default async function CatalogPage({
   if (!selected || !revision || !root) {
     return (
       <>
-        <Breadcrumbs tenantId={tenantId} name={catalog.name} />
+        <Breadcrumbs tenantId={tenantId} name={catalog.name} t={t} />
         <h1>{catalog.name}</h1>
-        <div className="empty">This catalog has no revisions yet.</div>
+        <div className="empty">{t("catalogPage.noRevisions")}</div>
       </>
     );
   }
@@ -31,21 +34,21 @@ export default async function CatalogPage({
 
   return (
     <>
-      <Breadcrumbs tenantId={tenantId} name={catalog.name} />
+      <Breadcrumbs tenantId={tenantId} name={catalog.name} t={t} />
       <h1>{catalog.name}</h1>
       <p>
         <span className="badge">
-          {catalog.origin_type === "imported" ? "Imported" : "Internally authored"}
+          {t(catalog.origin_type === "imported" ? "catalogPage.imported" : "catalogPage.custom")}
         </span>
       </p>
       {catalog.description ? <p>{catalog.description}</p> : null}
 
       <section className="panel" aria-labelledby="catalog-source">
-        <h2 id="catalog-source">Source and revision</h2>
+        <h2 id="catalog-source">{t("catalogPage.sourceRevision")}</h2>
         <dl className="meta-list">
-          <dt>Publisher</dt>
-          <dd>{catalog.source_organization ?? "Not recorded"}</dd>
-          <dt>Source</dt>
+          <dt>{t("catalogPage.publisher")}</dt>
+          <dd>{catalog.source_organization ?? t("common.notRecorded")}</dd>
+          <dt>{t("catalogPage.source")}</dt>
           <dd>
             {catalog.source_uri
               ? source?.kind === "external"
@@ -55,65 +58,68 @@ export default async function CatalogPage({
                     </a>
                   )
                 : catalog.source_uri
-              : "Not recorded"}
+              : t("common.notRecorded")}
           </dd>
-          <dt>Licence</dt>
-          <dd>{catalog.license_identifier ?? "Not recorded"}</dd>
-          <dt>Selected revision</dt>
+          <dt>{t("catalogPage.licence")}</dt>
+          <dd>{catalog.license_identifier ?? t("common.notRecorded")}</dd>
+          <dt>{t("catalogPage.selectedRevision")}</dt>
           <dd>
-            Revision {revision.revision_number} · {revision.lifecycle_status}
-            {revision.source_version ? ` · version ${revision.source_version}` : ""}
+            {t("common.revisionNumber", { number: number(revision.revision_number) })} · {enumLabel(revision.lifecycle_status)}
+            {revision.source_version ? t("common.versionSuffix", { version: revision.source_version }) : ""}
           </dd>
-          <dt>OSCAL version</dt>
+          <dt>{t("common.oscalVersion")}</dt>
           <dd>{revision.oscal_version}</dd>
-          <dt>Contents</dt>
+          <dt>{t("catalogPage.contents")}</dt>
           <dd>
-            {revision.control_count} controls in {revision.group_count} groups
+            {t("catalogPage.contentsCount", {
+              controls: t(revision.control_count === 1 ? "catalogPage.controlOne" : "catalogPage.controlOther", { count: number(revision.control_count) }),
+              groups: t(revision.group_count === 1 ? "catalogPage.groupOne" : "catalogPage.groupOther", { count: number(revision.group_count) }),
+            })}
           </dd>
         </dl>
 
         <form method="get" className="search-form">
           <div className="field">
-            <label htmlFor="revision-select">Revision</label>
+            <label htmlFor="revision-select">{t("common.revision")}</label>
             <select id="revision-select" name="revision" defaultValue={selected.id}>
               {!revisions.items.some((item) => item.id === selected.id) ? (
-                <option value={selected.id}>Revision {selected.revision_number} — {selected.lifecycle_status}</option>
+                <option value={selected.id}>{t("common.revisionNumber", { number: number(selected.revision_number) })} — {enumLabel(selected.lifecycle_status)}</option>
               ) : null}
               {revisions.items.map((item) => (
                 <option key={item.id} value={item.id}>
-                  Revision {item.revision_number}
-                  {item.source_version ? ` (v${item.source_version})` : ""} — {item.lifecycle_status}
+                  {t("common.revisionNumber", { number: number(item.revision_number) })}
+                  {item.source_version ? ` (v${item.source_version})` : ""} — {enumLabel(item.lifecycle_status)}
                 </option>
               ))}
             </select>
           </div>
           <button type="submit" className="secondary">
-            View revision
+            {t("catalogPage.viewRevision")}
           </button>
         </form>
 
         <details>
-          <summary>Revision history ({revisions.total})</summary>
+          <summary>{t("catalogPage.history", { count: number(revisions.total) })}</summary>
           <table>
             <thead>
               <tr>
-                <th scope="col">Revision</th>
-                <th scope="col">Status</th>
-                <th scope="col">Version</th>
-                <th scope="col">Controls</th>
-                <th scope="col">Imported</th>
+                <th scope="col">{t("common.revision")}</th>
+                <th scope="col">{t("common.status")}</th>
+                <th scope="col">{t("common.version")}</th>
+                <th scope="col">{t("catalogPage.controls")}</th>
+                <th scope="col">{t("catalogPage.imported")}</th>
               </tr>
             </thead>
             <tbody>
               {revisions.items.map((item) => (
                 <tr key={item.id}>
                   <td>
-                    <a href={`${here}?revision=${item.id}`}>{item.revision_number}</a>
+                    <a href={`${here}?revision=${item.id}`}>{number(item.revision_number)}</a>
                   </td>
-                  <td>{item.lifecycle_status}</td>
+                  <td>{enumLabel(item.lifecycle_status)}</td>
                   <td>{item.source_version ?? "—"}</td>
-                  <td>{item.control_count}</td>
-                  <td>{new Date(item.created_at).toISOString().slice(0, 10)}</td>
+                  <td>{number(item.control_count)}</td>
+                  <td><time dateTime={item.created_at}>{date(item.created_at)}</time></td>
                 </tr>
               ))}
             </tbody>
@@ -121,7 +127,7 @@ export default async function CatalogPage({
         </details>
       </section>
 
-      <h2>Controls</h2>
+      <h2>{t("catalogPage.controls")}</h2>
       <ControlBrowser
         key={selected.id}
         tenantId={tenantId}
@@ -181,10 +187,10 @@ async function load(
 }
 
 
-function Breadcrumbs({ tenantId, name }: { tenantId: string; name: string }) {
+function Breadcrumbs({ tenantId, name, t }: { tenantId: string; name: string; t: Translate }) {
   return (
-    <nav className="breadcrumbs" aria-label="Breadcrumb">
-      <a href={`/t/${tenantId}/catalogs`}>Catalogs</a> › <span aria-current="page">{name}</span>
+    <nav className="breadcrumbs" aria-label={t("common.breadcrumb")}>
+      <a href={`/t/${tenantId}/catalogs`}>{t("nav.catalogs")}</a> › <span aria-current="page">{name}</span>
     </nav>
   );
 }

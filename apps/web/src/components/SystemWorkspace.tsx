@@ -2,6 +2,8 @@
 
 import { useState, type FormEvent } from "react";
 
+import { useI18n } from "@/lib/i18n/provider";
+import type { Translate } from "@/lib/i18n";
 import type {
   Catalog,
   ComponentDefinition,
@@ -40,6 +42,7 @@ export function SystemWorkspace({
   definitions: ComponentDefinition[];
   canWrite: boolean;
 }) {
+  const { t, number, enumLabel, errorMessage } = useI18n();
   const [system, setSystem] = useState(initialSystem);
   const [components, setComponents] = useState(initialComponents);
   const [plans, setPlans] = useState(initialPlans);
@@ -80,11 +83,13 @@ export function SystemWorkspace({
           status_remarks: system.status_remarks,
           security_sensitivity_level: system.security_sensitivity_level,
         },
+        t,
+        errorMessage,
       );
       setSystem(result);
       setSystemIds(result.system_ids);
       setInformationTypes(result.information_types);
-      return "System characteristics saved.";
+      return t("systems.characteristicsSaved");
     });
   }
 
@@ -118,6 +123,8 @@ export function SystemWorkspace({
                 component_type: componentType,
                 is_system_component: componentType === "this-system",
               },
+        t,
+        errorMessage,
       );
       setComponents((current) =>
         editingComponent
@@ -126,7 +133,7 @@ export function SystemWorkspace({
       );
       resetComponentForm();
       setComponentForm(false);
-      return editingComponent ? "System component updated." : "System component added.";
+      return editingComponent ? t("systems.systemComponentUpdated") : t("systems.systemComponentAdded");
     });
   }
 
@@ -139,12 +146,14 @@ export function SystemWorkspace({
         `/bff/tenants/${tenantId}/systems/${system.id}/system-security-plans`,
         "POST",
         { catalog_id, revision_id, title: planTitle, control_implementation_description: controlDescription || null },
+        t,
+        errorMessage,
       );
       setPlans((current) => [...current, result]);
       setPlanTitle("");
       setControlDescription("");
       setPlanForm(false);
-      return "SSP draft created with the selected pinned Catalog revision.";
+      return t("systems.sspDraftCreated");
     });
   }
 
@@ -155,7 +164,7 @@ export function SystemWorkspace({
     try {
       setNotice(await action());
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The request could not be completed.");
+      setError(reason instanceof Error ? errorMessage(reason) : t("systems.requestFailed"));
     } finally {
       setBusy(false);
     }
@@ -187,7 +196,7 @@ export function SystemWorkspace({
   function openComponentForm(mode: "new" | "adopt" | SystemComponent) {
     const same = mode === "new" ? !editingComponent && !adopting : mode === "adopt" ? adopting : editingComponent === mode.id;
     const hasDraft = !!(title || description || purpose || componentStatus || componentRemarks || sourceSelection);
-    if (!same && hasDraft && !window.confirm("Discard the current component draft?")) return;
+    if (!same && hasDraft && !window.confirm(t("systems.discardComponentDraftConfirm"))) return;
     if (!same) {
       resetComponentForm();
       if (mode === "adopt") setAdopting(true);
@@ -211,25 +220,24 @@ export function SystemWorkspace({
 
   return (
     <div className="workspace system-workspace">
-      <a href={`/t/${tenantId}/systems`}>← Systems</a>
+      <a href={`/t/${tenantId}/systems`}>{t("systems.backToSystems")}</a>
       <h1>{system.name}</h1>
       <p className="muted">
-        System facts and components are shared across its SSPs. Each SSP pins one Catalog
-        revision and has an independent set of explicit implementation contributions.
+        {t("systems.sharedSystemFacts")}
       </p>
       {error ? <p role="alert">{error}</p> : null}
       {notice ? <p role="status">{notice}</p> : null}
-      <nav className="workspace-tabs" aria-label="System sections">
-        {([["overview", "Overview"], ["components", "Components"], ["plans", "Security plans"]] as const).map(([id, label]) => (
+      <nav className="workspace-tabs" aria-label={t("systems.systemSections")}>
+        {([["overview", t("systems.overview")], ["components", t("systems.components")], ["plans", t("systems.securityPlans")]] as const).map(([id, label]) => (
           <button type="button" key={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>{label}</button>
         ))}
       </nav>
 
       <section className="panel" hidden={tab !== "overview"}>
-        <h2>System characteristics</h2>
+        <h2>{t("systems.systemCharacteristics")}</h2>
         <form className="stack" onSubmit={saveSystem}>
           <label className="field">
-            System name
+            {t("systems.systemName")}
             <input
               value={system.name}
               maxLength={255}
@@ -238,7 +246,7 @@ export function SystemWorkspace({
             />
           </label>
           <label className="field">
-            System description
+            {t("systems.systemDescription")}
             <textarea
               value={system.description ?? ""}
               onChange={(event) => setSystem({ ...system, description: event.target.value || null })}
@@ -246,7 +254,7 @@ export function SystemWorkspace({
             />
           </label>
           <label className="field">
-            Authorization boundary description
+            {t("systems.authorizationBoundaryDescription")}
             <textarea
               value={system.system_boundary ?? ""}
               onChange={(event) => setSystem({ ...system, system_boundary: event.target.value || null })}
@@ -254,45 +262,45 @@ export function SystemWorkspace({
             />
           </label>
           <fieldset className="repeatable-fields">
-            <legend>System identifiers</legend>
+            <legend>{t("systems.systemIdentifiers")}</legend>
             {systemIds.map((item, index) => (
               <div className="repeatable-row" key={index}>
-                <label className="field">Identifier<input required value={item.id} disabled={!canWrite || busy} onChange={(event) => setSystemIds(systemIds.map((row, i) => i === index ? { ...row, id: event.target.value } : row))} /></label>
-                <label className="field">Identifier type (optional)<input value={item["identifier-type"] ?? ""} disabled={!canWrite || busy} onChange={(event) => setSystemIds(systemIds.map((row, i) => i === index ? { ...row, "identifier-type": event.target.value } : row))} /></label>
-                {canWrite ? <button type="button" className="secondary" onClick={() => setSystemIds(systemIds.filter((_, i) => i !== index))}>Remove identifier</button> : null}
+                <label className="field">{t("systems.identifier")}<input required value={item.id} disabled={!canWrite || busy} onChange={(event) => setSystemIds(systemIds.map((row, i) => i === index ? { ...row, id: event.target.value } : row))} /></label>
+                <label className="field">{t("systems.identifierTypeOptional")}<input value={item["identifier-type"] ?? ""} disabled={!canWrite || busy} onChange={(event) => setSystemIds(systemIds.map((row, i) => i === index ? { ...row, "identifier-type": event.target.value } : row))} /></label>
+                {canWrite ? <button type="button" className="secondary" onClick={() => setSystemIds(systemIds.filter((_, i) => i !== index))}>{t("systems.removeIdentifier")}</button> : null}
               </div>
             ))}
-            {canWrite ? <button type="button" className="secondary" onClick={() => setSystemIds([...systemIds, { id: "" }])}>Add identifier</button> : null}
+            {canWrite ? <button type="button" className="secondary" onClick={() => setSystemIds([...systemIds, { id: "" }])}>{t("systems.addIdentifier")}</button> : null}
           </fieldset>
           <fieldset className="repeatable-fields">
-            <legend>Information types</legend>
+            <legend>{t("systems.informationTypes")}</legend>
             {informationTypes.map((item, index) => (
               <div className="repeatable-row" key={index}>
-                <label className="field">Title<input required value={item.title} disabled={!canWrite || busy} onChange={(event) => setInformationTypes(informationTypes.map((row, i) => i === index ? { ...row, title: event.target.value } : row))} /></label>
-                <label className="field">Description<textarea required value={item.description} disabled={!canWrite || busy} onChange={(event) => setInformationTypes(informationTypes.map((row, i) => i === index ? { ...row, description: event.target.value } : row))} /></label>
-                {canWrite ? <button type="button" className="secondary" onClick={() => setInformationTypes(informationTypes.filter((_, i) => i !== index))}>Remove information type</button> : null}
+                <label className="field">{t("systems.title")}<input required value={item.title} disabled={!canWrite || busy} onChange={(event) => setInformationTypes(informationTypes.map((row, i) => i === index ? { ...row, title: event.target.value } : row))} /></label>
+                <label className="field">{t("systems.description")}<textarea required value={item.description} disabled={!canWrite || busy} onChange={(event) => setInformationTypes(informationTypes.map((row, i) => i === index ? { ...row, description: event.target.value } : row))} /></label>
+                {canWrite ? <button type="button" className="secondary" onClick={() => setInformationTypes(informationTypes.filter((_, i) => i !== index))}>{t("systems.removeInformationType")}</button> : null}
               </div>
             ))}
-            {canWrite ? <button type="button" className="secondary" onClick={() => setInformationTypes([...informationTypes, { title: "", description: "" }])}>Add information type</button> : null}
+            {canWrite ? <button type="button" className="secondary" onClick={() => setInformationTypes([...informationTypes, { title: "", description: "" }])}>{t("systems.addInformationType")}</button> : null}
           </fieldset>
           <label className="field">
-            OSCAL System operational status
+            {t("systems.oscalOperationalStatus")}
             <select
               value={system.operational_status ?? ""}
               onChange={(event) => setSystem({ ...system, operational_status: event.target.value || null })}
               disabled={!canWrite || busy}
             >
-              <option value="">Not set</option>
-              <option value="operational">Operational</option>
-              <option value="under-development">Under development</option>
-              <option value="under-major-modification">Under major modification</option>
-              <option value="disposition">Disposition</option>
-              <option value="other">Other</option>
+              <option value="">{t("systems.notSet")}</option>
+              <option value="operational">{enumLabel("operational")}</option>
+              <option value="under-development">{enumLabel("under-development")}</option>
+              <option value="under-major-modification">{enumLabel("under-major-modification")}</option>
+              <option value="disposition">{enumLabel("disposition")}</option>
+              <option value="other">{enumLabel("other")}</option>
             </select>
           </label>
           {system.operational_status === "other" ? (
             <label className="field">
-              Explain the “other” status
+              {t("systems.explainOtherStatus")}
               <textarea
                 value={system.status_remarks ?? ""}
                 onChange={(event) => setSystem({ ...system, status_remarks: event.target.value || null })}
@@ -301,40 +309,37 @@ export function SystemWorkspace({
             </label>
           ) : null}
           <label className="field">
-            Security sensitivity level (only if explicitly determined)
+            {t("systems.securitySensitivityLevel")}
             <input
               value={system.security_sensitivity_level ?? ""}
               onChange={(event) => setSystem({ ...system, security_sensitivity_level: event.target.value || null })}
               disabled={!canWrite || busy}
             />
           </label>
-          {canWrite ? <button disabled={busy}>Save System characteristics</button> : null}
+          {canWrite ? <button disabled={busy}>{t("systems.saveSystemCharacteristics")}</button> : null}
         </form>
       </section>
 
       <section className="panel" hidden={tab !== "components"}>
-        <h2>Concrete System components</h2>
-        <p className="muted">
-          Components describe actual deployed components. Adopting reusable guidance
-          does not assert deployment or control coverage.
-        </p>
+        <h2>{t("systems.concreteSystemComponents")}</h2>
+        <p className="muted">{t("systems.actualComponentsGuidance")}</p>
         {canWrite ? <div className="workspace-actions">
-          <button type="button" onClick={() => openComponentForm("new")}>Add component</button>
-          <button type="button" className="secondary" disabled={!definitions.some((item) => item.components.length)} onClick={() => openComponentForm("adopt")}>Adopt reusable measure</button>
+          <button type="button" onClick={() => openComponentForm("new")}>{t("systems.addComponent")}</button>
+          <button type="button" className="secondary" disabled={!definitions.some((item) => item.components.length)} onClick={() => openComponentForm("adopt")}>{t("systems.adoptReusableMeasure")}</button>
         </div> : null}
         {components.length ? (
           <ul className="profile-list">
             {components.map((item) => (
               <li key={item.id}>
                 <strong>{item.component.title}</strong>
-                {item.is_system_component ? <span> · this-system</span> : null}
+                {item.is_system_component ? <span> · {t("systems.thisSystem")}</span> : null}
                 <p>{item.component.description}</p>
                 <p className="muted">
-                  {item.component.type} · {item.component.status.state}
-                  {item.source_snapshot_id ? " · adopted immutable Component Definition snapshot" : ""}
+                  {item.component.type === "process-procedure" ? t("systems.processProcedure") : enumLabel(item.component.type)} · {enumLabel(item.component.status.state)}
+                  {item.source_snapshot_id ? ` · ${t("systems.adoptedImmutableSnapshot")}` : ""}
                 </p>
                 {item.source_snapshot_id && item.source_component_uuid ? (
-                  <a href={`/bff/tenants/${tenantId}/component-definition-snapshots/${item.source_snapshot_id}/components/${item.source_component_uuid}/export`}>View source snapshot</a>
+                  <a href={`/bff/tenants/${tenantId}/component-definition-snapshots/${item.source_snapshot_id}/components/${item.source_component_uuid}/export`}>{t("systems.viewSourceSnapshot")}</a>
                 ) : null}
                 {canWrite ? (
                   <button
@@ -342,41 +347,41 @@ export function SystemWorkspace({
                     type="button"
                     onClick={() => openComponentForm(item)}
                   >
-                    Edit component
+                    {t("systems.editComponent")}
                   </button>
                 ) : null}
               </li>
             ))}
           </ul>
-        ) : <p className="muted">No concrete components have been recorded.</p>}
+        ) : <p className="muted">{t("systems.noConcreteComponents")}</p>}
         {canWrite && componentForm ? (
           <form className="stack" onSubmit={saveComponent}>
-            <h3>{editingComponent ? "Edit component" : adopting ? "Adopt a reusable component" : "Add a concrete component"}</h3>
+            <h3>{editingComponent ? t("systems.editComponent") : adopting ? t("systems.adoptReusableComponent") : t("systems.addConcreteComponent")}</h3>
             {!editingComponent && !adopting ? (
               <label className="field">
-                Component type
+                {t("systems.componentType")}
                 <select value={componentType} onChange={(event) => setComponentType(event.target.value)}>
-                  <option value="service">Service</option>
-                  <option value="software">Software</option>
-                  <option value="hardware">Hardware</option>
-                  <option value="system">System</option>
-                  <option value="interconnection">Interconnection</option>
-                  <option value="policy">Policy</option>
-                  <option value="physical">Physical</option>
-                  <option value="process-procedure">Process / procedure</option>
-                  <option value="this-system">This system (system-wide contributions)</option>
+                  <option value="service">{enumLabel("service")}</option>
+                  <option value="software">{enumLabel("software")}</option>
+                  <option value="hardware">{enumLabel("hardware")}</option>
+                  <option value="system">{enumLabel("system")}</option>
+                  <option value="interconnection">{enumLabel("interconnection")}</option>
+                  <option value="policy">{enumLabel("policy")}</option>
+                  <option value="physical">{enumLabel("physical")}</option>
+                  <option value="process-procedure">{t("systems.processProcedure")}</option>
+                  <option value="this-system">{t("systems.thisSystemContributions")}</option>
                 </select>
               </label>
             ) : null}
             {adopting ? (
               <label className="field">
-                Reusable Component Definition component
+                {t("systems.reusableDefinitionComponent")}
                 <select
                   required
                   value={sourceSelection}
                   onChange={(event) => chooseReusableComponent(event.target.value)}
                 >
-                  <option value="">Select a source component</option>
+                  <option value="">{t("systems.selectSourceComponent")}</option>
                   {definitions.flatMap((definition) =>
                     definition.components.map((source) => (
                       <option key={`${definition.id}|${source.id}`} value={`${definition.id}|${source.id}`}>
@@ -389,106 +394,102 @@ export function SystemWorkspace({
             ) : null}
             {selectedDefinition && adopting ? (
               <p className="muted">
-                Source snapshot: {selectedDefinition.title}. The
-                full source document is retained immutably.
+                {t("systems.sourceSnapshot", { name: selectedDefinition.title })}
               </p>
             ) : null}
             <label className="field">
-              Component title
+              {t("systems.componentTitle")}
               <input required value={title} onChange={(event) => setTitle(event.target.value)} />
             </label>
             <label className="field">
-              Actual deployment description
+              {t("systems.actualDeploymentDescription")}
               <textarea required value={description} onChange={(event) => setDescription(event.target.value)} />
             </label>
             <label className="field">
-              Purpose (optional)
+              {t("systems.purposeOptional")}
               <input value={purpose} onChange={(event) => setPurpose(event.target.value)} />
             </label>
             <label className="field">
-              Component operational status
+              {t("systems.componentOperationalStatus")}
               <select required value={componentStatus} onChange={(event) => setComponentStatus(event.target.value)}>
-                <option value="">Select a status</option>
-                <option value="operational">Operational</option>
-                <option value="under-development">Under development</option>
-                <option value="disposition">Disposition</option>
-                <option value="other">Other</option>
+                <option value="">{t("systems.selectStatus")}</option>
+                <option value="operational">{enumLabel("operational")}</option>
+                <option value="under-development">{enumLabel("under-development")}</option>
+                <option value="disposition">{enumLabel("disposition")}</option>
+                <option value="other">{enumLabel("other")}</option>
               </select>
             </label>
             {componentStatus === "other" ? (
               <label className="field">
-                Explain the “other” status
+                {t("systems.explainOtherStatus")}
                 <textarea value={componentRemarks} onChange={(event) => setComponentRemarks(event.target.value)} />
               </label>
             ) : null}
             <div className="workspace-actions">
               <button disabled={busy || (adopting && !sourceSelection)}>
-                {busy ? "Saving…" : editingComponent ? "Save component" : adopting ? "Adopt component" : "Add component"}
+                {busy ? t("systems.saving") : editingComponent ? t("systems.saveComponent") : adopting ? t("systems.adoptComponent") : t("systems.addComponent")}
               </button>
-              <button className="secondary" type="button" onClick={() => setComponentForm(false)}>Close</button>
-              <button className="secondary" type="button" onClick={() => { resetComponentForm(); setComponentForm(false); }}>Discard draft</button>
+              <button className="secondary" type="button" onClick={() => setComponentForm(false)}>{t("systems.close")}</button>
+              <button className="secondary" type="button" onClick={() => { resetComponentForm(); setComponentForm(false); }}>{t("systems.discardDraft")}</button>
             </div>
           </form>
         ) : null}
       </section>
 
       <section className="panel" hidden={tab !== "plans"}>
-        <h2>Security plans</h2>
-        <p className="muted">
-          A baseline is the complete selected Catalog revision. Documented requirements
-          below are a subset, not a reduced baseline or compliance score.
-        </p>
-        {canWrite ? <button type="button" onClick={() => setPlanForm(true)}>New SSP</button> : null}
+        <h2>{t("systems.securityPlans")}</h2>
+        <p className="muted">{t("systems.baselineExplanation")}</p>
+        {canWrite ? <button type="button" onClick={() => setPlanForm(true)}>{t("systems.newSsp")}</button> : null}
         {plans.length ? (
           <ul className="profile-list">
             {plans.map((plan) => (
               <li key={plan.id}>
                 <h3>{plan.title}</h3>
                 <p>
-                  {plan.catalog_name} · pinned revision {planRevisions[plan.id]?.revision_number ?? revisions.find((item) => item.revision.id === plan.revision_id)?.revision.revision_number}
+                  {plan.catalog_name} · {t("systems.pinnedRevision", { revision: number(planRevisions[plan.id]?.revision_number ?? revisions.find((item) => item.revision.id === plan.revision_id)?.revision.revision_number ?? 0) })}
                 </p>
-                <p className="muted">{initialVersions[plan.id]?.length ?? 0} immutable versions{initialVersions[plan.id]?.length ? ` · ${initialVersions[plan.id].map((version) => version.document_version).join(", ")}` : ""}</p>
+                <p className="muted">{t("systems.immutableVersions", { count: number(initialVersions[plan.id]?.length ?? 0) })}{initialVersions[plan.id]?.length ? ` · ${initialVersions[plan.id].map((version) => version.document_version).join(", ")}` : ""}</p>
                 <p className="muted">
-                  {plan.documented_control_count} explicitly documented controls of {plan.baseline_control_count} in the baseline
+                  {t("systems.documentedControls", { documented: number(plan.documented_control_count), baseline: number(plan.baseline_control_count) })}
                 </p>
                 <a className="button" href={`/t/${tenantId}/systems/${system.id}/system-security-plans/${plan.id}`}>
-                  Open SSP working state
+                  {t("systems.openSspWorkingState")}
                 </a>
               </li>
             ))}
           </ul>
-        ) : <p className="muted">No SSP drafts exist for this System.</p>}
+        ) : <p className="muted">{t("systems.noSspDrafts")}</p>}
         {canWrite && planForm ? (
           <form className="stack" onSubmit={createPlan}>
-            <h3>Create SSP draft</h3>
+            <h3>{t("systems.createSspDraft")}</h3>
             <label className="field">
-              Pinned Catalog revision
+              {t("systems.pinnedCatalogRevision")}
               <select required value={baseline} onChange={(event) => setBaseline(event.target.value)}>
-                <option value="">Select a Catalog revision</option>
+                <option value="">{t("systems.selectCatalogRevision")}</option>
                 {availableRevisions.map(({ catalog, revision }) => (
                   <option key={`${catalog.id}|${revision.id}`} value={`${catalog.id}|${revision.id}`}>
-                    {catalog.name} · revision {revision.revision_number}{revision.source_version ? ` · version ${revision.source_version}` : ""}
+                    {catalog.name} · {t("systems.pinnedRevision", { revision: number(revision.revision_number) })}{revision.source_version ? ` · ${t("systems.version", { version: revision.source_version })}` : ""}
                   </option>
                 ))}
               </select>
             </label>
             <label className="field">
-              SSP title
+              {t("systems.sspTitle")}
               <input required value={planTitle} onChange={(event) => setPlanTitle(event.target.value)} />
             </label>
             <label className="field">
-              Control implementation description
+              {t("systems.controlImplementationDescription")}
               <textarea
                 value={controlDescription}
                 onChange={(event) => setControlDescription(event.target.value)}
-                placeholder="Describe the approach used to document requirement satisfaction."
+                placeholder={t("systems.controlDescriptionPlaceholder")}
               />
             </label>
-            <button disabled={busy || !baseline}>Create SSP draft</button>
-            <button type="button" className="secondary" onClick={() => setPlanForm(false)}>Close</button>
+            <button disabled={busy || !baseline}>{t("systems.createSspDraft")}</button>
+            <button type="button" className="secondary" onClick={() => setPlanForm(false)}>{t("systems.close")}</button>
           </form>
         ) : null}
-        {catalogs.length === 0 ? <p className="muted">Import a Catalog before creating an SSP.</p> : null}
+        {catalogs.length === 0 ? <p className="muted">{t("systems.importCatalogFirst")}</p> : null}
       </section>
     </div>
   );
@@ -498,6 +499,8 @@ async function request<T>(
   path: string,
   method: "POST" | "PUT",
   body: unknown,
+  t: Translate,
+  errorMessage: (error: unknown) => string,
 ): Promise<T> {
   const response = await fetch(path, {
     method,
@@ -505,11 +508,11 @@ async function request<T>(
     body: JSON.stringify(body),
   });
   const result: unknown = response.status === 204 ? null : await response.json();
-  if (!response.ok) throw new Error(readError(result));
+  if (!response.ok) throw new Error(readError(result, t, errorMessage));
   return result as T;
 }
 
-function readError(body: unknown): string {
+function readError(body: unknown, t: Translate, errorMessage: (error: unknown) => string): string {
   if (typeof body === "object" && body !== null && "detail" in body) {
     const detail = (body as { detail?: unknown }).detail;
     if (typeof detail === "string") return detail;
@@ -518,5 +521,5 @@ function readError(body: unknown): string {
       if (diagnostics?.length) return diagnostics.map((item) => item.message).join(" ");
     }
   }
-  return "The request could not be completed.";
+  return errorMessage(body) || t("systems.requestFailed");
 }

@@ -37,5 +37,10 @@ technisch oder finanziell unterstützen möchten. Eine lokale Demo lässt sich m
 erreichbar. Sie ist nur für lokale Vorführungen gedacht und darf nicht öffentlich
 bereitgestellt oder mit Produktivdaten betrieben werden.
 
+Über die Sprachauswahl im Kopfbereich können Sie zwischen **English**
+(Standardeinstellung) und **Deutsch** wechseln. Der Browser merkt sich Ihre
+Auswahl; beide Sprachen sind im selben Image enthalten. Übersetzt wird nur die
+Oberfläche, niemals importierter OSCAL-Inhalt oder selbst verfasste Beschreibungen.
+
 Hinweise zu Setup, Entwicklung und technischen Details stehen im
 [Entwicklerleitfaden](docs/development.md).

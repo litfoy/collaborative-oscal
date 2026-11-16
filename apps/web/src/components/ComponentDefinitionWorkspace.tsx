@@ -4,16 +4,19 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { bffGet, bffWrite } from "@/lib/bff-client";
+import { useI18n } from "@/lib/i18n/provider";
+import type { Translate } from "@/lib/i18n";
 import type { Catalog, ComponentDefinition, Paged } from "@/lib/types";
 
 export const COMPONENT_TYPES = [
-  ["policy", "Policy"], ["process-procedure", "Process or procedure"], ["service", "Service"],
-  ["software", "Software"], ["hardware", "Hardware"], ["physical", "Physical"],
-  ["plan", "Plan"], ["guidance", "Guidance"], ["standard", "Standard"],
+  ["policy", "measures.policy"], ["process-procedure", "measures.processProcedure"], ["service", "measures.service"],
+  ["software", "measures.software"], ["hardware", "measures.hardware"], ["physical", "measures.physical"],
+  ["plan", "measures.plan"], ["guidance", "measures.guidance"], ["standard", "measures.standard"],
 ] as const;
 
-export function componentTypeLabel(type: string) {
-  return COMPONENT_TYPES.find(([value]) => value === type)?.[1] ?? type;
+export function componentTypeLabel(type: string, t: Translate) {
+  const key = COMPONENT_TYPES.find(([value]) => value === type)?.[1];
+  return key ? t(key) : type;
 }
 
 export function ComponentDefinitionWorkspace({
@@ -26,6 +29,7 @@ export function ComponentDefinitionWorkspace({
   catalogTotal: number;
   canWrite: boolean;
 }) {
+  const { t, number, errorMessage } = useI18n();
   const router = useRouter();
   const [definitions, setDefinitions] = useState(initialDefinitions);
   const [total, setTotal] = useState(definitionTotal);
@@ -50,15 +54,15 @@ export function ComponentDefinitionWorkspace({
       const link = event.target.closest("a[href]");
       if (!link || link.getAttribute("href")?.startsWith("#") || link.getAttribute("target") === "_blank" ||
           link.hasAttribute("download") || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;
-      if (busy || !window.confirm("Discard the new measure draft?")) event.preventDefault();
+      if (busy || !window.confirm(t("measures.newMeasureDraftConfirm"))) event.preventDefault();
     };
     window.addEventListener("beforeunload", unload);
     document.addEventListener("click", navigate, true);
     return () => { window.removeEventListener("beforeunload", unload); document.removeEventListener("click", navigate, true); };
-  }, [creationDirty, busy]);
+  }, [creationDirty, busy, t]);
 
   function cancelCreation() {
-    if (busy || (creationDirty && !window.confirm("Discard the new measure draft?"))) return;
+    if (busy || (creationDirty && !window.confirm(t("measures.newMeasureDraftConfirm")))) return;
     setCreating(false);
     setTitle("");
     setDescription("");
@@ -74,7 +78,7 @@ export function ComponentDefinitionWorkspace({
         title: title.trim(), type: newType, description, requirements: [],
       });
       if (!created.components[0]) {
-        setError("The measure was created, but the response did not contain a component. Return to the library to find it.");
+        setError(t("measures.createdMissingComponent"));
         setDefinitions((current) => [created, ...current]);
         setTotal((current) => current + 1);
         setCreating(false);
@@ -83,7 +87,7 @@ export function ComponentDefinitionWorkspace({
       }
       router.push(`/t/${tenantId}/measures/${created.id}/${created.components[0].id}`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to create the measure.");
+      setError(errorMessage(cause) || t("measures.createError"));
       setBusy(false);
     }
   }
@@ -99,71 +103,71 @@ export function ComponentDefinitionWorkspace({
       setDefinitions((current) => [...current, ...page.items]);
       setTotal(page.total);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to load more measures.");
+      setError(errorMessage(cause) || t("measures.loadMoreError"));
     } finally {
       setBusy(false);
     }
   }
 
   if (creating) return <div className="measure-workspace">
-    <nav className="breadcrumbs" aria-label="Breadcrumb">
-      <button type="button" className="measure-link" disabled={busy} onClick={cancelCreation}>Our Measures &amp; Controls</button> › New measure
+    <nav className="breadcrumbs" aria-label={t("measures.breadcrumb")}>
+    <button type="button" className="measure-link" disabled={busy} onClick={cancelCreation}>{t("measures.library")}</button> › {t("measures.newMeasure")}
     </nav>
-    <h1>New measure</h1>
-    <p className="muted">Create reusable guidance; associations can be added after creation.</p>
+    <h1>{t("measures.newMeasure")}</h1>
+    <p className="muted">{t("measures.createReusableGuidance")}</p>
     {error ? <p role="alert" className="alert">{error}</p> : null}
     <form className="profile-form" onSubmit={(event) => { event.preventDefault(); void create(); }}>
-      <label className="field">Measure title
+      <label className="field">{t("measures.title")}
         <input required maxLength={255} value={title} onChange={(event) => setTitle(event.target.value)} />
       </label>
-      <label className="field">Component type
+      <label className="field">{t("measures.componentType")}
         <select value={newType} onChange={(event) => setNewType(event.target.value)}>
-          {COMPONENT_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          {COMPONENT_TYPES.map(([value, key]) => <option key={value} value={value}>{t(key)}</option>)}
         </select>
       </label>
-      <label className="field">Reusable description
+      <label className="field">{t("measures.reusableDescription")}
         <textarea required maxLength={50000} rows={5} value={description} onChange={(event) => setDescription(event.target.value)} />
       </label>
       <div className="workspace-actions">
-        <button type="submit" disabled={busy || !title.trim() || !description.trim()}>{busy ? "Creating…" : "Create measure"}</button>
-        <button type="button" className="secondary" disabled={busy} onClick={cancelCreation}>Cancel</button>
+        <button type="submit" disabled={busy || !title.trim() || !description.trim()}>{busy ? t("measures.creating") : t("measures.createMeasure")}</button>
+        <button type="button" className="secondary" disabled={busy} onClick={cancelCreation}>{t("measures.cancel")}</button>
       </div>
     </form>
   </div>;
 
   return <div className="measure-workspace">
     <div className="workspace-actions measure-heading">
-      <div><h1>Our Measures &amp; Controls</h1>
-        <p className="muted">Reusable guidance associated with pinned requirements, not evidence of deployment or assessment.</p>
+      <div><h1>{t("measures.library")}</h1>
+        <p className="muted">{t("measures.libraryDescription")}</p>
       </div>
-      {canWrite ? <button type="button" onClick={() => { setError(null); setCreating(true); }}>New measure</button> : null}
+      {canWrite ? <button type="button" onClick={() => { setError(null); setCreating(true); }}>{t("measures.newMeasure")}</button> : null}
     </div>
-    {!canWrite ? <p className="muted">You need catalog:write permission to create or edit measures.</p> : null}
+    {!canWrite ? <p className="muted">{t("measures.permissionCreate")}</p> : null}
     {error ? <p role="alert" className="alert">{error}</p> : null}
     <div className="mapping-control-filters measure-filters">
-      <label className="field">Search measures
-        <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Title or description" />
+      <label className="field">{t("measures.search")}
+        <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("measures.searchPlaceholder")} />
       </label>
-      <label className="field">Component type
+      <label className="field">{t("measures.componentType")}
         <select value={type} onChange={(event) => setType(event.target.value)}>
-          <option value="">All types</option>
-          {COMPONENT_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          <option value="">{t("measures.allTypes")}</option>
+          {COMPONENT_TYPES.map(([value, key]) => <option key={value} value={value}>{t(key)}</option>)}
         </select>
       </label>
     </div>
     {matches.length ? <div className="measure-table"><table>
-      <thead><tr><th>Measure</th><th>Component type</th><th>Requirements</th><th>Referenced catalogs</th></tr></thead>
+      <thead><tr><th>{t("measures.measure")}</th><th>{t("measures.componentType")}</th><th>{t("measures.requirements")}</th><th>{t("measures.referencedCatalogs")}</th></tr></thead>
       <tbody>{matches.map(({ document, component }) => <tr key={`${document.id}:${component.id}`}>
         <td><a href={`/t/${tenantId}/measures/${document.id}/${component.id}`}>{component.title}</a></td>
-        <td>{componentTypeLabel(component.type)}</td><td>{component.requirements.length}</td>
+        <td>{componentTypeLabel(component.type, t)}</td><td>{number(component.requirements.length)}</td>
         <td>{[...new Set(component.requirements.map((requirement) =>
           catalogs.find((catalog) => catalog.id === requirement.catalog_id)?.name ?? requirement.catalog_id,
         ))].join(", ") || "—"}</td>
       </tr>)}</tbody>
-    </table></div> : <p className="empty">{definitions.length === 0 ? "No reusable measures yet." : "No measures match these filters."}</p>}
+    </table></div> : <p className="empty">{definitions.length === 0 ? t("measures.noMeasures") : t("measures.noFilterMatch")}</p>}
     {definitions.length < total ? <div>
-      <p className="muted">Search and filters apply to loaded measures. {total - definitions.length} more documents are available.</p>
-      <button type="button" className="secondary" disabled={busy} onClick={() => void loadMore()}>{busy ? "Loading…" : "Load more measures"}</button>
+      <p className="muted">{t(total - definitions.length === 1 ? "measures.loadedMeasureNoticeOne" : "measures.loadedMeasureNoticeOther", { count: number(total - definitions.length) })}</p>
+      <button type="button" className="secondary" disabled={busy} onClick={() => void loadMore()}>{busy ? t("measures.loading") : t("measures.loadMore")}</button>
     </div> : null}
   </div>;
 }

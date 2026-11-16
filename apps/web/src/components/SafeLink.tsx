@@ -1,12 +1,16 @@
+"use client";
+
 import { classifyHref } from "@/lib/safe";
+import { useI18n } from "@/lib/i18n/provider";
 
 /** Renders a link from imported content only when its scheme is inert. */
 export function SafeLink({ href, children }: { href: string; children: React.ReactNode }) {
+  const { t } = useI18n();
   const target = classifyHref(href);
   if (target.kind === "blocked") {
     return (
-      <span title="This link was not made clickable because its address is not allowed.">
-        {children} <span className="muted">(link disabled)</span>
+      <span title={t("common.linkBlocked")}>
+        {children} <span className="muted">{t("common.linkDisabled")}</span>
       </span>
     );
   }

@@ -3,7 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import { bffGet, bffWrite } from "@/lib/bff-client";
-import { ApiError, ERROR_MESSAGES } from "@/lib/errors";
+import { useI18n } from "@/lib/i18n/provider";
 import { renderProse } from "@/lib/safe";
 import { inBranch, indexBrowser, matchesProperties, MAX_PROFILE_CONTROLS, propertyLabel } from "@/lib/profile-browser";
 import type { Catalog, ControlDetail, Paged, Profile, ProfileBrowserNode, ProfileImport, RevisionDetail, RevisionSummary } from "@/lib/types";
@@ -13,7 +13,7 @@ import { ImplementationRegister } from "./ImplementationRegister";
 
 const PAGE_SIZE = 50;
 const PREVIEW_PARAMETERS = new Map<string, string>();
-const VIEWS = ["Catalog Browser", "Selected Requirements", "Profile Settings"] as const;
+const VIEWS = ["catalog", "selected", "settings"] as const;
 type WorkspaceView = typeof VIEWS[number];
 
 export function ProfileWorkspace({
@@ -29,6 +29,7 @@ export function ProfileWorkspace({
   onClose: () => void;
   onSaved: (profile: Profile) => void;
 }) {
+  const { t, number, errorMessage } = useI18n();
   const [saved, setSaved] = useState<Profile | null>(isNew ? null : initialProfile);
   const [title, setTitle] = useState(initialProfile.title);
   const [description, setDescription] = useState(initialProfile.description ?? "");
@@ -52,7 +53,7 @@ export function ProfileWorkspace({
   const [status, setStatus] = useState<string | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<WorkspaceView>("Catalog Browser");
+  const [view, setView] = useState<WorkspaceView>("catalog");
   const [showNavigation, setShowNavigation] = useState(true);
   const [showDetails, setShowDetails] = useState(true);
   const [navigationWidth, setNavigationWidth] = useState(18);
@@ -89,7 +90,7 @@ export function ProfileWorkspace({
       setCatalogOptions((current) => [...current, ...result.items]);
       setCatalogCount(result.total);
     } catch (cause) {
-      setError(messageFor(cause));
+      setError(errorMessage(cause));
     } finally {
       setCatalogBusy(false);
     }
@@ -115,20 +116,20 @@ export function ProfileWorkspace({
           setSourceData((current) => ({ ...current, [item.id]: { nodes: browser.nodes, revision } }));
         }
       }).catch((cause: unknown) => {
-        if (!controller.signal.aborted) setLoadError(messageFor(cause));
+        if (!controller.signal.aborted) setLoadError(errorMessage(cause));
       });
     }
     return () => controller.abort();
-  }, [tenantId, sources, sourceData, loadAttempt]);
+  }, [tenantId, sources, sourceData, loadAttempt, errorMessage]);
 
   useEffect(() => {
     if (!addCatalogId) return;
     const controller = new AbortController();
     bffGet<Paged<RevisionSummary>>(`tenants/${tenantId}/catalogs/${addCatalogId}/revisions`, { limit: 200, offset: revisionOffset }, controller.signal)
       .then((result) => { setRevisions(result.items); setRevisionTotal(result.total); setAddRevisionId(result.items[0]?.id ?? ""); })
-      .catch((cause: unknown) => { if (!controller.signal.aborted) setError(messageFor(cause)); });
+      .catch((cause: unknown) => { if (!controller.signal.aborted) setError(errorMessage(cause)); });
     return () => controller.abort();
-  }, [tenantId, addCatalogId, revisionOffset]);
+  }, [tenantId, addCatalogId, revisionOffset, errorMessage]);
 
   useEffect(() => {
     if (!dirty && !busy) return;
@@ -139,10 +140,10 @@ export function ProfileWorkspace({
       if (!link || link.getAttribute("href")?.startsWith("#") ||
           link.getAttribute("target") === "_blank" || link.hasAttribute("download") ||
           event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;
-      if (busy || !window.confirm("Discard unsaved profile changes?")) event.preventDefault();
+      if (busy || !window.confirm(t("profiles.discardConfirm"))) event.preventDefault();
     };
     const submit = (event: SubmitEvent) => {
-      if (busy || !window.confirm("Discard unsaved profile changes?")) event.preventDefault();
+      if (busy || !window.confirm(t("profiles.discardConfirm"))) event.preventDefault();
     };
     window.addEventListener("beforeunload", unload);
     document.addEventListener("click", navigate, true);
@@ -152,9 +153,9 @@ export function ProfileWorkspace({
       document.removeEventListener("click", navigate, true);
       document.removeEventListener("submit", submit, true);
     };
-  }, [dirty, busy]);
+  }, [dirty, busy, t]);
 
-  const index = useMemo(() => indexBrowser(data?.nodes ?? []), [data]);
+  const index = useMemo(() => indexBrowser(data?.nodes ?? [], t), [data, t]);
   const results = useMemo(() => index.controls.filter((node) =>
     inBranch(node, branch) && (index.search.get(node.key) ?? "").includes(deferredQuery) && matchesProperties(node, filters),
   ), [index, branch, deferredQuery, filters]);
@@ -162,12 +163,12 @@ export function ProfileWorkspace({
   const currentPage = Math.min(page, pageCount - 1);
   const visible = results.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
   const selectedResults = useMemo(() => sources.flatMap((item) => {
-    const sourceIndex = indexBrowser(sourceData[item.id]?.nodes ?? []);
+    const sourceIndex = indexBrowser(sourceData[item.id]?.nodes ?? [], t);
     const ids = new Set(item.control_ids);
     return sourceIndex.controls.filter((node) =>
       node.id && ids.has(node.id) && (sourceIndex.search.get(node.key) ?? "").includes(deferredSelectionQuery),
     ).map((node) => ({ node, source: item, sourceIndex }));
-  }), [sources, sourceData, deferredSelectionQuery]);
+  }), [sources, sourceData, deferredSelectionQuery, t]);
   const selectionPageCount = Math.max(1, Math.ceil(selectedResults.length / PAGE_SIZE));
   const currentSelectionPage = Math.min(selectionPage, selectionPageCount - 1);
   const selectedGroups = useMemo(() => {
@@ -183,14 +184,15 @@ export function ProfileWorkspace({
         parent = ancestor.parent_key;
       }
       const key = `${item.id}:${node.parent_key ?? "root"}`;
-      const name = catalogOptions.find((catalog) => catalog.id === item.catalog_id)?.name ?? "Catalog";
+      const name = catalogOptions.find((catalog) => catalog.id === item.catalog_id)?.name ?? t("profiles.catalogFallback");
       const revision = sourceData[item.id]?.revision.revision_number ?? item.revision_id;
-      const group = groups.get(key) ?? { title: `${name} · revision ${revision} · ${item.id} › ${path.join(" › ") || "Catalog requirements"}`, nodes: [] };
+      const revisionLabel = typeof revision === "number" ? number(revision) : revision;
+      const group = groups.get(key) ?? { title: `${name} · ${t("profiles.revision", { name: revisionLabel })} · ${item.id} › ${path.join(" › ") || t("profiles.requirements")}`, nodes: [] };
       group.nodes.push(result);
       groups.set(key, group);
     }
     return [...groups];
-  }, [catalogOptions, sourceData, selectedResults, currentSelectionPage]);
+  }, [catalogOptions, sourceData, selectedResults, currentSelectionPage, t, number]);
   const unknownIds = sources.flatMap((item) => {
     const loaded = sourceData[item.id];
     if (!loaded) return [];
@@ -205,7 +207,7 @@ export function ProfileWorkspace({
       else next.delete(node.id);
     }
     if (totalSelected - selected.size + next.size > MAX_PROFILE_CONTROLS) {
-      setError(`A profile supports up to ${MAX_PROFILE_CONTROLS.toLocaleString()} explicitly selected requirements. Narrow your selection.`);
+      setError(t("profiles.maximumSelected", { name: number(MAX_PROFILE_CONTROLS) }));
       return;
     }
     if (source) setSources((current) => current.map((item) => item.id === source.id
@@ -217,7 +219,7 @@ export function ProfileWorkspace({
   function navigateTo(node: ProfileBrowserNode, sourceId: string) {
     setActiveSourceId(sourceId);
     const targetIndex = indexBrowser(sourceData[sourceId]?.nodes ?? []);
-    setView("Catalog Browser");
+    setView("catalog");
     openDetails(node.id);
     setBranch(node.key);
     setQuery("");
@@ -267,9 +269,9 @@ export function ProfileWorkspace({
       setDescription(profile.description ?? "");
       setSources(profile.imports ?? sources);
       onSaved(profile);
-      setStatus(`Profile “${profile.title}” saved.`);
+      setStatus(t("profiles.saveStatus", { name: profile.title }));
     } catch (cause) {
-      setError(messageFor(cause));
+      setError(errorMessage(cause));
       setSaveFailed(true);
     } finally {
       setBusy(false);
@@ -287,7 +289,7 @@ export function ProfileWorkspace({
         return <li key={node.key}>
           <div className="builder-tree-row">
             {children.length > 0 ? <button type="button" className="secondary tree-expander"
-              aria-expanded={open} aria-label={`${open ? "Collapse" : "Expand"} ${node.id ?? node.title}`}
+              aria-expanded={open} aria-label={`${open ? t("profiles.collapse") : t("profiles.expand")} ${node.id ?? node.title}`}
               onClick={() => setExpanded((current) => {
                 const next = new Set(current);
                 if (open) next.delete(node.key); else next.add(node.key);
@@ -296,7 +298,7 @@ export function ProfileWorkspace({
             <button type="button" className="tree-location" aria-current={branch === node.key ? "location" : undefined}
               onClick={() => { setBranch(node.key); setPage(0); if (node.kind === "control") openDetails(node.id); }}>
               {node.id ? <><span className="mono">{node.id}</span>{" "}</> : null}{node.title}
-              {node.kind === "control" && node.id && selected.has(node.id) ? <span className="badge">Selected</span> : null}
+              {node.kind === "control" && node.id && selected.has(node.id) ? <span className="badge">{t("profiles.selected")}</span> : null}
             </button>
           </div>
           {children.length > 0 && open ? tree(node.key) : null}
@@ -304,7 +306,9 @@ export function ProfileWorkspace({
       })}
       {siblings.length > limit ? <li><button type="button" className="secondary"
         onClick={() => setNavigationLimits((current) => ({ ...current, [key]: limit + 100 }))}>
-        Show more navigation items ({siblings.length - limit} remaining)
+        {siblings.length - limit === 1
+          ? t("profiles.showMoreNavigationOne")
+          : t("profiles.showMoreNavigationOther", { name: number(siblings.length - limit) })}
       </button></li> : null}
     </ul>;
   }
@@ -317,66 +321,66 @@ export function ProfileWorkspace({
       <header className="panel profile-workspace-header">
         <div className="workspace-actions">
           <button type="button" className="secondary" disabled={busy} onClick={() => {
-            if (!dirty || window.confirm("Discard unsaved profile changes?")) onClose();
-          }}>Back to profiles</button>
-          <h2>{title || "Untitled profile"}</h2>
-          <span className="badge">{totalSelected} selected</span>
-          <span role="status" className="save-status">{busy ? "Saving…" : saveFailed ? "Save failed" : dirty ? "Unsaved changes" : status ?? (saved ? "All changes saved" : "New profile")}</span>
+            if (!dirty || window.confirm(t("profiles.discardConfirm"))) onClose();
+          }}>{t("profiles.backToProfiles")}</button>
+          <h2>{title || t("profiles.untitled")}</h2>
+          <span className="badge">{t("profiles.selectedCount", { name: number(totalSelected) })}</span>
+          <span role="status" className="save-status">{busy ? t("profiles.saving") : saveFailed ? t("profiles.saveFailed") : dirty ? t("profiles.unsavedChanges") : status ?? (saved ? t("profiles.allChangesSaved") : t("profiles.newProfile"))}</span>
           {canWrite ? <button type="button" disabled={busy || sources.some((item) => !sourceData[item.id] || item.control_ids.length === 0) || !title.trim() || totalSelected === 0 || unknownIds.length > 0}
-            onClick={() => void save()}>{busy ? "Saving…" : "Save profile"}</button> : null}
-          {saved && !dirty && !busy ? <a className="button secondary" href={`/bff/tenants/${tenantId}/profiles/${saved.id}/export`}>Export OSCAL JSON</a> : <span className="muted">Save changes before exporting.</span>}
+            onClick={() => void save()}>{busy ? t("profiles.saving") : t("profiles.save")}</button> : null}
+          {saved && !dirty && !busy ? <a className="button secondary" href={`/bff/tenants/${tenantId}/profiles/${saved.id}/export`}>{t("profiles.export")}</a> : <span className="muted">{t("profiles.saveBeforeExport")}</span>}
           {saved && !dirty && !busy ? <button type="button" className="secondary"
-            onClick={() => setRegister({ controlId: null, importId: null })}>Implementation register</button> : null}
+            onClick={() => setRegister({ controlId: null, importId: null })}>{t("profiles.implementationRegister")}</button> : null}
         </div>
         <div className="workspace-source">
-          <label className="field">Catalog source
+          <label className="field">{t("profiles.catalogSource")}
             <select value={source?.id ?? ""} onChange={(event) => {
               setActiveSourceId(event.target.value); setBranch(null); setActive(null);
               setQuery(""); setFilters({}); setPage(0); setExpanded(new Set());
             }}>
               {sources.map((item) => <option key={item.id} value={item.id}>
-                {catalogOptions.find((catalog) => catalog.id === item.catalog_id)?.name ?? catalogName} · revision {sourceData[item.id]?.revision.revision_number ?? item.revision_id} · {item.id}
+                {catalogOptions.find((catalog) => catalog.id === item.catalog_id)?.name ?? catalogName} · {t("profiles.revision", { name: sourceData[item.id] ? number(sourceData[item.id].revision.revision_number) : item.revision_id })} · {item.id}
               </option>)}
             </select>
           </label>
           {saved?.oscal_version
-            ? <p>Profile OSCAL specification version: {saved.oscal_version}</p>
+            ? <p>{t("profiles.profileOscalVersion")}: {saved.oscal_version}</p>
             : null}
-          {source ? <p>Pinned revision <span className="mono">{source.revision_id}</span>{data ? ` · OSCAL ${data.revision.oscal_version}` : ""}</p> : null}
+          {source ? <p>{t("profiles.pinnedRevisionField")} <span className="mono">{source.revision_id}</span>{data ? ` · OSCAL ${data.revision.oscal_version}` : ""}</p> : null}
           {canWrite && sources.length > 1 ? <button className="secondary" type="button" onClick={() => {
-            if (!source || !window.confirm("Remove this source? Existing implementations remain available in the register.")) return;
+            if (!source || !window.confirm(t("profiles.removeSourceConfirm"))) return;
             setSources((current) => current.filter((item) => item.id !== source.id));
             setActiveSourceId(sources.find((item) => item.id !== source.id)?.id ?? "");
             setBranch(null); setActive(null); setQuery(""); setFilters({}); setPage(0);
-          }}>Remove source</button> : null}
-          {canWrite ? <details><summary>Add catalog source</summary>
-            <label className="field">Catalog
+          }}>{t("profiles.removeSource")}</button> : null}
+          {canWrite ? <details><summary>{t("profiles.addCatalogSource")}</summary>
+            <label className="field">{t("profiles.catalogFallback")}
               <select value={addCatalogId} onChange={(event) => {
                 setAddCatalogId(event.target.value); setRevisions([]); setAddRevisionId(""); setRevisionOffset(0); setRevisionTotal(0);
               }}>
-                <option value="">Choose catalog</option>
+                <option value="">{t("profiles.chooseCatalog")}</option>
                 {catalogOptions.map((catalog) => <option key={catalog.id} value={catalog.id}>{catalog.name}</option>)}
               </select>
             </label>
-            {catalogOptions.length < catalogCount ? <button type="button" className="secondary" disabled={catalogBusy} onClick={() => void loadMoreCatalogs()}>Load more catalogs</button> : null}
-            <label className="field">Revision
+            {catalogOptions.length < catalogCount ? <button type="button" className="secondary" disabled={catalogBusy} onClick={() => void loadMoreCatalogs()}>{t("profiles.loadMoreCatalogs")}</button> : null}
+            <label className="field">{t("profiles.revisionField")}
               <select value={addRevisionId} onChange={(event) => setAddRevisionId(event.target.value)}>
-                {revisions.map((revision) => <option key={revision.id} value={revision.id}>Revision {revision.revision_number} · {revision.id}</option>)}
+                {revisions.map((revision) => <option key={revision.id} value={revision.id}>{t("profiles.revision", { name: number(revision.revision_number) })} · {revision.id}</option>)}
               </select>
             </label>
             {revisionTotal > 200 ? <div className="workspace-actions">
-              <button type="button" className="secondary" disabled={revisionOffset === 0} onClick={() => setRevisionOffset(Math.max(0, revisionOffset - 200))}>Previous revisions</button>
-              <button type="button" className="secondary" disabled={revisionOffset + 200 >= revisionTotal} onClick={() => setRevisionOffset(revisionOffset + 200)}>Next revisions</button>
+              <button type="button" className="secondary" disabled={revisionOffset === 0} onClick={() => setRevisionOffset(Math.max(0, revisionOffset - 200))}>{t("profiles.previousRevisions")}</button>
+              <button type="button" className="secondary" disabled={revisionOffset + 200 >= revisionTotal} onClick={() => setRevisionOffset(revisionOffset + 200)}>{t("profiles.nextRevisions")}</button>
             </div> : null}
             <button type="button" disabled={!addCatalogId || !addRevisionId} onClick={() => {
               const id = crypto.randomUUID();
               setSources((current) => [...current, { id, catalog_id: addCatalogId, revision_id: addRevisionId, control_ids: [] }]);
               setActiveSourceId(id); setBranch(null); setActive(null); setQuery(""); setFilters({}); setPage(0);
-            }}>Add source</button>
+            }}>{t("profiles.addSource")}</button>
           </details> : null}
-          {collisions.length > 0 ? <p role="status">Identical control IDs occur in multiple imports: {collisions.join(", ")}. These are separate selections; Profile schema validation does not guarantee a resolvable Catalog.</p> : null}
+          {collisions.length > 0 ? <p role="status">{t("profiles.duplicateIds", { name: collisions.join(", ") })}</p> : null}
         </div>
-        <div className="workspace-tabs" role="tablist" aria-label="Profile workspace views">
+        <div className="workspace-tabs" role="tablist" aria-label={t("profiles.views")}>
           {VIEWS.map((name, i) => <button key={name} type="button" role="tab" id={`workspace-tab-${i}`}
             aria-selected={view === name} aria-controls={`workspace-view-${i}`} tabIndex={view === name ? 0 : -1}
             onClick={() => setView(name)} onKeyDown={(event) => {
@@ -387,102 +391,112 @@ export function ProfileWorkspace({
               event.preventDefault();
               setView(VIEWS[next]);
               document.getElementById(`workspace-tab-${next}`)?.focus();
-            }}>{name}{name === "Selected Requirements" ? ` (${totalSelected})` : ""}</button>)}
+            }}>{t(name === "catalog" ? "profiles.catalogBrowser" : name === "selected" ? "profiles.selectedRequirements" : "profiles.settingsTab")}{name === "selected" ? ` (${number(totalSelected)})` : ""}</button>)}
         </div>
         {error ? <p role="alert" className="alert">{error}</p> : null}
       </header>
-      {loadError ? <div role="alert" className="alert">{loadError} <button type="button" onClick={() => { setLoadError(null); setLoadAttempt((value) => value + 1); }}>Retry catalog loading</button></div> : null}
-      {!data && !loadError ? <p role="status">Loading pinned catalog requirements…</p> : null}
-      {sources.some((item) => item.control_ids.length === 0) ? <p className="muted">Select at least one requirement for each source, or remove the empty source before saving.</p> : null}
-      {unknownIds.length > 0 ? <p role="alert" className="alert">These saved IDs are missing from the pinned catalog: {unknownIds.join(", ")}. Saving is disabled; the original selection has been preserved.</p> : null}
-      <section role="tabpanel" id="workspace-view-2" aria-labelledby="workspace-tab-2" hidden={view !== "Profile Settings"} className="panel workspace-settings" tabIndex={0}>
-        <h2>Profile settings</h2>
+      {loadError ? <div role="alert" className="alert">{loadError} <button type="button" onClick={() => { setLoadError(null); setLoadAttempt((value) => value + 1); }}>{t("profiles.retryCatalogLoading")}</button></div> : null}
+      {!data && !loadError ? <p role="status">{t("profiles.loadingPinnedRequirements")}</p> : null}
+      {sources.some((item) => item.control_ids.length === 0) ? <p className="muted">{t("profiles.selectOnePerSource")}</p> : null}
+      {unknownIds.length > 0 ? <p role="alert" className="alert">{t("profiles.missingSavedIds", { name: unknownIds.join(", ") })}</p> : null}
+      <section role="tabpanel" id="workspace-view-2" aria-labelledby="workspace-tab-2" hidden={view !== "settings"} className="panel workspace-settings" tabIndex={0}>
+        <h2>{t("profiles.settings")}</h2>
         <fieldset className="profile-form" disabled={!canWrite || busy}>
-          <label className="field">Profile title
+          <label className="field">{t("profiles.title")}
             <input maxLength={255} value={title} onChange={(event) => { setTitle(event.target.value); setStatus(null); }} />
           </label>
-          <label className="field">Description or purpose
+          <label className="field">{t("profiles.descriptionPurpose")}
             <textarea rows={5} maxLength={10000} value={description} onChange={(event) => { setDescription(event.target.value); setStatus(null); }} />
           </label>
         </fieldset>
-        <p className="muted">Save profile to apply metadata and selection changes together. The source catalog revision cannot be changed.</p>
+        <p className="muted">{t("profiles.saveMetadataTogether")}</p>
       </section>
-      <section role="tabpanel" id="workspace-view-1" aria-labelledby="workspace-tab-1" hidden={view !== "Selected Requirements"} className="panel workspace-selection" tabIndex={0}>
-        <h2>Selected requirements ({totalSelected})</h2>
-        <p className="muted">Profile scope only, not implementation or compliance status.</p>
-        <label className="field">Search selected requirements
-          <input type="search" value={selectionQuery} placeholder="ID, title or requirement text"
+      <section role="tabpanel" id="workspace-view-1" aria-labelledby="workspace-tab-1" hidden={view !== "selected"} className="panel workspace-selection" tabIndex={0}>
+        <h2>{t(totalSelected === 1 ? "profiles.selectedRequirementsHeadingOne" : "profiles.selectedRequirementsHeadingOther", { name: number(totalSelected) })}</h2>
+        <p className="muted">{t("profiles.scopeOnly")}</p>
+        <label className="field">{t("profiles.searchSelected")}
+          <input type="search" value={selectionQuery} placeholder={t("profiles.searchPlaceholder")}
             onChange={(event) => { setSelectionQuery(event.target.value); setSelectionPage(0); }} />
         </label>
-        {selectionQuery ? <button type="button" className="secondary" onClick={() => { setSelectionQuery(""); setSelectionPage(0); }}>Clear selection search</button> : null}
-        <p role="status">{selectedResults.length} matching selected requirements · {totalSelected} total selected</p>
-        {!data ? <p>Load the pinned catalog to review selected requirements.</p> : totalSelected === 0 ? <p className="empty">Select requirements in the Catalog Browser to define this profile’s scope.</p>
-          : selectedResults.length === 0 ? <p className="empty">No selected requirements match this search.</p> : null}
+        {selectionQuery ? <button type="button" className="secondary" onClick={() => { setSelectionQuery(""); setSelectionPage(0); }}>{t("profiles.clearSelectionSearch")}</button> : null}
+        <p role="status">{t("profiles.selectedMatches", {
+          matches: number(selectedResults.length),
+          total: number(totalSelected),
+          matchNoun: t(selectedResults.length === 1 ? "profiles.requirementOne" : "profiles.requirementOther"),
+        })}</p>
+        {!data ? <p>{t("profiles.loadPinnedCatalog")}</p> : totalSelected === 0 ? <p className="empty">{t("profiles.selectToDefineScope")}</p>
+          : selectedResults.length === 0 ? <p className="empty">{t("profiles.noSelectedMatch")}</p> : null}
         {selectedGroups.map(([key, group]) => <section key={key} className="selection-group">
           <h3>{group.title}</h3>
           <ul className="result-list">{group.nodes.map(({ node, source: item }) => <li key={`${item.id}:${node.key}`} className="selection-row">
             <button type="button" onClick={() => navigateTo(node, item.id)}><span className="mono">{node.id}</span> {node.title}</button>
             {saved && !dirty && node.id ? <button type="button" className="secondary"
-              onClick={() => setRegister({ controlId: node.id, importId: item.id })}>Implement {node.id}</button> : null}
-            <button type="button" className="secondary" disabled={!canWrite || busy} aria-label={`Remove ${node.id}`} onClick={() => {
+              onClick={() => setRegister({ controlId: node.id, importId: item.id })}>{t("profiles.implement", { name: node.id })}</button> : null}
+            <button type="button" className="secondary" disabled={!canWrite || busy} aria-label={t("profiles.removeItem", { name: node.id ?? "" })} onClick={() => {
               setSources((current) => current.map((entry) => entry.id === item.id
                 ? { ...entry, control_ids: entry.control_ids.filter((id) => id !== node.id) } : entry));
-            }}>Remove</button>
+            }}>{t("profiles.remove")}</button>
           </li>)}</ul>
         </section>)}
-        {selectionPageCount > 1 ? <nav className="pagination" aria-label="Selected requirement pages">
-          <button type="button" className="secondary" disabled={currentSelectionPage === 0} onClick={() => setSelectionPage(currentSelectionPage - 1)}>Previous selected</button>
-          <span>Page {currentSelectionPage + 1} of {selectionPageCount}</span>
-          <button type="button" className="secondary" disabled={currentSelectionPage >= selectionPageCount - 1} onClick={() => setSelectionPage(currentSelectionPage + 1)}>Next selected</button>
+        {selectionPageCount > 1 ? <nav className="pagination" aria-label={t("profiles.selectedPages")}>
+          <button type="button" className="secondary" disabled={currentSelectionPage === 0} onClick={() => setSelectionPage(currentSelectionPage - 1)}>{t("profiles.previousSelected")}</button>
+          <span>{t("profiles.pageOf", { page: number(currentSelectionPage + 1), total: number(selectionPageCount) })}</span>
+          <button type="button" className="secondary" disabled={currentSelectionPage >= selectionPageCount - 1} onClick={() => setSelectionPage(currentSelectionPage + 1)}>{t("profiles.nextSelected")}</button>
         </nav> : null}
       </section>
-      <section role="tabpanel" id="workspace-view-0" aria-labelledby="workspace-tab-0" hidden={view !== "Catalog Browser"} className="workspace-browser" tabIndex={0}>
+      <section role="tabpanel" id="workspace-view-0" aria-labelledby="workspace-tab-0" hidden={view !== "catalog"} className="workspace-browser" tabIndex={0}>
         <div className="workspace-actions builder-toolbar">
-          <button type="button" className="secondary" aria-expanded={showNavigation} aria-controls="catalog-navigation" onClick={() => setShowNavigation(!showNavigation)}>{showNavigation ? "Hide" : "Show"} hierarchy</button>
-          <button type="button" className="secondary" aria-expanded={showDetails} aria-controls="requirement-details" onClick={() => setShowDetails(!showDetails)}>{showDetails ? "Hide" : "Show"} details</button>
-          <details className="panel-widths"><summary>Panel widths</summary><div>
-            <label className="field">Hierarchy width
+          <button type="button" className="secondary" aria-expanded={showNavigation} aria-controls="catalog-navigation" onClick={() => setShowNavigation(!showNavigation)}>{showNavigation ? t("profiles.hide") : t("profiles.show")} {t("profiles.hierarchy")}</button>
+          <button type="button" className="secondary" aria-expanded={showDetails} aria-controls="requirement-details" onClick={() => setShowDetails(!showDetails)}>{showDetails ? t("profiles.hide") : t("profiles.show")} {t("profiles.details")}</button>
+          <details className="panel-widths"><summary>{t("profiles.panelWidths")}</summary><div>
+            <label className="field">{t("profiles.hierarchyWidth")}
               <input type="range" min={16} max={24} value={navigationWidth} onChange={(event) => setNavigationWidth(Number(event.target.value))} />
             </label>
-            <label className="field">Details width
+            <label className="field">{t("profiles.detailsWidth")}
               <input type="range" min={22} max={36} value={detailWidth} onChange={(event) => setDetailWidth(Number(event.target.value))} />
             </label>
           </div></details>
-          <span className="muted">Each checkbox selects one requirement, not its children.</span>
+          <span className="muted">{t("profiles.checkboxExplanation")}</span>
         </div>
       {data ? <div className={`builder-layout${showNavigation ? " has-navigation" : ""}${showDetails ? " has-details" : ""}`}
         style={{ "--navigation-width": `${navigationWidth}rem`, "--detail-width": `${detailWidth}rem` } as CSSProperties}>
-        <aside id="catalog-navigation" hidden={!showNavigation} className="panel builder-navigation" aria-label="Catalog navigation">
-          <h2>Catalog hierarchy</h2>
-          <button type="button" className="secondary" onClick={() => { setBranch(null); setPage(0); }}>All requirements</button>
+        <aside id="catalog-navigation" hidden={!showNavigation} className="panel builder-navigation" aria-label={t("profiles.catalogNavigation")}>
+          <h2>{t("profiles.catalogHierarchy")}</h2>
+          <button type="button" className="secondary" onClick={() => { setBranch(null); setPage(0); }}>{t("profiles.allRequirements")}</button>
           {tree(null)}
         </aside>
-        <section className="builder-main" aria-label="Requirement browser">
+        <section className="builder-main" aria-label={t("profiles.requirementBrowser")}>
           <div className="panel">
-            <label className="field">Search requirements
-              <input type="search" value={query} placeholder="ID, title or requirement text"
+            <label className="field">{t("profiles.searchRequirements")}
+              <input type="search" value={query} placeholder={t("profiles.searchPlaceholder")}
                 onChange={(event) => { setQuery(event.target.value); setPage(0); }} />
             </label>
-            <p className="muted">Domain: {branch ? index.byKey.get(branch)?.title : "All domains"}</p>
+            <p className="muted">{t("profiles.domain")}: {branch ? index.byKey.get(branch)?.title : t("profiles.allDomains")}</p>
             <div className="builder-filters">
               {index.facets.slice(0, 2).map(facetField)}
             </div>
-            {index.facets.length > 2 ? <details><summary>Advanced filters ({index.facets.slice(2).filter((facet) => filters[facet.key]).length} active)</summary><div className="builder-filters">{index.facets.slice(2).map(facetField)}</div></details> : null}
-            <div className="active-filters" aria-label="Active filters">
-              {query ? <span className="badge">Search: {query}</span> : null}
-              {branch ? <span className="badge">Domain: {index.byKey.get(branch)?.title}</span> : null}
+            {index.facets.length > 2 ? <details><summary>{t("profiles.advancedFilters", { name: number(index.facets.slice(2).filter((facet) => filters[facet.key]).length) })}</summary><div className="builder-filters">{index.facets.slice(2).map(facetField)}</div></details> : null}
+            <div className="active-filters" aria-label={t("profiles.activeFilters")}>
+              {query ? <span className="badge">{t("profiles.searchFilter")}: {query}</span> : null}
+              {branch ? <span className="badge">{t("profiles.domain")}: {index.byKey.get(branch)?.title}</span> : null}
               {index.facets.filter((facet) => filters[facet.key]).map((facet) => <span className="badge" key={facet.key}>{facet.label}: {filters[facet.key]}</span>)}
             </div>
-            <button type="button" className="secondary" onClick={() => { setQuery(""); setFilters({}); setBranch(null); setPage(0); }}>Clear search and filters</button>
+            <button type="button" className="secondary" onClick={() => { setQuery(""); setFilters({}); setBranch(null); setPage(0); }}>{t("profiles.clearSearchFilters")}</button>
           </div>
           <div className="panel" id="requirement-results" tabIndex={-1}>
-            <h2>Requirements</h2>
-            <p role="status">{results.length} matching requirements · {selected.size} selected</p>
+            <h2>{t("profiles.requirements")}</h2>
+            <p role="status">{t("profiles.matchingSelected", {
+              matches: number(results.length),
+              selected: number(selected.size),
+              matchNoun: t(results.length === 1 ? "profiles.requirementOne" : "profiles.requirementOther"),
+            })}</p>
             <div className="workspace-actions">
-              <button type="button" className="secondary" disabled={!canWrite || busy || !results.length} onClick={() => changeSelection(results, true)}>Select all {results.length} matches</button>
-              <button type="button" className="secondary" disabled={!canWrite || busy || !results.length} onClick={() => changeSelection(results, false)}>Deselect matches</button>
+              <button type="button" className="secondary" disabled={!canWrite || busy || !results.length} onClick={() => changeSelection(results, true)}>{results.length === 1
+                ? t("profiles.selectAllMatchesOne")
+                : t("profiles.selectAllMatchesOther", { name: number(results.length) })}</button>
+              <button type="button" className="secondary" disabled={!canWrite || busy || !results.length} onClick={() => changeSelection(results, false)}>{t("profiles.deselectMatches")}</button>
             </div>
-            {results.length === 0 ? <p className="empty">No requirements match. Clear filters or choose another domain.</p> : null}
+            {results.length === 0 ? <p className="empty">{t("profiles.noRequirementsMatch")}</p> : null}
             <ul className="requirement-list">
               {visible.map((node) => <li key={node.key} className={node.id && selected.has(node.id) ? "requirement selected" : "requirement"}>
                 <label className="requirement-select">
@@ -492,25 +506,25 @@ export function ProfileWorkspace({
                 </label>
                 <p className="requirement-summary">{renderProse(node.text, PREVIEW_PARAMETERS)}</p>
                 <div className="requirement-badges">{node.properties.filter((prop) => ["modal_verb", "sec_level", "effort_level", "tags", "target_object_categories"].includes(prop.name)).map((prop, i) =>
-                  <span className="badge" key={i} title={`${prop.name}${prop.ns ? ` (${prop.ns})` : ""}`}>{propertyLabel(prop.name)}: {prop.value}</span>)}</div>
+                  <span className="badge" key={i} title={`${prop.name}${prop.ns ? ` (${prop.ns})` : ""}`}>{propertyLabel(prop.name, t)}: {prop.value}</span>)}</div>
                 <div className="workspace-actions">
-                  <button type="button" className="secondary" aria-expanded={showDetails && active === node.id} aria-controls="requirement-details" onClick={() => openDetails(node.id)}>Details for {node.id}</button>
+                  <button type="button" className="secondary" aria-expanded={showDetails && active === node.id} aria-controls="requirement-details" onClick={() => openDetails(node.id)}>{t("profiles.detailsFor", { name: node.id ?? "" })}</button>
                   {(index.children.get(node.key)?.length ?? 0) > 0 ? <>
-                    <button type="button" className="secondary" disabled={!canWrite || busy} onClick={() => changeSelection(index.controls.filter((item) => inBranch(item, node.key)), true)}>Select {node.id} and all descendants</button>
-                    <button type="button" className="secondary" disabled={!canWrite || busy} onClick={() => changeSelection(index.controls.filter((item) => inBranch(item, node.key)), false)}>Deselect {node.id} and descendants</button>
+                    <button type="button" className="secondary" disabled={!canWrite || busy} onClick={() => changeSelection(index.controls.filter((item) => inBranch(item, node.key)), true)}>{t("profiles.selectWithDescendants", { name: node.id ?? "" })}</button>
+                    <button type="button" className="secondary" disabled={!canWrite || busy} onClick={() => changeSelection(index.controls.filter((item) => inBranch(item, node.key)), false)}>{t("profiles.deselectWithDescendants", { name: node.id ?? "" })}</button>
                   </> : null}
                 </div>
               </li>)}
             </ul>
-            {pageCount > 1 ? <nav className="pagination" aria-label="Requirement pages">
-              <button type="button" className="secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button>
-              <span>Page {currentPage + 1} of {pageCount}</span>
-              <button type="button" className="secondary" disabled={currentPage >= pageCount - 1} onClick={() => setPage(currentPage + 1)}>Next</button>
+            {pageCount > 1 ? <nav className="pagination" aria-label={t("profiles.requirementPages")}>
+              <button type="button" className="secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>{t("catalogs.previous")}</button>
+              <span>{t("profiles.pageOf", { page: number(currentPage + 1), total: number(pageCount) })}</span>
+              <button type="button" className="secondary" disabled={currentPage >= pageCount - 1} onClick={() => setPage(currentPage + 1)}>{t("catalogs.next")}</button>
             </nav> : null}
           </div>
         </section>
-        <aside hidden={!showDetails} id="requirement-details" tabIndex={-1} className="builder-inspector" aria-label="Requirement details">
-          {active ? <RequirementDetails key={`${base}:${active}`} base={base} id={active} /> : <p className="empty">Open requirement details to read the full statement, guidance, properties and parameters.</p>}
+        <aside hidden={!showDetails} id="requirement-details" tabIndex={-1} className="builder-inspector" aria-label={t("profiles.requirementDetails")}>
+          {active ? <RequirementDetails key={`${base}:${active}`} base={base} id={active} /> : <p className="empty">{t("profiles.openDetails")}</p>}
         </aside>
       </div> : null}
       </section>
@@ -524,7 +538,7 @@ export function ProfileWorkspace({
         setFilters((current) => ({ ...current, [facet.key]: event.target.value }));
         setPage(0);
       }}>
-        <option value="">All</option>
+        <option value="">{t("profiles.all")}</option>
         {[...facet.values].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map((value) => <option key={value} value={value}>{value}</option>)}
       </select>
     </label>;
@@ -532,6 +546,7 @@ export function ProfileWorkspace({
 }
 
 function RequirementDetails({ base, id }: { base: string; id: string }) {
+  const { t, errorMessage } = useI18n();
   const [control, setControl] = useState<ControlDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -539,13 +554,9 @@ function RequirementDetails({ base, id }: { base: string; id: string }) {
     const controller = new AbortController();
     bffGet<ControlDetail>(`${base}/controls/${encodeURIComponent(id)}`, undefined, controller.signal)
       .then((value) => { if (!controller.signal.aborted) { setControl(value); setError(null); } })
-      .catch((cause: unknown) => { if (!controller.signal.aborted) setError(messageFor(cause)); });
+      .catch((cause: unknown) => { if (!controller.signal.aborted) setError(errorMessage(cause)); });
     return () => controller.abort();
-  }, [base, id, attempt]);
-  if (error) return <p role="alert" className="alert">{error} <button type="button" onClick={() => setAttempt((value) => value + 1)}>Retry details</button></p>;
-  return control ? <ControlDetailView control={control} presentation="profile" /> : <p role="status">Loading requirement details…</p>;
-}
-
-function messageFor(cause: unknown): string {
-  return cause instanceof ApiError ? cause.message : ERROR_MESSAGES.unavailable;
+  }, [base, id, attempt, errorMessage]);
+  if (error) return <p role="alert" className="alert">{error} <button type="button" onClick={() => setAttempt((value) => value + 1)}>{t("profiles.retryDetails")}</button></p>;
+  return control ? <ControlDetailView control={control} presentation="profile" /> : <p role="status">{t("profiles.loadingRequirementDetails")}</p>;
 }

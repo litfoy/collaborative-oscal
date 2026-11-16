@@ -1,12 +1,14 @@
 import { ApiProblem } from "@/components/ApiProblem";
 import { ProfileManager } from "@/components/ProfileManager";
 import { listCatalogs, listProfiles, listTenants } from "@/lib/api";
+import { getI18n } from "@/lib/i18n/server";
 
 export default async function ProfilesPage({
   params,
 }: {
   params: Promise<{ tenantId: string }>;
 }) {
+  const { t, number } = await getI18n();
   const { tenantId } = await params;
   const here = `/t/${tenantId}/profiles`;
   const result = await loadProfilesPage(tenantId, here);
@@ -14,10 +16,9 @@ export default async function ProfilesPage({
   const { profiles, catalogs, canWrite } = result;
   return (
     <>
-      <h1>Profiles</h1>
+      <h1>{t("nav.profiles")}</h1>
       <p className="muted">
-        Select controls from pinned catalog revisions. Profile changes never modify the
-        source catalog.
+        {t("profilePage.intro")}
       </p>
       <ProfileManager
         tenantId={tenantId}
@@ -28,7 +29,7 @@ export default async function ProfilesPage({
       />
       {profiles.total > profiles.items.length ? (
         <p role="status" className="muted">
-          Showing {profiles.items.length} of {profiles.total} profiles.
+          {t("profilePage.showing", { count: number(profiles.items.length), total: number(profiles.total) })}
         </p>
       ) : null}
     </>

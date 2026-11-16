@@ -155,6 +155,38 @@ URL checks do not establish network isolation.
 Unset demo settings or set `AUTH_MODE=keycloak` to return to the existing OIDC
 flow. Authentication failures never switch modes.
 
+## Frontend localization
+
+English (`en`) is the default; German (`de`) can be selected in the application
+header, including before sign-in. The independent `co_locale` preference cookie
+persists for one year across navigation, reloads, sign-out, and subsequent visits.
+Both languages are bundled in the normal web image: no environment setting,
+database migration, or language-specific rebuild is required.
+
+Resources live in `apps/web/src/lib/i18n/`. Add stable, area-prefixed keys to the
+appropriate English dictionary and the corresponding German dictionary. German
+keys are checked by TypeScript; `tests/i18n.test.tsx` checks key and interpolation
+parameter parity. A missing German entry falls back to English at runtime.
+Use `const { t, number, date, enumLabel } = useI18n()` in Client Components, or
+`await getI18n()` from `@/lib/i18n/server` in Server Components. Interpolation uses
+named placeholders, for example `t("common.page", { page: number(page),
+pages: number(pages) })`. Use separate singular/plural keys for counts.
+
+Use `enumLabel(storedValue)` for known human-readable enum labels, adding
+`enums.<official-value>` entries in `common.ts` when needed. Never replace option
+values or API payload values with translated labels. Keep official mapping
+relationship identifiers accessible. Unknown enum values remain visible verbatim.
+Use native locale-aware helpers for display only; timestamps are presented in
+UTC consistently during SSR and hydration.
+
+Frontend-generated validation messages belong in the dictionaries. Map backend
+errors by existing stable kinds/codes only. If a diagnostic has no stable mapping,
+keep its original text, code, identifiers, and validation paths with localized
+surrounding context. Do not parse English backend messages to translate them.
+Never pass imported Catalog content, OSCAL metadata, user-authored descriptions,
+or exports through translation lookup. See
+[ADR 0018](adr/0018-frontend-internationalization.md).
+
 ## Tests and checks
 
 Run backend unit tests and lint:

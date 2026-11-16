@@ -4,6 +4,8 @@ import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProfileManager } from "@/components/ProfileManager";
+import { LocaleProvider } from "@/lib/i18n/provider";
+import { createI18n } from "@/lib/i18n";
 import type { Profile, ProfileBrowserNode } from "@/lib/types";
 
 import { CATALOG, REVISION, TENANT, catalog, control, revision } from "./fixtures";
@@ -98,20 +100,22 @@ describe("Profile Builder", () => {
     expect(screen.getByRole("checkbox", { name: "ac-1 Access policy" })).not.toBeChecked();
   });
 
-  it("hydrates timestamps consistently before applying the browser locale and timezone", async () => {
+  it("formats timestamps in the selected locale and UTC consistently during SSR and hydration", async () => {
     const datedProfile = { ...profile, updated_at: "2026-11-10T12:50:18.299166Z" };
-    const element = <ProfileManager tenantId={TENANT} profiles={[datedProfile]} catalogs={[catalog()]} canWrite />;
-    const format = vi.spyOn(Date.prototype, "toLocaleString").mockReturnValue("11/10/2026, 12:50:18 PM");
+    const locale = "de" as const;
+    const formattedDate = createI18n(locale).date(datedProfile.updated_at);
+    const element = <LocaleProvider locale={locale}>
+      <ProfileManager tenantId={TENANT} profiles={[datedProfile]} catalogs={[catalog()]} canWrite />
+    </LocaleProvider>;
     const html = renderToString(element);
-    expect(format).not.toHaveBeenCalled();
-    expect(html).toContain("2026-11-10 12:50:18.299 UTC");
-    format.mockReturnValue("10.11.2026, 13:50:18");
+    expect(html).toContain(formattedDate);
+    expect(formattedDate).toMatch(/UTC$/);
     const container = document.createElement("div");
     container.innerHTML = html;
     document.body.appendChild(container);
     const onRecoverableError = vi.fn();
     render(element, { container, hydrate: true, onRecoverableError });
-    await waitFor(() => expect(container.querySelector("time")).toHaveTextContent("10.11.2026, 13:50:18"));
+    await waitFor(() => expect(container.querySelector("time")).toHaveTextContent(formattedDate));
     expect(container.querySelector("time")).toHaveAttribute("datetime", datedProfile.updated_at);
     expect(onRecoverableError).not.toHaveBeenCalled();
   });
@@ -120,7 +124,7 @@ describe("Profile Builder", () => {
     renderManager([profile]);
     expect(screen.getByText("Access baseline")).toBeInTheDocument();
     expect(screen.getByText(profile.description!)).toBeInTheDocument();
-    expect(screen.getByText(/1 selected requirements/)).toBeInTheDocument();
+    expect(screen.getByText(/1 selected requirement/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit profile" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Duplicate" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Export OSCAL JSON" })).toHaveAttribute("href", `/bff/tenants/${TENANT}/profiles/${profile.id}/export`);
@@ -164,7 +168,7 @@ describe("Profile Builder", () => {
     expect(screen.getByRole("checkbox", { name: "ac-1 Access policy" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "ac-1.1 Policy exceptions" })).not.toBeChecked();
     await user.selectOptions(screen.getByRole("combobox", { name: "Security level" }), "high");
-    await user.click(screen.getByRole("button", { name: "Select all 1 matches" }));
+    await user.click(screen.getByRole("button", { name: "Select the one matching requirement" }));
     expect(screen.getByRole("tab", { name: "Selected Requirements (2)" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Deselect matches" }));
     expect(screen.getByRole("tab", { name: "Selected Requirements (1)" })).toBeInTheDocument();
@@ -245,7 +249,7 @@ describe("Profile Builder", () => {
     await user.click(screen.getByRole("tab", { name: "Selected Requirements (2)" }));
     await user.click(screen.getByRole("button", { name: "Remove ac-1.1" }));
     await user.click(screen.getByRole("button", { name: "Clear selection search" }));
-    expect(screen.getByRole("heading", { name: "Selected requirements (1)" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Selected requirement (1)" })).toBeInTheDocument();
     expect(within(selection).getByRole("button", { name: "ac-1 Access policy" })).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "Catalog Browser" }));
     await user.click(screen.getByRole("button", { name: "Clear search and filters" }));
@@ -340,16 +344,17 @@ describe("Profile Builder", () => {
     const user = await createWorkspace();
     const navigation = screen.getByRole("complementary", { name: "Catalog navigation" });
     expect(within(navigation).getAllByRole("button")).toHaveLength(102); // 100 nodes, all requirements, load more
-    await user.click(screen.getByRole("button", { name: `Select all ${count} matches` }));
+    const localizedCount = new Intl.NumberFormat("en").format(count);
+    await user.click(screen.getByRole("button", { name: `Select all ${localizedCount} matches` }));
     if (count === 10_001) {
       expect(screen.getByRole("alert")).toHaveTextContent(/up to 10,000/);
       expect(screen.getByRole("tab", { name: "Selected Requirements (0)" })).toBeInTheDocument();
     } else {
-      expect(screen.getByRole("tab", { name: "Selected Requirements (10000)" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Selected Requirements (10,000)" })).toBeInTheDocument();
       expect(screen.getAllByRole("checkbox")).toHaveLength(50);
       expect(screen.queryByRole("button", { name: "Remove c-0" })).not.toBeInTheDocument();
-      await user.click(screen.getByRole("tab", { name: "Selected Requirements (10000)" }));
-      expect(screen.getByText("10000 matching selected requirements · 10000 total selected")).toBeInTheDocument();
+      await user.click(screen.getByRole("tab", { name: "Selected Requirements (10,000)" }));
+      expect(screen.getByText("10,000 matching selected requirements · 10,000 total selected")).toBeInTheDocument();
       expect(screen.getAllByRole("button", { name: /^Remove c-/ })).toHaveLength(50);
       await user.click(screen.getByRole("button", { name: "Next selected" }));
       expect(screen.getByRole("button", { name: "Remove c-50" })).toBeInTheDocument();

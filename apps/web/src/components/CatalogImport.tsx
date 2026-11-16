@@ -5,6 +5,8 @@ import { useRef, useState, type FormEvent } from "react";
 
 import { bffGet } from "@/lib/bff-client";
 import { ApiError, ERROR_MESSAGES, kindForStatus } from "@/lib/errors";
+import { useI18n } from "@/lib/i18n/provider";
+import type { Translate } from "@/lib/i18n";
 import type { Catalog, Paged } from "@/lib/types";
 
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
@@ -31,9 +33,13 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-async function importError(response: Response): Promise<string> {
-  if (response.status === 413) return "The file exceeds the configured upload size limit.";
-  if (response.status >= 500) return "The import may have completed. Check the Catalogs list before retrying.";
+async function importError(
+  response: Response,
+  t: Translate,
+  errorMessage: (error: unknown) => string,
+): Promise<string> {
+  if (response.status === 413) return t("catalogs.fileExceedsConfiguredLimit");
+  if (response.status >= 500) return t("catalogs.importMayHaveCompleted");
   try {
     const body = object(await response.json());
     const detail = body?.detail;
@@ -51,10 +57,12 @@ async function importError(response: Response): Promise<string> {
   } catch {
     // Use the status-based message for non-JSON responses.
   }
-  return ERROR_MESSAGES[kindForStatus(response.status)];
+  const kind = kindForStatus(response.status);
+  return errorMessage(new ApiError(kind, response.status, ERROR_MESSAGES[kind]));
 }
 
 export function CatalogImport({ tenantId }: { tenantId: string }) {
+  const { t, number, date, errorMessage } = useI18n();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -81,11 +89,11 @@ export function CatalogImport({ tenantId }: { tenantId: string }) {
     setReading(false);
     if (!selected) return;
     if (!selected.name.toLowerCase().endsWith(".json")) {
-      setError("Select an OSCAL Catalog JSON file.");
+      setError(t("catalogs.fileMustBeJson"));
       return;
     }
     if (selected.size > MAX_FILE_BYTES) {
-      setError("The file exceeds the maximum upload size of 100 MiB.");
+      setError(t("catalogs.fileExceedsUploadLimit"));
       return;
     }
     setReading(true);
@@ -94,12 +102,12 @@ export function CatalogImport({ tenantId }: { tenantId: string }) {
       if (sequence !== currentFile.current) return;
       const catalog = object(object(parsed)?.catalog);
       if (!catalog) {
-        setError("The document does not contain an OSCAL Catalog object.");
+        setError(t("catalogs.invalidCatalogDocument"));
         return;
       }
       setPreview(catalog);
     } catch {
-      if (sequence === currentFile.current) setError("The file could not be read as valid JSON.");
+      if (sequence === currentFile.current) setError(t("catalogs.invalidJson"));
     } finally {
       if (sequence === currentFile.current) setReading(false);
     }
@@ -112,7 +120,7 @@ export function CatalogImport({ tenantId }: { tenantId: string }) {
       setCatalogs(await bffGet<Paged<Catalog>>(`tenants/${tenantId}/catalogs`, { q: query, offset }));
       setLoadedSearch(query);
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : ERROR_MESSAGES.unavailable);
+      setError(errorMessage(cause));
     } finally {
       setLoadingCatalogs(false);
     }
@@ -133,14 +141,14 @@ export function CatalogImport({ tenantId }: { tenantId: string }) {
         body: file,
       });
       if (!response.ok) {
-        setError(await importError(response));
+        setError(await importError(response, t, errorMessage));
         return;
       }
       setResult(await response.json() as ImportResult);
       router.replace(`/t/${tenantId}/catalogs`, { scroll: false });
       router.refresh();
     } catch {
-      setError("The import may have completed. Check the Catalogs list before retrying.");
+      setError(t("catalogs.importMayHaveCompleted"));
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -149,76 +157,80 @@ export function CatalogImport({ tenantId }: { tenantId: string }) {
 
   const metadata = object(preview?.metadata);
   const fields: [string, string | null][] = [
-    ["Title", text(metadata?.title)],
-    ["Catalog UUID", text(preview?.uuid)],
-    ["Catalog version", text(metadata?.version)],
-    ["OSCAL specification version", text(metadata?.["oscal-version"])],
-    ["Last modified", text(metadata?.["last-modified"])],
+    [t("catalogs.title"), text(metadata?.title)],
+    [t("catalogs.catalogUuid"), text(preview?.uuid)],
+    [t("catalogs.catalogVersionField"), text(metadata?.version)],
+    [t("catalogs.oscalSpecVersionField"), text(metadata?.["oscal-version"])],
+    [t("catalogs.lastModified"), text(metadata?.["last-modified"])],
   ];
 
-  if (!open) return <button type="button" onClick={() => setOpen(true)}>Import catalog</button>;
+  if (!open) return <button type="button" onClick={() => setOpen(true)}>{t("catalogs.import")}</button>;
 
   return (
     <section className="panel catalog-import" aria-labelledby="import-heading">
-      <h2 id="import-heading">Import catalog</h2>
+      <h2 id="import-heading">{t("catalogs.import")}</h2>
       {result ? (
         <div role="status">
-          <p>{result.created ? "Import complete." : "This document already exists in the selected catalog."}</p>
-          <p>{result.catalog_name} · Revision {result.revision_number} · {result.control_count} controls</p>
-          <p>Catalog version: {result.source_version ?? "Not recorded"} · OSCAL specification version: {result.oscal_version}</p>
-          <a href={`/t/${tenantId}/catalogs/${result.catalog_id}?revision=${result.revision_id}`}>Open imported revision</a>
-          {" "}<button className="secondary" type="button" onClick={() => { setOpen(false); setResult(null); void selectFile(null); }}>Close</button>
+          <p>{result.created ? t("catalogs.importComplete") : t("catalogs.documentExists")}</p>
+          <p>{result.catalog_name} · {t("catalogs.revision", { name: number(result.revision_number) })} · {result.control_count === 1
+            ? t("catalogs.controlsCountOne", { name: number(result.control_count) })
+            : t("catalogs.controlsCountOther", { name: number(result.control_count) })}</p>
+          <p>{t("catalogs.catalogVersion")}: {result.source_version ?? t("catalogs.notRecorded")} · {t("catalogs.oscalSpecificationVersion")}: {result.oscal_version}</p>
+          <a href={`/t/${tenantId}/catalogs/${result.catalog_id}?revision=${result.revision_id}`}>{t("catalogs.openImportedRevision")}</a>
+          {" "}<button className="secondary" type="button" onClick={() => { setOpen(false); setResult(null); void selectFile(null); }}>{t("catalogs.close")}</button>
         </div>
       ) : (
         <form onSubmit={submit} className="profile-form">
-          <p>Upload an OSCAL Catalog JSON file. The server validates it against its declared OSCAL version.</p>
+          <p>{t("catalogs.uploadInstructions")}</p>
           <div className="empty" onDragOver={(event) => event.preventDefault()} onDrop={(event) => {
             event.preventDefault();
             if (!busy) void selectFile(event.dataTransfer.files[0] ?? null);
           }}>
-            <label htmlFor="catalog-file">Select or drop a JSON file</label>{" "}
+            <label htmlFor="catalog-file">{t("catalogs.selectOrDropJson")}</label>{" "}
             <input id="catalog-file" type="file" accept=".json,application/json" disabled={busy}
               onChange={(event) => { void selectFile(event.target.files?.[0] ?? null); event.target.value = ""; }} />
           </div>
-          {file ? <p>{file.name} ({file.size.toLocaleString()} bytes){" "}
-            <button type="button" className="secondary" disabled={busy} onClick={() => void selectFile(null)}>Remove file</button></p> : null}
-          {reading ? <p>Reading file…</p> : null}
+          {file ? <p>{file.name} ({number(file.size)} {t("catalogs.bytes")}){" "}
+            <button type="button" className="secondary" disabled={busy} onClick={() => void selectFile(null)}>{t("catalogs.removeFile")}</button></p> : null}
+          {reading ? <p>{t("catalogs.readingFile")}</p> : null}
           {preview ? <dl className="meta-list">{fields.filter(([, value]) => value).map(([label, value]) => (
-            <div key={label} className="import-meta-row"><dt>{label}</dt><dd>{value}</dd></div>
+            <div key={label} className="import-meta-row"><dt>{label}</dt><dd>{label === t("catalogs.lastModified") && value ? date(value) : value}</dd></div>
           ))}</dl> : null}
           <fieldset disabled={busy}>
-            <legend>Import destination</legend>
-            <label><input type="radio" name="destination" checked={mode === "new"} onChange={() => setMode("new")} /> New catalog</label>{" "}
+            <legend>{t("catalogs.importDestination")}</legend>
+            <label><input type="radio" name="destination" checked={mode === "new"} onChange={() => setMode("new")} /> {t("catalogs.newCatalog")}</label>{" "}
             <label><input type="radio" name="destination" checked={mode === "existing"} onChange={() => {
               setMode("existing");
               if (!catalogs) void loadCatalogs("");
-            }} /> New revision of an existing catalog</label>
-            <p className="muted">A new catalog is separate even if its document was imported before. Choose an existing catalog to detect duplicates within it. Existing references remain on their original revisions.</p>
+            }} /> {t("catalogs.newRevisionExisting")}</label>
+            <p className="muted">{t("catalogs.newCatalogSeparate")}</p>
             {mode === "existing" ? <>
               <div className="search-form">
-                <div className="field"><label htmlFor="target-search">Find a catalog</label>
+                <div className="field"><label htmlFor="target-search">{t("catalogs.findCatalog")}</label>
                   <input id="target-search" type="search" value={search} maxLength={200} onChange={(event) => setSearch(event.target.value)} /></div>
-                <button type="button" className="secondary" disabled={loadingCatalogs} onClick={() => void loadCatalogs(search)}>Search</button>
+                <button type="button" className="secondary" disabled={loadingCatalogs} onClick={() => void loadCatalogs(search)}>{t("catalogs.search")}</button>
               </div>
-              {loadingCatalogs ? <p>Loading catalogs…</p> : null}
+              {loadingCatalogs ? <p>{t("catalogs.loading")}</p> : null}
               {catalogs ? <>
-                <div className="field"><label htmlFor="target-catalog">Target catalog</label>
+                <div className="field"><label htmlFor="target-catalog">{t("catalogs.targetCatalog")}</label>
                   <select id="target-catalog" value={target} onChange={(event) => setTarget(event.target.value)}>
-                    <option value="">Select a catalog</option>
-                    {target && !catalogs.items.some((item) => item.id === target) ? <option value={target}>{target} (selected)</option> : null}
+                    <option value="">{t("catalogs.selectCatalog")}</option>
+                    {target && !catalogs.items.some((item) => item.id === target) ? <option value={target}>{target} ({t("catalogs.selected")})</option> : null}
                     {catalogs.items.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.id})</option>)}
                   </select>
                 </div>
-                <p>{catalogs.total} catalogs found.{" "}
-                  {catalogs.offset > 0 ? <button type="button" className="secondary" disabled={loadingCatalogs} onClick={() => void loadCatalogs(loadedSearch, Math.max(0, catalogs.offset - catalogs.limit))}>Previous</button> : null}{" "}
-                  {catalogs.offset + catalogs.limit < catalogs.total ? <button type="button" className="secondary" disabled={loadingCatalogs} onClick={() => void loadCatalogs(loadedSearch, catalogs.offset + catalogs.limit)}>Next</button> : null}</p>
+                <p>{catalogs.total === 1
+                  ? t("catalogs.catalogsFoundOne", { name: number(catalogs.total) })
+                  : t("catalogs.catalogsFoundOther", { name: number(catalogs.total) })}{" "}
+                  {catalogs.offset > 0 ? <button type="button" className="secondary" disabled={loadingCatalogs} onClick={() => void loadCatalogs(loadedSearch, Math.max(0, catalogs.offset - catalogs.limit))}>{t("catalogs.previous")}</button> : null}{" "}
+                  {catalogs.offset + catalogs.limit < catalogs.total ? <button type="button" className="secondary" disabled={loadingCatalogs} onClick={() => void loadCatalogs(loadedSearch, catalogs.offset + catalogs.limit)}>{t("catalogs.next")}</button> : null}</p>
               </> : null}
             </> : null}
           </fieldset>
           {error ? <div role="alert" className="alert" style={{ whiteSpace: "pre-wrap" }}>{error}</div> : null}
           <div className="workspace-actions">
-            <button type="submit" disabled={!preview || reading || busy || (mode === "existing" && !target)}>{busy ? "Importing…" : "Import catalog"}</button>
-            <button type="button" className="secondary" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
+            <button type="submit" disabled={!preview || reading || busy || (mode === "existing" && !target)}>{busy ? t("catalogs.importing") : t("catalogs.import")}</button>
+            <button type="button" className="secondary" disabled={busy} onClick={() => setOpen(false)}>{t("catalogs.cancel")}</button>
           </div>
         </form>
       )}

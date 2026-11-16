@@ -6,6 +6,7 @@ import { listTenants } from "@/lib/api";
 import { ApiError } from "@/lib/errors";
 import { requireSession } from "@/lib/auth";
 import { isUuid } from "@/lib/safe";
+import { getI18n } from "@/lib/i18n/server";
 
 export default async function TenantLayout({
   children,
@@ -14,9 +15,10 @@ export default async function TenantLayout({
   children: ReactNode;
   params: Promise<{ tenantId: string }>;
 }) {
+  const { t } = await getI18n();
   const { tenantId } = await params;
   const session = await requireSession(`/t/${tenantId}/catalogs`);
-  const userName = session.name ?? session.email ?? "Signed in";
+  const userName = session.name ?? session.email ?? t("auth.signedIn");
   const demoMode = "kind" in session && session.kind === "demo";
 
   let tenants;

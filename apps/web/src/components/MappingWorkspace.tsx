@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { bffGet, bffWrite } from "@/lib/bff-client";
+import { useI18n } from "@/lib/i18n/provider";
+import type { Translate } from "@/lib/i18n";
 import { MappingControlDetails, MappingControlPicker } from "@/components/MappingControlPicker";
 import type {
   Catalog,
@@ -18,17 +20,17 @@ import type {
 } from "@/lib/types";
 
 const RELATIONSHIPS = [
-  ["equal-to", "Equal to"],
-  ["equivalent-to", "Equivalent to"],
-  ["subset-of", "Subset of"],
-  ["superset-of", "Superset of"],
-  ["intersects-with", "Intersects with"],
-  ["no-relationship", "No relationship"],
+  ["equal-to", "mappings.equalTo"],
+  ["equivalent-to", "mappings.equivalentTo"],
+  ["subset-of", "mappings.subsetOf"],
+  ["superset-of", "mappings.supersetOf"],
+  ["intersects-with", "mappings.intersectsWith"],
+  ["no-relationship", "mappings.noRelationship"],
 ] as const;
 const RATIONALES = [
-  ["syntactic", "Syntactic"],
-  ["semantic", "Semantic"],
-  ["functional", "Functional"],
+  ["syntactic", "mappings.rationaleSyntactic"],
+  ["semantic", "mappings.rationaleSemantic"],
+  ["functional", "mappings.rationaleFunctional"],
 ] as const;
 
 interface DraftEntry extends MappingEntryInput {
@@ -79,6 +81,7 @@ export function MappingWorkspace({
   canWrite: boolean;
   initialCollection: MappingCollection | null;
 }) {
+  const { t, number, enumLabel, errorMessage } = useI18n();
   const router = useRouter();
   const [collection, setCollection] = useState(initialCollection);
   const [title, setTitle] = useState(initialCollection?.title ?? "");
@@ -145,10 +148,10 @@ export function MappingWorkspace({
       if (!link || link.getAttribute("href")?.startsWith("#") ||
           link.getAttribute("target") === "_blank" || link.hasAttribute("download") ||
           event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;
-      if (busy || !window.confirm("Discard unsaved mapping changes?")) event.preventDefault();
+      if (busy || !window.confirm(t("mappings.discardChanges"))) event.preventDefault();
     };
     const submit = (event: SubmitEvent) => {
-      if (busy || !window.confirm("Discard unsaved mapping changes?")) event.preventDefault();
+      if (busy || !window.confirm(t("mappings.discardChanges"))) event.preventDefault();
     };
     window.addEventListener("beforeunload", unload);
     document.addEventListener("click", navigate, true);
@@ -158,7 +161,7 @@ export function MappingWorkspace({
       document.removeEventListener("click", navigate, true);
       document.removeEventListener("submit", submit, true);
     };
-  }, [dirty, busy]);
+  }, [dirty, busy, t]);
 
   async function loadMoreCatalogs() {
     setCatalogLoading(true);
@@ -170,7 +173,7 @@ export function MappingWorkspace({
       });
       setCatalogOptions((current) => [...current, ...result.items]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to load additional catalogs.");
+      setError(errorMessage(cause) || t("mappings.loadMoreCatalogsError"));
     } finally {
       setCatalogLoading(false);
     }
@@ -203,73 +206,73 @@ export function MappingWorkspace({
       const savedPairs = saved.mappings.map((pair) => initialPair(pair));
       setPairs(savedPairs);
       setBaseline(mappingSnapshot(saved.title, saved.description, savedPairs));
-      setStatus("Mapping collection saved.");
+      setStatus(t("mappings.savedNotice"));
       window.history.replaceState(null, "", `/t/${tenantId}/mappings/${saved.id}`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to save this mapping collection.");
+      setError(errorMessage(cause) || t("mappings.saveError"));
     } finally {
       setBusy(false);
     }
   }
 
   async function removeCollection() {
-    if (!collection || !window.confirm(`Delete “${collection.title}” and its mappings?`)) return;
+    if (!collection || !window.confirm(t("mappings.deleteConfirm", { name: collection.title }))) return;
     setBusy(true);
     setError(null);
     try {
       await bffWrite("DELETE", `tenants/${tenantId}/mapping-collections/${collection.id}`, {});
       router.push(`/t/${tenantId}/mappings`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to delete this mapping collection.");
+      setError(errorMessage(cause) || t("mappings.deleteError"));
       setBusy(false);
     }
   }
 
   return <div className="mapping-workspace">
     <header className="panel mapping-workspace-header">
-      <nav className="breadcrumbs" aria-label="Breadcrumb">
-        <a href={`/t/${tenantId}/mappings`}>Control mappings</a> › <span aria-current="page">Workspace</span>
+      <nav className="breadcrumbs" aria-label={t("mappings.breadcrumb")}>
+        <a href={`/t/${tenantId}/mappings`}>{t("mappings.navigation")}</a> › <span aria-current="page">{t("mappings.workspace")}</span>
       </nav>
       <div className="mapping-workspace-heading">
-        <h1>Control mapping workspace</h1>
+        <h1>{t("mappings.workspaceTitle")}</h1>
         {collection ? <span className="badge">OSCAL {collection.oscal_version}</span> : null}
-        <span role="status" className="save-status">{busy ? "Saving…" : dirty ? "Unsaved changes" : status ?? (collection ? "Saved" : "Not saved")}</span>
+        <span role="status" className="save-status">{busy ? t("mappings.saving") : dirty ? t("mappings.unsavedChanges") : status ?? (collection ? t("mappings.saved") : t("mappings.notSaved"))}</span>
       </div>
       <div className="mapping-workspace-primary">
         <fieldset className="mapping-collection-fields" disabled={!canWrite || busy}>
-          <label className="field">Collection title
+          <label className="field">{t("mappings.collectionTitle")}
             <input maxLength={255} value={title} onChange={(event) => setTitle(event.target.value)}
               aria-invalid={!title.trim()} />
           </label>
-          <label className="field">Description
+          <label className="field">{t("mappings.description")}
             <textarea maxLength={10000} rows={2} value={description} onChange={(event) => setDescription(event.target.value)} />
           </label>
         </fieldset>
         <div className="mapping-primary-actions">
-          {collection && !dirty ? <a className="button secondary" href={`/bff/tenants/${tenantId}/mapping-collections/${collection.id}/export`}>Export OSCAL JSON</a> : collection ? <span className="muted">Save changes before exporting.</span> : null}
-          {canWrite ? <button type="button" disabled={busy || !valid || !dirty} onClick={() => void save()}>{busy ? "Saving…" : collection ? "Save changes" : "Create collection"}</button> : null}
+          {collection && !dirty ? <a className="button secondary" href={`/bff/tenants/${tenantId}/mapping-collections/${collection.id}/export`}>{t("mappings.exportJson")}</a> : collection ? <span className="muted">{t("mappings.saveBeforeExport")}</span> : null}
+          {canWrite ? <button type="button" disabled={busy || !valid || !dirty} onClick={() => void save()}>{busy ? t("mappings.saving") : collection ? t("mappings.saveChanges") : t("mappings.createCollection")}</button> : null}
         </div>
       </div>
-      <p className="mapping-context">Map relationships between pinned normative control sets. Matching rationale explains why the sets are related; it does not describe how the mapping was produced. Mapping entries do not imply implementation or compliance status.</p>
+      <p className="mapping-context">{t("mappings.context")}</p>
       {error ? <p role="alert" className="alert">{error}</p> : null}
-      {!valid ? <ul className="muted mapping-validation" aria-label="What is needed to save">
-        {mappingValidationMessages(title, pairs).map((message) => <li key={message}>{message}</li>)}
+      {!valid ? <ul className="muted mapping-validation" aria-label={t("mappings.saveRequirements")}>
+        {mappingValidationMessages(title, pairs, t, number).map((message) => <li key={message}>{message}</li>)}
       </ul> : null}
       {canWrite && collection ? <details className="mapping-danger-zone">
-        <summary>Collection settings and destructive actions</summary>
-        <p>Deleting the collection permanently removes its mapping entries.</p>
-        <button type="button" className="danger-action" disabled={busy} onClick={() => void removeCollection()}>Delete collection</button>
+        <summary>{t("mappings.collectionSettings")}</summary>
+        <p>{t("mappings.deleteCollectionWarning")}</p>
+        <button type="button" className="danger-action" disabled={busy} onClick={() => void removeCollection()}>{t("mappings.deleteCollection")}</button>
         <dl className="meta-list mapping-collection-meta">
-          <dt>Stable collection identity</dt><dd className="mono">{collection.id}</dd>
-          <dt>OSCAL document UUID</dt><dd className="mono">{collection.oscal_document_uuid}</dd>
-          <dt>Version</dt><dd>{collection.version}</dd>
+          <dt>{t("mappings.stableCollectionIdentity")}</dt><dd className="mono">{collection.id}</dd>
+          <dt>{t("mappings.oscalDocumentUuid")}</dt><dd className="mono">{collection.oscal_document_uuid}</dd>
+          <dt>{t("mappings.version")}</dt><dd>{collection.version}</dd>
         </dl>
       </details> : collection ? <details className="mapping-danger-zone">
-        <summary>Technical collection details</summary>
+        <summary>{t("mappings.technicalDetails")}</summary>
         <dl className="meta-list mapping-collection-meta">
-          <dt>Stable collection identity</dt><dd className="mono">{collection.id}</dd>
-          <dt>OSCAL document UUID</dt><dd className="mono">{collection.oscal_document_uuid}</dd>
-          <dt>Version</dt><dd>{collection.version}</dd>
+          <dt>{t("mappings.stableCollectionIdentity")}</dt><dd className="mono">{collection.id}</dd>
+          <dt>{t("mappings.oscalDocumentUuid")}</dt><dd className="mono">{collection.oscal_document_uuid}</dd>
+          <dt>{t("mappings.version")}</dt><dd>{collection.version}</dd>
         </dl>
       </details> : null}
     </header>
@@ -307,10 +310,10 @@ export function MappingWorkspace({
         target_revision_id: "",
         entries: [],
       }])
-    }>Add catalog pair</button> : null}
+    }>{t("mappings.addCatalogPair")}</button> : null}
     {catalogOptions.length < catalogTotal ? <button type="button" className="secondary"
       disabled={catalogLoading} onClick={() => void loadMoreCatalogs()}>
-      {catalogLoading ? "Loading catalogs…" : `Load more catalogs (${catalogTotal - catalogOptions.length} remaining)`}
+      {catalogLoading ? t("mappings.loadingCatalogs") : t("mappings.loadMoreCatalogs", { count: number(catalogTotal - catalogOptions.length) })}
     </button> : null}
   </div>;
 }
@@ -326,23 +329,23 @@ function mappingSnapshot(title: string, description: string, pairs: DraftPair[])
   });
 }
 
-function mappingValidationMessages(title: string, pairs: DraftPair[]): string[] {
+function mappingValidationMessages(title: string, pairs: DraftPair[], t: Translate, number: (value: number) => string): string[] {
   const messages: string[] = [];
-  if (!title.trim()) messages.push("Enter a collection title.");
-  if (pairs.length === 0) messages.push("Add a catalog pair.");
+  if (!title.trim()) messages.push(t("mappings.enterCollectionTitle"));
+  if (pairs.length === 0) messages.push(t("mappings.addCatalogPairValidation"));
   pairs.forEach((pair, index) => {
-    const side = `Catalog pair ${index + 1}`;
+    const side = t("mappings.catalogPair", { number: number(index + 1) });
     if (!pair.source_catalog_id || !pair.source_revision_id || !pair.target_catalog_id || !pair.target_revision_id) {
-      messages.push(`${side}: select a source and target catalog revision.`);
+      messages.push(t("mappings.selectCatalogRevisions", { name: side }));
     }
     if (pair.entries.length === 0) {
-      messages.push(`${side}: add at least one mapping entry.`);
+      messages.push(t("mappings.addMappingEntryValidation", { name: side }));
     }
     if (pair.entries.some((entry) =>
       entry.sources.length === 0 || entry.targets.length === 0 ||
       !RELATIONSHIPS.some(([value]) => value === entry.relationship) ||
       !RATIONALES.some(([value]) => value === entry.matching_rationale))) {
-      messages.push(`${side}: complete each entry's control sets, relationship, and matching rationale.`);
+      messages.push(t("mappings.completeMappingEntry", { name: side }));
     }
   });
   return messages;
@@ -375,14 +378,14 @@ function sameControlSet(
   return leftIds.length === rightIds.length && leftIds.every((id, index) => id === rightIds[index]);
 }
 
-function relationshipDescription(relationship: MappingEntryInput["relationship"]): string {
+function relationshipDescription(relationship: MappingEntryInput["relationship"], t: Translate): string {
   switch (relationship) {
-    case "equal-to": return "Source set is equal to Target set";
-    case "equivalent-to": return "Source set is equivalent to Target set";
-    case "subset-of": return "Source set is a subset of Target set";
-    case "superset-of": return "Source set is a superset of Target set";
-    case "intersects-with": return "Source set intersects with Target set";
-    case "no-relationship": return "Source set has no relationship to Target set";
+    case "equal-to": return t("mappings.relationshipEqualTo");
+    case "equivalent-to": return t("mappings.relationshipEquivalentTo");
+    case "subset-of": return t("mappings.relationshipSubsetOf");
+    case "superset-of": return t("mappings.relationshipSupersetOf");
+    case "intersects-with": return t("mappings.relationshipIntersectsWith");
+    case "no-relationship": return t("mappings.relationshipNoRelationship");
   }
 }
 
@@ -400,6 +403,7 @@ function MappingPairEditor({
   onRemove: () => void;
   canRemove: boolean;
 }) {
+  const { t, number, enumLabel, errorMessage } = useI18n();
   const [sourceControls, setSourceControls] = useState<string[]>([]);
   const [targetControls, setTargetControls] = useState<string[]>([]);
   const [sourceControlTitles, setSourceControlTitles] = useState<Record<string, string>>({});
@@ -436,10 +440,10 @@ function MappingPairEditor({
       })
       .catch((cause: unknown) => { if (!controller.signal.aborted) setRevisionErrors((current) => ({
         ...current,
-        [pair.source_catalog_id]: cause instanceof Error ? cause.message : "Unable to load source revisions.",
+        [pair.source_catalog_id]: errorMessage(cause) || t("mappings.loadSourceRevisionsError"),
       })); });
     return () => controller.abort();
-  }, [tenantId, pair.source_catalog_id]);
+  }, [tenantId, pair.source_catalog_id, errorMessage, t]);
 
   useEffect(() => {
     if (!pair.target_catalog_id) return;
@@ -455,10 +459,10 @@ function MappingPairEditor({
       })
       .catch((cause: unknown) => { if (!controller.signal.aborted) setRevisionErrors((current) => ({
         ...current,
-        [pair.target_catalog_id]: cause instanceof Error ? cause.message : "Unable to load target revisions.",
+        [pair.target_catalog_id]: errorMessage(cause) || t("mappings.loadTargetRevisionsError"),
       })); });
     return () => controller.abort();
-  }, [tenantId, pair.target_catalog_id]);
+  }, [tenantId, pair.target_catalog_id, errorMessage, t]);
 
   function update(patch: Partial<DraftPair>) {
     onChange({ ...pair, ...patch });
@@ -499,7 +503,7 @@ function MappingPairEditor({
     } catch (cause) {
       setRevisionErrors((currentErrors) => ({
         ...currentErrors,
-        [catalogId]: cause instanceof Error ? cause.message : "Unable to load additional catalog revisions.",
+        [catalogId]: errorMessage(cause) || t("mappings.loadMoreRevisionsError"),
       }));
     } finally {
       setLoadingMore(null);
@@ -542,7 +546,7 @@ function MappingPairEditor({
         existing.justification.trim() === entry.justification &&
         sameControlSet(existing.sources, entry.sources) &&
         sameControlSet(existing.targets, entry.targets)));
-    if (duplicate && !window.confirm("An identical mapping entry already exists for these pinned catalog revisions. Add another copy anyway?")) return;
+    if (duplicate && !window.confirm(t("mappings.duplicateConfirm"))) return;
     const entries = editingKey
       ? pair.entries.map((item) => item.key === editingKey ? entry : item)
       : [...pair.entries, entry];
@@ -570,39 +574,39 @@ function MappingPairEditor({
   return <details className="mapping-pair" open={pairExpanded}
     onToggle={(event) => setPairExpanded(event.currentTarget.open)}>
     <summary className="mapping-pair-summary">
-      <span className="mapping-pair-summary-title">Catalog pair {pairNumber}</span>
-      <span>{sourceCatalog?.name || "Choose source"}{sourceRevision ? ` · rev ${sourceRevision.revision_number}${sourceRevision.source_version ? ` (v${sourceRevision.source_version})` : ""}` : ""}</span>
+      <span className="mapping-pair-summary-title">{t("mappings.catalogPair", { number: number(pairNumber) })}</span>
+      <span>{sourceCatalog?.name || t("mappings.chooseSource")}{sourceRevision ? ` · ${t("mappings.revisionShort")} ${number(sourceRevision.revision_number)}${sourceRevision.source_version ? ` (v${sourceRevision.source_version})` : ""}` : ""}</span>
       <span aria-hidden="true">→</span>
-      <span>{targetCatalog?.name || "Choose target"}{targetRevision ? ` · rev ${targetRevision.revision_number}${targetRevision.source_version ? ` (v${targetRevision.source_version})` : ""}` : ""}</span>
-      <span className="badge">{pair.entries.length} {pair.entries.length === 1 ? "mapping" : "mappings"}</span>
+      <span>{targetCatalog?.name || t("mappings.chooseTarget")}{targetRevision ? ` · ${t("mappings.revisionShort")} ${number(targetRevision.revision_number)}${targetRevision.source_version ? ` (v${targetRevision.source_version})` : ""}` : ""}</span>
+      <span className="badge">{number(pair.entries.length)} {t(pair.entries.length === 1 ? "mappings.mappingSingular" : "mappings.mappingPlural")}</span>
     </summary>
     <div className="mapping-pair-content">
       {canRemove ? <div className="workspace-actions mapping-pair-actions">
-        <button type="button" className="secondary" disabled={!canWrite} onClick={onRemove}>Remove catalog pair</button>
+        <button type="button" className="secondary" disabled={!canWrite} onClick={onRemove}>{t("mappings.pairRemove")}</button>
       </div> : null}
     <div className="mapping-pair-revisions">
       <fieldset disabled={!canWrite || locked}>
-        <legend>Source catalog revision</legend>
-        <label className="field">Catalog
+        <legend>{t("mappings.sourceRevision")}</legend>
+        <label className="field">{t("mappings.catalog")}
           <select value={pair.source_catalog_id} onChange={(event) => update({ source_catalog_id: event.target.value, source_revision_id: "" })}>
-            <option value="">Choose source catalog</option>
+            <option value="">{t("mappings.chooseSourceCatalog")}</option>
             {catalogs.map((catalog) => <option key={catalog.id} value={catalog.id}>{catalog.name}</option>)}
           </select>
         </label>
-        <RevisionSelect catalogName={sourceCatalog?.name ?? "source"} selected={pair.source_revision_id}
+        <RevisionSelect catalogName={sourceCatalog?.name ?? t("mappings.source")} selected={pair.source_revision_id} t={t} number={number} enumLabel={enumLabel}
           revisions={sourceRevisions} onChange={(id) => update({ source_revision_id: id })}
           hasMore={sourceRevisionTotal > sourceRevisions.length} loading={loadingMore === "source"}
           onLoadMore={() => void loadMoreRevisions("source")} />
       </fieldset>
       <fieldset disabled={!canWrite || locked}>
-        <legend>Target catalog revision</legend>
-        <label className="field">Catalog
+        <legend>{t("mappings.targetRevision")}</legend>
+        <label className="field">{t("mappings.catalog")}
           <select value={pair.target_catalog_id} onChange={(event) => update({ target_catalog_id: event.target.value, target_revision_id: "" })}>
-            <option value="">Choose target catalog</option>
+            <option value="">{t("mappings.chooseTargetCatalog")}</option>
             {catalogs.map((catalog) => <option key={catalog.id} value={catalog.id}>{catalog.name}</option>)}
           </select>
         </label>
-        <RevisionSelect catalogName={targetCatalog?.name ?? "target"} selected={pair.target_revision_id}
+        <RevisionSelect catalogName={targetCatalog?.name ?? t("mappings.target")} selected={pair.target_revision_id} t={t} number={number} enumLabel={enumLabel}
           revisions={targetRevisions} onChange={(id) => update({ target_revision_id: id })}
           hasMore={targetRevisionTotal > targetRevisions.length} loading={loadingMore === "target"}
           onLoadMore={() => void loadMoreRevisions("target")} />
@@ -612,72 +616,72 @@ function MappingPairEditor({
     {pair.source_catalog_id && pair.source_revision_id && pair.target_catalog_id && pair.target_revision_id ? <>
       <div className="mapping-control-columns">
         <MappingControlPicker tenantId={tenantId} catalogId={pair.source_catalog_id} revisionId={pair.source_revision_id}
-          label={`Source · ${sourceCatalog?.name ?? "catalog"}`} selected={sourceControls}
+          label={`${t("mappings.source")} · ${sourceCatalog?.name ?? t("mappings.catalog")}`} selected={sourceControls}
           onChange={(ids) => { setSourceControls(ids); reportDraft({ sourceControls: ids }); }}
           onControlTitles={setSourceControlTitles} disabled={!canWrite} />
         <MappingControlPicker tenantId={tenantId} catalogId={pair.target_catalog_id} revisionId={pair.target_revision_id}
-          label={`Target · ${targetCatalog?.name ?? "catalog"}`} selected={targetControls}
+          label={`${t("mappings.target")} · ${targetCatalog?.name ?? t("mappings.catalog")}`} selected={targetControls}
           onChange={(ids) => { setTargetControls(ids); reportDraft({ targetControls: ids }); }}
           onControlTitles={setTargetControlTitles} disabled={!canWrite} />
       </div>
       <fieldset className="mapping-entry-form" disabled={!canWrite}>
-        <legend>{editingKey ? "Editing existing mapping entry" : "Create a new mapping entry"}</legend>
-        <p className="muted">The assertion applies to both selected sets as a whole; this does not create individual pairwise mappings.</p>
+        <legend>{editingKey ? t("mappings.editEntry") : t("mappings.createEntry")}</legend>
+        <p className="muted">{t("mappings.assertionScope")}</p>
         <div className="mapping-entry-selection">
-          <strong>Selected source set ({sourceControls.length})</strong>
-          <span>{sourceControls.map((id) => mappingControlDisplay(id, sourceControlTitles)).join(", ") || "Select source controls above"}</span>
-          <strong>Selected target set ({targetControls.length})</strong>
-          <span>{targetControls.map((id) => mappingControlDisplay(id, targetControlTitles)).join(", ") || "Select target controls above"}</span>
+          <strong>{t("mappings.selectedSourceSet", { count: number(sourceControls.length) })}</strong>
+          <span>{sourceControls.map((id) => mappingControlDisplay(id, sourceControlTitles)).join(", ") || t("mappings.selectSourceControls")}</span>
+          <strong>{t("mappings.selectedTargetSet", { count: number(targetControls.length) })}</strong>
+          <span>{targetControls.map((id) => mappingControlDisplay(id, targetControlTitles)).join(", ") || t("mappings.selectTargetControls")}</span>
         </div>
         <div className="mapping-pair-revisions">
-          <label className="field">Relationship
+          <label className="field">{t("mappings.relationship")}
             <select required value={relationship} aria-invalid={!relationship}
               onChange={(event) => {
                 const value = event.target.value as MappingEntryInput["relationship"] | "";
                 setRelationship(value);
                 reportDraft({ relationship: value });
               }}>
-              <option value="">Choose relationship</option>
-              {RELATIONSHIPS.map(([value, name]) => <option key={value} value={value}>{name}</option>)}
+              <option value="">{t("mappings.chooseRelationship")}</option>
+              {RELATIONSHIPS.map(([value, key]) => <option key={value} value={value}>{t(key)} ({value})</option>)}
             </select>
           </label>
-          <label className="field">Matching rationale
+          <label className="field">{t("mappings.matchingRationale")}
             <select value={rationale} onChange={(event) => setRationale(event.target.value as MappingEntryInput["matching_rationale"])}>
-              {RATIONALES.map(([value, name]) => <option key={value} value={value}>{name}</option>)}
+              {RATIONALES.map(([value, key]) => <option key={value} value={value}>{t(key)} ({value})</option>)}
             </select>
           </label>
         </div>
-        <label className="field">Justification
+        <label className="field">{t("mappings.justification")}
           <textarea rows={3} maxLength={10000} value={justification} onChange={(event) => {
             setJustification(event.target.value);
             reportDraft({ justification: event.target.value });
           }}
-            placeholder="Describe the basis for this relationship." />
+            placeholder={t("mappings.justificationPlaceholder")} />
         </label>
         <div className="workspace-actions">
           <button type="button" disabled={!sourceControls.length || !targetControls.length || !relationship}
-            onClick={addOrUpdateEntry}>{editingKey ? "Update mapping entry" : "Add mapping entry"}</button>
-          {editingKey ? <button type="button" className="secondary" onClick={cancelEdit}>Cancel edit</button> : null}
-          {relationship ? <span className="mapping-direction" role="status">{relationshipDescription(relationship)}</span> : null}
-          {!relationship ? <span className="muted">Choose a relationship to enable this entry.</span> : null}
+            onClick={addOrUpdateEntry}>{editingKey ? t("mappings.updateEntry") : t("mappings.addEntry")}</button>
+          {editingKey ? <button type="button" className="secondary" onClick={cancelEdit}>{t("mappings.cancelEdit")}</button> : null}
+          {relationship ? <span className="mapping-direction" role="status">{relationshipDescription(relationship, t)} ({relationship})</span> : null}
+          {!relationship ? <span className="muted">{t("mappings.chooseRelationshipHint")}</span> : null}
         </div>
       </fieldset>
-    </> : <p className="muted">Select a source and target catalog revision to browse controls.</p>}
+    </> : <p className="muted">{t("mappings.selectRevisionsHint")}</p>}
 
-    <h3>Mapping entries ({pair.entries.length})</h3>
-    {pair.entries.length === 0 ? <p className="empty">No mappings added yet.</p> : <ul className="mapping-entry-list">
+    <h3>{t("mappings.entriesCount", { count: number(pair.entries.length) })}</h3>
+    {pair.entries.length === 0 ? <p className="empty">{t("mappings.noMappings")}</p> : <ul className="mapping-entry-list">
       {pair.entries.map((entry) => <li key={entry.key}>
         <div className="mapping-entry-content">
           <div className="mapping-entry-direction">
-            <span className="mapping-entry-set"><strong>Source set ({entry.sources.length})</strong>
+            <span className="mapping-entry-set"><strong>{t("mappings.sourceSetCount", { count: number(entry.sources.length) })}</strong>
               {entry.sources.map((value, index) => <span key={`${mappingControlLabel(value)}-${index}`} className="mapping-overview-control">
                 <span><span className="mono">{mappingControlId(value)}</span>{sourceControlTitles[mappingControlId(value)] ? ` — ${sourceControlTitles[mappingControlId(value)]}` : ""}</span>
                 <MappingControlDetails tenantId={tenantId} catalogId={pair.source_catalog_id}
                   revisionId={pair.source_revision_id} controlId={mappingControlId(value)} />
               </span>)}
             </span>
-            <span className="mapping-relation-label">{relationshipDescription(entry.relationship as MappingEntryInput["relationship"])}</span>
-            <span className="mapping-entry-set"><strong>Target set ({entry.targets.length})</strong>
+            <span className="mapping-relation-label">{relationshipDescription(entry.relationship as MappingEntryInput["relationship"], t)} ({entry.relationship})</span>
+            <span className="mapping-entry-set"><strong>{t("mappings.targetSetCount", { count: number(entry.targets.length) })}</strong>
               {entry.targets.map((value, index) => <span key={`${mappingControlLabel(value)}-${index}`} className="mapping-overview-control">
                 <span><span className="mono">{mappingControlId(value)}</span>{targetControlTitles[mappingControlId(value)] ? ` — ${targetControlTitles[mappingControlId(value)]}` : ""}</span>
                 <MappingControlDetails tenantId={tenantId} catalogId={pair.target_catalog_id}
@@ -685,26 +689,26 @@ function MappingPairEditor({
               </span>)}
             </span>
           </div>
-          <p><strong>Matching rationale:</strong> {entry.matching_rationale}</p>
+          <p><strong>{t("mappings.matchingRationaleLabel")}</strong> {t(entry.matching_rationale === "syntactic" ? "mappings.rationaleSyntactic" : entry.matching_rationale === "functional" ? "mappings.rationaleFunctional" : "mappings.rationaleSemantic")} ({entry.matching_rationale})</p>
           {entry.justification ? <details className="mapping-justification">
-            <summary>Justification</summary><p>{entry.justification}</p>
+            <summary>{t("mappings.justification")}</summary><p>{entry.justification}</p>
           </details> : null}
         </div>
         {canWrite ? <div className="workspace-actions">
-          <button type="button" className="secondary" onClick={() => beginEdit(entry)}>Edit</button>
+          <button type="button" className="secondary" onClick={() => beginEdit(entry)}>{t("mappings.edit")}</button>
           <button type="button" className="secondary" onClick={() => {
             update({ entries: pair.entries.filter((item) => item.key !== entry.key) });
             if (editingKey === entry.key) cancelEdit();
-          }}>Remove</button>
+          }}>{t("mappings.remove")}</button>
         </div> : null}
       </li>)}
     </ul>}
-    {locked ? <p className="muted">Pinned revisions cannot be changed while this pair contains entries. Remove all entries first to choose different revisions.</p> : null}
+    {locked ? <p className="muted">{t("mappings.pinnedLock")}</p> : null}
     <details className="mapping-pair-technical">
-      <summary>Technical revision identifiers</summary>
+      <summary>{t("mappings.technicalRevisionIds")}</summary>
       <dl className="meta-list">
-        <dt>Source revision UUID</dt><dd className="mono">{pair.source_revision_id || "Not selected"}</dd>
-        <dt>Target revision UUID</dt><dd className="mono">{pair.target_revision_id || "Not selected"}</dd>
+        <dt>{t("mappings.sourceRevisionUuid")}</dt><dd className="mono">{pair.source_revision_id || t("mappings.notSelected")}</dd>
+        <dt>{t("mappings.targetRevisionUuid")}</dt><dd className="mono">{pair.target_revision_id || t("mappings.notSelected")}</dd>
       </dl>
     </details>
     </div>
@@ -712,7 +716,7 @@ function MappingPairEditor({
 }
 
 function RevisionSelect({
-  catalogName, selected, revisions, onChange, hasMore, loading, onLoadMore,
+  catalogName, selected, revisions, onChange, hasMore, loading, onLoadMore, t, number, enumLabel,
 }: {
   catalogName: string;
   selected: string;
@@ -721,20 +725,23 @@ function RevisionSelect({
   hasMore: boolean;
   loading: boolean;
   onLoadMore: () => void;
+  t: Translate;
+  number: (value: number) => string;
+  enumLabel: (value: string) => string;
 }) {
   return <div>
-    <label className="field">Revision
+    <label className="field">{t("mappings.revision")}
       <select value={selected} disabled={!revisions.length} onChange={(event) => onChange(event.target.value)}>
-        <option value="">Choose {catalogName} revision</option>
+        <option value="">{t("mappings.chooseRevision", { name: catalogName })}</option>
         {selected && !revisions.some((item) => item.id === selected)
-          ? <option value={selected}>Pinned revision (details unavailable)</option> : null}
+          ? <option value={selected}>{t("mappings.pinnedUnavailable")}</option> : null}
         {revisions.map((revision) => <option key={revision.id} value={revision.id}>
-          Revision {revision.revision_number}{revision.source_version ? ` (v${revision.source_version})` : ""} · {revision.lifecycle_status}
+          {t("mappings.revision", { number: number(revision.revision_number) })}{revision.source_version ? ` (v${revision.source_version})` : ""} · {enumLabel(revision.lifecycle_status)}
         </option>)}
       </select>
     </label>
     {hasMore ? <button type="button" className="secondary" disabled={loading} onClick={onLoadMore}>
-      {loading ? "Loading revisions…" : "Load more revisions"}
+      {loading ? t("mappings.loadingRevisions") : t("mappings.loadMoreRevisions")}
     </button> : null}
   </div>;
 }

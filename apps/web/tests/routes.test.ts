@@ -37,6 +37,16 @@ beforeEach(() => {
 });
 
 describe("logout", () => {
+  it("does not clear the independent language preference", async () => {
+    mocks.readSession.mockResolvedValue(session);
+    mocks.endSession.mockResolvedValue(new URL("http://localhost:8080/realms/test/logout"));
+    const res = await logout(new NextRequest("http://localhost:3000/auth/logout", {
+      method: "POST",
+      headers: { origin: "http://localhost:3000", cookie: "co_session.0=abc; co_locale=de" },
+    }));
+    expect(res.headers.getSetCookie().join(";")).not.toContain("co_locale");
+  });
+
   it("rejects cross-origin requests without touching the session", async () => {
     const res = await logout(new NextRequest("http://localhost:3000/auth/logout", { method: "POST", headers: { origin: "https://evil.example" } }));
     expect(res.status).toBe(403);
@@ -58,6 +68,17 @@ describe("logout", () => {
     const cleared = res.headers.getSetCookie().join(";");
     expect(cleared).toMatch(/co_session\.0=;/);
     expect(cleared).toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/);
+  });
+});
+
+describe("locale during session expiry", () => {
+  it("preserves only the validated preference when stripping expired request cookies", async () => {
+    mocks.readSession.mockResolvedValue(null);
+    const res = await proxy(new NextRequest("http://localhost:3000/", {
+      headers: { cookie: "co_session.0=expired; co_locale=de; unrelated=value" },
+    }));
+    expect(res.headers.get("x-middleware-request-cookie")).toBe("co_locale=de");
+    expect(res.headers.getSetCookie().join(";")).not.toContain("co_locale");
   });
 });
 

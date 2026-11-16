@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type Keyboard
 
 import { bffGet } from "@/lib/bff-client";
 import { ApiError, ERROR_MESSAGES } from "@/lib/errors";
+import { useI18n } from "@/lib/i18n/provider";
 import type { ControlDetail, ControlListItem, OutlineNode, Paged, RelatedMapping } from "@/lib/types";
 
 import { ControlDetailView } from "./ControlDetailView";
@@ -35,6 +36,7 @@ function nodeKey(node: OutlineNode): string {
 }
 
 export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, initialControl, documentedControlIds }: Props) {
+  const { t, number, errorMessage } = useI18n();
   const base = `tenants/${tenantId}/catalogs/${catalogId}/revisions/${revisionId}`;
   const searchId = useId();
   const treeLabelId = useId();
@@ -72,20 +74,20 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
         let total: number;
         do {
           const page = await bffGet<Paged<ControlListItem>>(`${base}/controls`, { limit: 200, offset: items.length }, controller.signal);
-          if (!page.items.length && items.length < page.total) throw new Error("Unable to load all baseline controls.");
+          if (!page.items.length && items.length < page.total) throw new Error(t("controls.unableLoadBaseline"));
           items.push(...page.items);
           total = page.total;
         } while (items.length < total);
         setAllControls(items);
       } catch (cause) {
-        if (!controller.signal.aborted) setError(cause instanceof ApiError ? cause : new ApiError("unavailable", 0, "Unable to load baseline controls."));
+        if (!controller.signal.aborted) setError(cause instanceof ApiError ? cause : new ApiError("unavailable", 0, t("controls.unableLoadBaseline")));
       } finally {
         if (!controller.signal.aborted) setCoverageLoading(false);
       }
     }
     void loadControls();
     return () => controller.abort();
-  }, [coverage, allControls, base]);
+  }, [coverage, allControls, base, t]);
   const documented = useMemo(() => new Set(documentedControlIds ?? []), [documentedControlIds]);
 
   useEffect(() => {
@@ -104,13 +106,13 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
           ...current,
           [selected]: {
             items: [],
-            error: cause instanceof Error ? cause.message : "Unable to load related mappings.",
+            error: errorMessage(cause),
           },
         }));
       }
     });
     return () => controller.abort();
-  }, [base, selected]);
+  }, [base, selected, errorMessage]);
   const related = selected ? relatedByControl[selected] : undefined;
 
   const fail = useCallback((cause: unknown) => {
@@ -298,49 +300,55 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
     setActiveQuery(null);
     setResults(null);
   };
+  const matchingCoverageCount = allControls?.filter((item) =>
+    documented.has(item.oscal_control_id) === (coverage === "documented") &&
+    `${item.oscal_control_id} ${item.title}`.toLowerCase().includes(query.trim().toLowerCase()),
+  ).length ?? 0;
 
   return (
     <div className="explorer">
       <div className="panel tree-panel">
         <form role="search" className="search-form" onSubmit={submitSearch}>
           <div className="field">
-            <label htmlFor={searchId}>Search controls</label>
+            <label htmlFor={searchId}>{t("controls.searchLabel")}</label>
             <input
               id={searchId}
               type="search"
               value={query}
-              placeholder="ID or title"
+              placeholder={t("controls.searchPlaceholder")}
               maxLength={200}
               onChange={(event) => setQuery(event.target.value)}
             />
           </div>
           <button type="submit" disabled={searching}>
-            Search
+            {t("controls.search")}
           </button>
           {activeQuery !== null ? (
             <button type="button" className="secondary" onClick={clearSearch}>
-              Clear
+              {t("controls.clear")}
             </button>
           ) : null}
         </form>
 
         {documentedControlIds ? (
-          <label className="field">Documentation
+          <label className="field">{t("controls.documentation")}
             <select value={coverage} onChange={(event) => setCoverage(event.target.value as "all" | "documented" | "undocumented")}>
-              <option value="all">All controls</option>
-              <option value="documented">Documented</option>
-              <option value="undocumented">Undocumented</option>
+              <option value="all">{t("controls.all")}</option>
+              <option value="documented">{t("controls.documented")}</option>
+              <option value="undocumented">{t("controls.undocumented")}</option>
             </select>
           </label>
         ) : null}
         {error ? <ErrorNotice error={error} /> : null}
 
         {coverage !== "all" ? (
-          <section aria-label="Controls by documentation">
-            {coverageLoading ? <p role="status">Loading baseline controls…</p> : null}
+          <section aria-label={t("controls.documentation")}>
+          {coverageLoading ? <p role="status">{t("controls.loadingBaseline")}</p> : null}
             {allControls ? (
               <>
-              <p role="status">{allControls.filter((item) => documented.has(item.oscal_control_id) === (coverage === "documented") && `${item.oscal_control_id} ${item.title}`.toLowerCase().includes(query.trim().toLowerCase())).length} matching controls</p>
+              <p role="status">{matchingCoverageCount === 1
+                ? t("controls.matchingControlsOne", { name: number(matchingCoverageCount) })
+                : t("controls.matchingControlsOther", { name: number(matchingCoverageCount) })}</p>
               <ul className="result-list">
                 {allControls.filter((item) => documented.has(item.oscal_control_id) === (coverage === "documented") && `${item.oscal_control_id} ${item.title}`.toLowerCase().includes(query.trim().toLowerCase())).map((item) => (
                   <li key={item.id}><button type="button" aria-current={selected === item.oscal_control_id ? "true" : undefined} onClick={() => void selectControl(item.oscal_control_id)}><span className="tree-id">{item.oscal_control_id}</span> {item.title}</button></li>
@@ -350,11 +358,13 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
             ) : null}
           </section>
         ) : activeQuery !== null && results ? (
-          <section aria-label="Search results">
+          <section aria-label={t("controls.searchResults")}>
             <p role="status">
               {results.total === 0
-                ? `No controls match “${activeQuery}”.`
-                : `${results.total} control${results.total === 1 ? "" : "s"} match “${activeQuery}”.`}
+                ? t("controls.noMatches", { name: activeQuery })
+                : results.total === 1
+                  ? t("controls.oneMatch", { name: number(results.total), query: activeQuery })
+                  : t("controls.manyMatches", { name: number(results.total), query: activeQuery })}
             </p>
             <ul className="result-list">
               {results.items.map((item) => (
@@ -365,7 +375,7 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
                     onClick={() => void selectControl(item.oscal_control_id)}
                   >
                     <span className="tree-id">{item.oscal_control_id}</span> {item.title}
-                    {documentedControlIds ? <span className="muted"> · {documented.has(item.oscal_control_id) ? "Documented" : "Undocumented"}</span> : null}
+                    {documentedControlIds ? <span className="muted"> · {documented.has(item.oscal_control_id) ? t("controls.documented") : t("controls.undocumented")}</span> : null}
                     {item.group ? <span className="muted"> · {item.group.oscal_group_id ?? item.group.title}</span> : null}
                   </button>
                 </li>
@@ -373,17 +383,17 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
             </ul>
             {results.items.length < results.total ? (
               <button type="button" className="secondary" onClick={() => void runSearch(activeQuery, true)}>
-                Load more results
+                {t("controls.loadMoreResults")}
               </button>
             ) : null}
           </section>
         ) : (
           <>
             <h2 id={treeLabelId} className="visually-hidden">
-              Control hierarchy
+              {t("controls.hierarchy")}
             </h2>
             {rows.length === 0 ? (
-              <p className="muted">This revision contains no controls.</p>
+              <p className="muted">{t("controls.noControlsRevision")}</p>
             ) : (
               <div role="tree" aria-labelledby={treeLabelId} onKeyDown={onKeyDown}>
                 {rows.map((row) => (
@@ -393,7 +403,7 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
                     expanded={expanded.has(row.key)}
                     loading={children[row.key]?.loading ?? false}
                     selected={row.type === "node" && row.node.kind === "control" && row.node.oscal_id === selected}
-                    documentation={documentedControlIds && row.type === "node" && row.node.kind === "control" && row.node.oscal_id ? (documented.has(row.node.oscal_id) ? "Documented" : "Undocumented") : undefined}
+                    documentation={documentedControlIds && row.type === "node" && row.node.kind === "control" && row.node.oscal_id ? (documented.has(row.node.oscal_id) ? t("controls.documented") : t("controls.undocumented")) : undefined}
                     focusable={row.key === (focusKey ?? rows[0].key)}
                     register={(element) => {
                       if (element) itemRefs.current.set(row.key, element);
@@ -413,11 +423,11 @@ export function ControlBrowser({ tenantId, catalogId, revisionId, initialRoot, i
       </div>
 
       <div aria-live="polite" aria-busy={detailLoading}>
-        {detailLoading ? <p className="panel">Loading control…</p> : null}
+        {detailLoading ? <p className="panel">{t("controls.loadingRequirement")}</p> : null}
         {!detailLoading && detail ? <ControlDetailView control={detail} relatedMappings={related?.items ?? []}
           tenantId={tenantId} relatedError={related?.error ?? null} relatedLoading={related === undefined} /> : null}
         {!detailLoading && !detail ? (
-          <div className="empty">Select a control to read its details.</div>
+          <div className="empty">{t("controls.selectRequirement")}</div>
         ) : null}
       </div>
     </div>
@@ -445,6 +455,7 @@ function TreeRow({
   onFocus: () => void;
   onClick: () => void;
 }) {
+  const { t } = useI18n();
   const indent = { paddingLeft: `${(row.level - 1) * 1.1}rem` };
   if (row.type === "more") {
     return (
@@ -460,7 +471,7 @@ function TreeRow({
         onClick={onClick}
       >
         <span className="tree-toggle" aria-hidden="true" />
-        Load more…
+        {t("controls.loadMore")}
       </div>
     );
   }
@@ -488,16 +499,17 @@ function TreeRow({
       {node.oscal_id ? <span className="tree-id">{node.oscal_id}</span> : null}
       <span>{node.title}</span>
       {documentation ? <span className="muted"> · {documentation}</span> : null}
-      {node.kind === "group" ? <span className="visually-hidden"> (group)</span> : null}
+      {node.kind === "group" ? <span className="visually-hidden"> {t("controls.group")}</span> : null}
     </div>
   );
 }
 
 function ErrorNotice({ error }: { error: ApiError }) {
+  const { t, errorMessage } = useI18n();
   return (
     <p role="alert" className="alert">
-      {error.message}{" "}
-      {error.kind === "session_expired" ? <a href="/auth/login">Sign in again</a> : null}
+      {errorMessage(error)}{" "}
+      {error.kind === "session_expired" ? <a href="/auth/login">{t("controls.signInAgain")}</a> : null}
     </p>
   );
 }

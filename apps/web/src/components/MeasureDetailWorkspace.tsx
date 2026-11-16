@@ -7,6 +7,7 @@ import { COMPONENT_TYPES, componentTypeLabel } from "@/components/ComponentDefin
 import { MappingControlDetails } from "@/components/MappingControlPicker";
 import { MeasureRequirementPicker } from "@/components/MeasureRequirementPicker";
 import { bffGet, bffWrite } from "@/lib/bff-client";
+import { useI18n } from "@/lib/i18n/provider";
 import type {
   Catalog, ComponentDefinition, ComponentDefinitionInput, ComponentRequirementInput, ProfileBrowserNode,
   RelatedMapping, ReusableComponentInput, RevisionDetail,
@@ -37,6 +38,7 @@ export function MeasureDetailWorkspace({
   catalogTotal: number;
   canWrite: boolean;
 }) {
+  const { t, number, date, errorMessage } = useI18n();
   const router = useRouter();
   const [document, setDocument] = useState(initialDocument);
   const [documentTitle, setDocumentTitle] = useState(initialDocument.title);
@@ -73,10 +75,10 @@ export function MeasureDetailWorkspace({
       const link = event.target.closest("a[href]");
       if (!link || link.getAttribute("href")?.startsWith("#") || link.getAttribute("target") === "_blank" ||
           link.hasAttribute("download") || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;
-      if (busy || !window.confirm("Discard unsaved measure changes?")) event.preventDefault();
+      if (busy || !window.confirm(t("measures.discardChanges"))) event.preventDefault();
     };
     const submit = (event: SubmitEvent) => {
-      if (busy || !window.confirm("Discard unsaved measure changes?")) event.preventDefault();
+      if (busy || !window.confirm(t("measures.discardChanges"))) event.preventDefault();
     };
     window.addEventListener("beforeunload", unload);
     window.document.addEventListener("click", navigate, true);
@@ -86,7 +88,7 @@ export function MeasureDetailWorkspace({
       window.document.removeEventListener("click", navigate, true);
       window.document.removeEventListener("submit", submit, true);
     };
-  }, [dirty, pickerPending, busy]);
+  }, [dirty, pickerPending, busy, t]);
 
   function update(patch: Partial<DraftComponent>) {
     setComponents((current) => current.map((item) => item.clientId === activeId ? { ...item, ...patch } : item));
@@ -115,23 +117,25 @@ export function MeasureDetailWorkspace({
         setActiveId(savedActive.id);
         window.history.replaceState(null, "", `/t/${tenantId}/measures/${saved.id}/${savedActive.id}`);
       }
-      setStatus("Measure saved.");
+      setStatus(t("measures.saved"));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to save the measure.");
+      setError(errorMessage(cause) || t("measures.saveError"));
     } finally {
       setBusy(false);
     }
   }
 
   async function removeDocument() {
-    if (!canWrite || busy || !window.confirm(`Permanently delete the document “${document.title}” and all ${document.components.length} component(s)?${dirty ? " Unsaved changes will be lost." : ""}`)) return;
+    if (!canWrite || busy || !window.confirm(t(document.components.length === 1 ? "measures.documentDeleteConfirmOne" : "measures.documentDeleteConfirmOther", {
+      name: document.title, count: number(document.components.length), extra: dirty ? t("measures.unsavedLostInfo") : "",
+    }))) return;
     setBusy(true);
     setError(null);
     try {
       await bffWrite("DELETE", `tenants/${tenantId}/component-definitions/${document.id}`, {});
       router.push(`/t/${tenantId}/measures`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to delete the document.");
+      setError(errorMessage(cause) || t("measures.deleteDocumentError"));
       setBusy(false);
     }
   }
@@ -139,49 +143,52 @@ export function MeasureDetailWorkspace({
   async function removeComponent() {
     if (!component || !canWrite || busy) return;
     if (!component.id) {
-      if (!window.confirm(`Remove the unsaved component “${component.title || "New component"}”?`)) return;
+      if (!window.confirm(t("measures.componentDraftDeleteConfirm", { name: component.title || t("measures.newComponent") }))) return;
       setComponents((current) => current.filter((item) => item.clientId !== activeId));
       setActiveId(components.find((item) => item.clientId !== activeId)?.clientId ?? "");
       return;
     }
-    if (!window.confirm(`Permanently delete “${component.title}”?${document.components.length === 1 ? " This also deletes its Component Definition document." : ""}${dirty ? " All unsaved document changes will be lost." : ""}`)) return;
+    if (!window.confirm(t("measures.componentDeleteConfirm", {
+      name: component.title,
+      extra: `${document.components.length === 1 ? t("measures.lastComponentDeleteInfo") : ""}${dirty ? t("measures.unsavedDocumentLostInfo") : ""}`,
+    }))) return;
     setBusy(true);
     setError(null);
     try {
       await bffWrite("DELETE", `tenants/${tenantId}/component-definitions/${document.id}/components/${component.id}`, {});
       router.push(`/t/${tenantId}/measures`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to delete the component.");
+      setError(errorMessage(cause) || t("measures.deleteComponentError"));
       setBusy(false);
     }
   }
 
   function closePicker() {
-    if (pickerPending && !window.confirm("Discard the selected requirements?")) return;
+    if (pickerPending && !window.confirm(t("measures.discardRequirementsConfirm"))) return;
     setPicker(false);
     setPickerPending(false);
   }
 
   if (!component) return <div className="measure-workspace">
-    <p role="alert" className="alert">This component was not found in the Component Definition.</p>
-    <a href={`/t/${tenantId}/measures`}>Return to the measure library</a>
+    <p role="alert" className="alert">{t("measures.componentNotFound")}</p>
+    <a href={`/t/${tenantId}/measures`}>{t("measures.returnToLibrary")}</a>
   </div>;
 
   return <div className="measure-workspace">
     <header className="panel mapping-workspace-header">
-      <nav className="breadcrumbs" aria-label="Breadcrumb"><a href={`/t/${tenantId}/measures`}>Our Measures &amp; Controls</a> › <span aria-current="page">{component.title || "New component"}</span></nav>
+      <nav className="breadcrumbs" aria-label={t("measures.breadcrumb")}><a href={`/t/${tenantId}/measures`}>{t("measures.library")}</a> › <span aria-current="page">{component.title || t("measures.newComponent")}</span></nav>
       <div className="workspace-actions measure-heading">
-        <div><h1>{component.title || "New component"}</h1><span className="muted">{componentTypeLabel(component.type)}</span></div>
-        <span role="status">{busy ? "Working…" : dirty || pickerPending ? "Unsaved changes" : status ?? "Saved"}</span>
-        {canWrite ? <button type="button" disabled={!dirty || !valid || busy || picker} onClick={() => void save()}>Save changes</button> : null}
-        {!dirty && !pickerPending && !busy ? <a className="button secondary" href={`/bff/tenants/${tenantId}/component-definitions/${document.id}/export`}>Export OSCAL JSON</a>
-          : <span className="muted">Save before exporting.</span>}
+        <div><h1>{component.title || t("measures.newComponent")}</h1><span className="muted">{componentTypeLabel(component.type, t)}</span></div>
+        <span role="status">{busy ? t("measures.working") : dirty || pickerPending ? t("measures.unsavedChanges") : status ?? t("measures.saved")}</span>
+        {canWrite ? <button type="button" disabled={!dirty || !valid || busy || picker} onClick={() => void save()}>{t("measures.saveChanges")}</button> : null}
+        {!dirty && !pickerPending && !busy ? <a className="button secondary" href={`/bff/tenants/${tenantId}/component-definitions/${document.id}/export`}>{t("measures.exportJson")}</a>
+          : <span className="muted">{t("measures.saveBeforeExport")}</span>}
       </div>
-      {!valid && dirty ? <p role="alert" className="alert">A document title, component title and implementation guidance for every associated requirement are required before saving.</p> : null}
+      {!valid && dirty ? <p role="alert" className="alert">{t("measures.documentValidation")}</p> : null}
       {components.some((item) => item.requirements.length > 1000) || components.length > 1000
-        ? <p role="alert" className="alert">A document supports at most 1,000 components and 1,000 requirements per component.</p> : null}
+        ? <p role="alert" className="alert">{t("measures.limitValidation")}</p> : null}
       {error ? <p role="alert" className="alert">{error}</p> : null}
-      {!picker ? <div className="workspace-tabs" role="tablist" aria-label="Measure workspace views">
+      {!picker ? <div className="workspace-tabs" role="tablist" aria-label={t("measures.workspaceViews")}>
         {TABS.map((name, index) => <button key={name} type="button" role="tab" id={`measure-tab-${index}`}
           aria-selected={tab === name} aria-controls={`measure-panel-${index}`} tabIndex={tab === name ? 0 : -1}
           onClick={() => setTab(name)} onKeyDown={(event) => {
@@ -189,7 +196,7 @@ export function MeasureDetailWorkspace({
               : event.key === "Home" ? 0 : event.key === "End" ? TABS.length - 1 : null;
             if (next === null) return;
             event.preventDefault(); setTab(TABS[next]); window.document.getElementById(`measure-tab-${next}`)?.focus();
-          }}>{name}{name === "Requirements" ? ` (${component.requirements.length})` : ""}</button>)}
+          }}>{t(name === "Overview" ? "measures.overview" : name === "Requirements" ? "measures.requirements" : "measures.oscalDetails")}{name === "Requirements" ? ` (${number(component.requirements.length)})` : ""}</button>)}
       </div> : null}
     </header>
     {picker ? <MeasureRequirementPicker tenantId={tenantId} catalogs={catalogs} catalogTotal={catalogTotal}
@@ -200,20 +207,20 @@ export function MeasureDetailWorkspace({
         setPicker(false); setPickerPending(false); setTab("Requirements");
       }} /> : <>
       <section role="tabpanel" id="measure-panel-0" aria-labelledby="measure-tab-0" hidden={tab !== "Overview"} className="panel" tabIndex={0}>
-        <h2>Overview</h2>
+        <h2>{t("measures.overview")}</h2>
         <fieldset className="profile-form measure-form" disabled={!canWrite || busy}>
-          <label className="field">Measure title<input required maxLength={255} value={component.title} onChange={(event) => update({ title: event.target.value })} /></label>
-          <label className="field">Component type<select value={component.type} onChange={(event) => update({ type: event.target.value })}>
-            {COMPONENT_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          <label className="field">{t("measures.title")}<input required maxLength={255} value={component.title} onChange={(event) => update({ title: event.target.value })} /></label>
+          <label className="field">{t("measures.componentType")}<select value={component.type} onChange={(event) => update({ type: event.target.value })}>
+            {COMPONENT_TYPES.map(([value, key]) => <option key={value} value={value}>{t(key)}</option>)}
             {!COMPONENT_TYPES.some(([value]) => value === component.type) ? <option value={component.type}>{component.type}</option> : null}
           </select></label>
-          <label className="field">Reusable description<textarea maxLength={50000} rows={6} value={component.description} onChange={(event) => update({ description: event.target.value })} /></label>
+          <label className="field">{t("measures.reusableDescription")}<textarea maxLength={50000} rows={6} value={component.description} onChange={(event) => update({ description: event.target.value })} /></label>
         </fieldset>
       </section>
       <section role="tabpanel" id="measure-panel-1" aria-labelledby="measure-tab-1" hidden={tab !== "Requirements"} className="panel" tabIndex={0}>
-        <div className="workspace-actions measure-heading"><div><h2>Associated requirements</h2>
-          <p className="muted">Associations are explicit; control mappings are advisory and do not imply coverage.</p></div>
-          {canWrite ? <button type="button" disabled={busy} onClick={() => setPicker(true)}>Add requirements</button> : null}
+        <div className="workspace-actions measure-heading"><div><h2>{t("measures.associatedRequirements")}</h2>
+          <p className="muted">{t("measures.associationNotice")}</p></div>
+          {canWrite ? <button type="button" disabled={busy} onClick={() => setPicker(true)}>{t("measures.addRequirements")}</button> : null}
         </div>
         {groups.length ? groups.map(([key, requirements]) => <RequirementGroup key={key} tenantId={tenantId}
           catalogName={catalogs.find((catalog) => catalog.id === requirements[0].catalog_id)?.name}
@@ -222,30 +229,30 @@ export function MeasureDetailWorkspace({
             item.catalog_id === requirements[0].catalog_id && item.revision_id === requirements[0].revision_id && item.control_id === controlId ? { ...item, description } : item) })}
           onRemove={(controlId) => update({ requirements: component.requirements.filter((item) =>
             item.catalog_id !== requirements[0].catalog_id || item.revision_id !== requirements[0].revision_id || item.control_id !== controlId) })} />)
-          : <p className="empty">No requirements are associated with this measure yet.</p>}
+          : <p className="empty">{t("measures.noAssociatedRequirements")}</p>}
       </section>
       <section role="tabpanel" id="measure-panel-2" aria-labelledby="measure-tab-2" hidden={tab !== "OSCAL Details"} className="panel" tabIndex={0}>
-        <h2>OSCAL Details</h2>
+        <h2>{t("measures.oscalDetailsTitle")}</h2>
         <fieldset className="profile-form measure-form" disabled={!canWrite || busy}>
-          <label className="field">Component Definition document title<input maxLength={255} value={documentTitle} onChange={(event) => setDocumentTitle(event.target.value)} /></label>
+          <label className="field">{t("measures.componentDefinitionTitle")}<input maxLength={255} value={documentTitle} onChange={(event) => setDocumentTitle(event.target.value)} /></label>
         </fieldset>
         <dl className="meta-list">
-          <dt>OSCAL version</dt><dd>{document.oscal_version}</dd>
-          <dt>Document version</dt><dd>{document.version}</dd>
-          <dt>Document last updated</dt><dd>{document.updated_at}</dd>
-          <dt>Document UUID</dt><dd className="mono">{document.oscal_document_uuid}</dd>
-          <dt>Component UUID</dt><dd className="mono">{savedComponent?.oscal_uuid ?? "Assigned on save"}</dd>
-          <dt>Internal document identity</dt><dd className="mono">{document.id}</dd>
-          <dt>Stable component identity</dt><dd className="mono">{component.id ?? "Assigned on save"}</dd>
+          <dt>{t("measures.oscalVersion")}</dt><dd>{document.oscal_version}</dd>
+          <dt>{t("measures.documentVersion")}</dt><dd>{document.version}</dd>
+          <dt>{t("measures.documentLastUpdated")}</dt><dd>{date(document.updated_at)}</dd>
+          <dt>{t("measures.documentUuid")}</dt><dd className="mono">{document.oscal_document_uuid}</dd>
+          <dt>{t("measures.componentUuid")}</dt><dd className="mono">{savedComponent?.oscal_uuid ?? t("measures.assignedOnSave")}</dd>
+          <dt>{t("measures.internalDocumentIdentity")}</dt><dd className="mono">{document.id}</dd>
+          <dt>{t("measures.stableComponentIdentity")}</dt><dd className="mono">{component.id ?? t("measures.assignedOnSave")}</dd>
         </dl>
-        <p className="muted">A Component Definition can contain multiple components. Edits replace the OSCAL document UUID; unchanged component UUIDs and internal identities remain stable. Historical document contents are not retained.</p>
-        <label className="field measure-form">Component in this document
+        <p className="muted">{t("measures.componentDefinitionInfo")}</p>
+        <label className="field measure-form">{t("measures.componentInDocument")}
           <select value={activeId} disabled={busy} onChange={(event) => {
             const next = components.find((item) => item.clientId === event.target.value);
             setActiveId(event.target.value); setTab("Overview");
             if (next?.id) window.history.replaceState(null, "", `/t/${tenantId}/measures/${document.id}/${next.id}`);
           }}>
-            {components.map((item) => <option key={item.clientId} value={item.clientId}>{item.title || "New component"}</option>)}
+            {components.map((item) => <option key={item.clientId} value={item.clientId}>{item.title || t("measures.newComponent")}</option>)}
           </select>
         </label>
         {canWrite ? <div className="workspace-actions">
@@ -253,9 +260,9 @@ export function MeasureDetailWorkspace({
             const clientId = crypto.randomUUID();
             setComponents((current) => [...current, { clientId, type: "policy", title: "", description: "", requirements: [] }]);
             setActiveId(clientId); setTab("Overview");
-          }}>Add component to this document</button>
-          <button type="button" className="danger-action" disabled={busy} onClick={() => void removeComponent()}>Delete component</button>
-          <button type="button" className="danger-action" disabled={busy} onClick={() => void removeDocument()}>Delete document</button>
+          }}>{t("measures.addComponent")}</button>
+          <button type="button" className="danger-action" disabled={busy} onClick={() => void removeComponent()}>{t("measures.deleteComponent")}</button>
+          <button type="button" className="danger-action" disabled={busy} onClick={() => void removeDocument()}>{t("measures.deleteDocument")}</button>
         </div> : null}
       </section>
     </>}
@@ -266,6 +273,7 @@ function RequirementGroup({ tenantId, catalogName, requirements, canWrite, onCha
   tenantId: string; catalogName?: string; requirements: ComponentRequirementInput[]; canWrite: boolean;
   onChange: (controlId: string, description: string) => void; onRemove: (controlId: string) => void;
 }) {
+  const { t, number, errorMessage } = useI18n();
   const { catalog_id: catalogId, revision_id: revisionId } = requirements[0];
   const [data, setData] = useState<{ nodes: ProfileBrowserNode[]; revision: RevisionDetail; name: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -278,32 +286,33 @@ function RequirementGroup({ tenantId, catalogName, requirements, canWrite, onCha
       catalogName ? Promise.resolve(catalogName) :
         bffGet<Catalog>(`tenants/${tenantId}/catalogs/${catalogId}`, undefined, controller.signal).then((catalog) => catalog.name),
     ]).then(([browser, revision, name]) => setData({ nodes: browser.nodes, revision, name }))
-      .catch((cause: unknown) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Unable to load requirement details."); });
+      .catch((cause: unknown) => { if (!controller.signal.aborted) setError(errorMessage(cause) || t("measures.loadRequirementDetailsError")); });
     return () => controller.abort();
-  }, [tenantId, catalogId, revisionId, catalogName]);
+  }, [tenantId, catalogId, revisionId, catalogName, errorMessage, t]);
   return <section className="measure-requirement-group">
-    <h3>{data?.name ?? catalogName ?? catalogId} · {data?.revision ? `Revision ${data.revision.revision_number}` : `Revision ${revisionId}`}</h3>
+    <h3>{data?.name ?? catalogName ?? catalogId} · {data?.revision ? t("measures.requirementGroupRevision", { number: number(data.revision.revision_number) }) : `${t("measures.revision")} ${revisionId}`}</h3>
     {error ? <p role="alert" className="alert">{error}</p> : null}
     {requirements.map((requirement) => <details className="measure-requirement" key={requirement.control_id}>
-      <summary><span className="mono">{requirement.control_id}</span> · {data?.nodes.find((node) => node.kind === "control" && node.id === requirement.control_id)?.title ?? "Control"}
-        <span className="muted"> · {canWrite ? "View or edit guidance" : "View guidance"}</span>
-        <span className="measure-guidance-preview">{requirement.description || "Implementation guidance required"}</span>
+      <summary><span className="mono">{requirement.control_id}</span> · {data?.nodes.find((node) => node.kind === "control" && node.id === requirement.control_id)?.title ?? t("measures.control")}
+        <span className="muted"> · {canWrite ? t("measures.viewEditGuidance") : t("measures.viewGuidance")}</span>
+        <span className="measure-guidance-preview">{requirement.description || t("measures.implementationGuidanceRequired")}</span>
       </summary>
-      <label className="field measure-form">Implementation guidance for {requirement.control_id}
+      <label className="field measure-form">{t("measures.guidanceFor", { control: requirement.control_id })}
         <textarea required maxLength={50000} rows={4} disabled={!canWrite} value={requirement.description}
           onChange={(event) => onChange(requirement.control_id, event.target.value)} />
       </label>
-      {!requirement.description.trim() ? <p className="muted">Implementation guidance is required before saving.</p> : null}
+      {!requirement.description.trim() ? <p className="muted">{t("measures.guidanceRequiredBeforeSave")}</p> : null}
       <MappingControlDetails tenantId={tenantId} catalogId={catalogId} revisionId={revisionId} controlId={requirement.control_id} />
       <RequirementMappingHints tenantId={tenantId} requirement={requirement} />
       {canWrite ? <button type="button" className="secondary" onClick={() => {
-        if (window.confirm(`Remove the association with ${requirement.control_id}?`)) onRemove(requirement.control_id);
-      }}>Remove association</button> : null}
+        if (window.confirm(t("measures.removeAssociationConfirm", { control: requirement.control_id }))) onRemove(requirement.control_id);
+      }}>{t("measures.removeAssociation")}</button> : null}
     </details>)}
   </section>;
 }
 
 function RequirementMappingHints({ tenantId, requirement }: { tenantId: string; requirement: ComponentRequirementInput }) {
+  const { t, number, enumLabel, errorMessage } = useI18n();
   const [open, setOpen] = useState(false);
   const [mappings, setMappings] = useState<RelatedMapping[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -314,18 +323,18 @@ function RequirementMappingHints({ tenantId, requirement }: { tenantId: string; 
       `tenants/${tenantId}/catalogs/${requirement.catalog_id}/revisions/${requirement.revision_id}/controls/${encodeURIComponent(requirement.control_id)}/related-mappings`,
       undefined, controller.signal,
     ).then(({ items }) => setMappings(items)).catch((cause: unknown) => {
-      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Unable to load related mappings.");
+      if (!controller.signal.aborted) setError(errorMessage(cause) || t("measures.loadRelatedMappingsError"));
     });
     return () => controller.abort();
-  }, [open, tenantId, requirement.catalog_id, requirement.revision_id, requirement.control_id]);
+  }, [open, tenantId, requirement.catalog_id, requirement.revision_id, requirement.control_id, errorMessage, t]);
   return <details onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary>Related control mappings{mappings ? ` (${mappings.length})` : ""}</summary>
-    <p className="muted">These set-level mappings are suggestions only. Add requirements explicitly; guidance is not transferred.</p>
+    <summary>{t("measures.relatedMappings")}{mappings ? ` (${number(mappings.length)})` : ""}</summary>
+    <p className="muted">{t("measures.relatedMappingsNotice")}</p>
     {error ? <p role="alert" className="alert">{error}</p> : null}
     {mappings?.length ? <ul>{mappings.map((mapping) => <li key={`${mapping.collection_id}:${mapping.mapping_uuid}:${mapping.entry_uuid}`}>
-      <strong>{mapping.collection_title}</strong> · {mapping.relationship} · {mapping.matching_rationale}
-      <div>Source set: {mapping.sources.map((control) => `${control.catalog_name} · revision ${control.revision_number} · ${control.control_id} ${control.title}`).join("; ")}</div>
-      <div>Target set: {mapping.targets.map((control) => `${control.catalog_name} · revision ${control.revision_number} · ${control.control_id} ${control.title}`).join("; ")}</div>
-    </li>)}</ul> : mappings ? <p className="muted">No related mappings.</p> : !error ? <p role="status">Loading mappings…</p> : null}
+      <strong>{mapping.collection_title}</strong> · {enumLabel(mapping.relationship)} ({mapping.relationship}) · {enumLabel(mapping.matching_rationale)} ({mapping.matching_rationale})
+      <div>{t("measures.sourceSet")} {mapping.sources.map((control) => `${control.catalog_name} · ${t("measures.revisionNumber", { number: number(control.revision_number) })} · ${control.control_id} ${control.title}`).join("; ")}</div>
+      <div>{t("measures.targetSet")} {mapping.targets.map((control) => `${control.catalog_name} · ${t("measures.revisionNumber", { number: number(control.revision_number) })} · ${control.control_id} ${control.title}`).join("; ")}</div>
+    </li>)}</ul> : mappings ? <p className="muted">{t("measures.noRelatedMappings")}</p> : !error ? <p role="status">{t("measures.loadingMappings")}</p> : null}
   </details>;
 }

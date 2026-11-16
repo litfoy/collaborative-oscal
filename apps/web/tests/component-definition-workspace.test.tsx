@@ -99,7 +99,7 @@ it("preserves selections across search, filters and revisions, edits guidance, a
   await user.click(screen.getByRole("tab", { name: /Requirements/ }));
   expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Add requirements" }));
-  await screen.findByRole("option", { name: "Revision 1 · published" });
+  await screen.findByRole("option", { name: "Revision 1 · Published" });
   await user.selectOptions(screen.getByLabelText("Catalog revision"), REVISION);
   const first = await screen.findByRole("checkbox", { name: /ac-1 Access Policy/ });
   const controlRow = first.closest("li");
@@ -144,7 +144,7 @@ it("prevents duplicate associations and preserves existing guidance", async () =
     catalogs={[selectedCatalog]} catalogTotal={1} canWrite />);
   await user.click(screen.getByRole("tab", { name: /Requirements/ }));
   await user.click(screen.getByRole("button", { name: "Add requirements" }));
-  await screen.findByRole("option", { name: "Revision 1 · published" });
+  await screen.findByRole("option", { name: "Revision 1 · Published" });
   await user.selectOptions(screen.getByLabelText("Catalog revision"), REVISION);
   expect(await screen.findByRole("checkbox", { name: /ac-1 Access Policy/ })).toBeDisabled();
   await user.click(screen.getByRole("checkbox", { name: /ac-2 Account Management/ }));
@@ -178,7 +178,7 @@ it("confirms document deletion and warns that all components will be deleted", a
     catalogs={[selectedCatalog]} catalogTotal={1} canWrite />);
   await user.click(screen.getByRole("tab", { name: "OSCAL Details" }));
   await user.click(screen.getByRole("button", { name: "Delete document" }));
-  expect(confirm).toHaveBeenCalledWith(expect.stringContaining("all 2 component(s)"));
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining("all 2 components"));
   await waitFor(() => expect(mocks.bffWrite).toHaveBeenCalledWith("DELETE", `tenants/${TENANT}/component-definitions/${DOCUMENT}`, {}));
   expect(mocks.push).toHaveBeenCalledWith(`/t/${TENANT}/measures`);
   confirm.mockRestore();

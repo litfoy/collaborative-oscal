@@ -1,14 +1,11 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 
+import { useI18n } from "@/lib/i18n/provider";
 import type { Catalog, Profile } from "@/lib/types";
 
 import { ProfileWorkspace } from "./ProfileWorkspace";
-
-const subscribe = () => () => {};
-const clientSnapshot = () => true;
-const serverSnapshot = () => false;
 
 export function ProfileManager({
   tenantId, profiles: initialProfiles, catalogs, catalogTotal = catalogs.length, canWrite,
@@ -19,7 +16,7 @@ export function ProfileManager({
   catalogTotal?: number;
   canWrite: boolean;
 }) {
-  const hydrated = useSyncExternalStore(subscribe, clientSnapshot, serverSnapshot);
+  const { t, number, date } = useI18n();
   const [profiles, setProfiles] = useState(initialProfiles);
   const [catalogId, setCatalogId] = useState(catalogs.find((item) => item.latest_revision)?.id ?? "");
   const [workspace, setWorkspace] = useState<{ profile: Profile; isNew: boolean } | null>(null);
@@ -32,7 +29,7 @@ export function ProfileManager({
         tenantId={tenantId}
         initialProfile={workspace.profile}
         isNew={workspace.isNew}
-        catalogName={catalogs.find((item) => item.id === workspace.profile.catalog_id)?.name ?? "Catalog"}
+        catalogName={catalogs.find((item) => item.id === workspace.profile.catalog_id)?.name ?? t("profiles.catalogFallback")}
         catalogs={catalogs}
         catalogTotal={catalogTotal}
         canWrite={canWrite}
@@ -61,21 +58,21 @@ export function ProfileManager({
           });
         }}>
           <label className="field">
-            Source catalog and revision for a new profile
+            {t("profiles.sourceCatalogRevision")}
             <select value={catalogId} onChange={(event) => setCatalogId(event.target.value)}>
               {available.map((catalog) => (
                 <option key={catalog.id} value={catalog.id}>
-                  {catalog.name} — revision {catalog.latest_revision?.revision_number}
+                  {catalog.name} — {t("profiles.revision", { name: number(catalog.latest_revision?.revision_number ?? 0) })}
                 </option>
               ))}
             </select>
           </label>
-          <button type="submit">Create profile</button>
+          <button type="submit">{t("profiles.create")}</button>
         </form>
-      ) : <p className="muted">{canWrite ? "Import a catalog before creating a profile." : "You need the catalog:write permission to create or edit profiles."}</p>}
+      ) : <p className="muted">{canWrite ? t("profiles.importBeforeCreate") : t("profiles.permissionRequired")}</p>}
 
-      <h2>Existing profiles</h2>
-      {profiles.length === 0 ? <div className="empty">No profiles have been created in this workspace.</div> : (
+      <h2>{t("profiles.existing")}</h2>
+      {profiles.length === 0 ? <div className="empty">{t("profiles.none")}</div> : (
         <ul className="profile-list">
           {profiles.map((profile) => (
             <li className="panel" key={profile.id}>
@@ -83,21 +80,21 @@ export function ProfileManager({
               {profile.description ? <p className="prose">{profile.description}</p> : null}
               {(profile.imports ?? [profile]).map((source) => <p key={source.id}>
                 <a href={`/t/${tenantId}/catalogs/${source.catalog_id}?revision=${source.revision_id}`}>
-                  {catalogs.find((item) => item.id === source.catalog_id)?.name ?? "Catalog"}
-                </a>{" · "}{source.control_ids.length} selected requirements · pinned revision <span className="mono">{source.revision_id}</span>
+                  {catalogs.find((item) => item.id === source.catalog_id)?.name ?? t("profiles.catalogFallback")}
+                </a>{" · "}{source.control_ids.length === 1
+                  ? t("profiles.selectedRequirementsCountOne", { name: number(source.control_ids.length) })
+                  : t("profiles.selectedRequirementsCountOther", { name: number(source.control_ids.length) })} · {t("profiles.pinnedRevision")} <span className="mono">{source.revision_id}</span>
               </p>)}
-              <p className="muted">Last modified: <time dateTime={profile.updated_at}>{hydrated
-                ? new Date(profile.updated_at).toLocaleString()
-                : new Date(profile.updated_at).toISOString().replace("T", " ").replace("Z", " UTC")}</time></p>
+              <p className="muted">{t("profiles.lastModified")}: <time dateTime={profile.updated_at}>{date(profile.updated_at)}</time></p>
               <div className="workspace-actions">
                 <button type="button" onClick={() => setWorkspace({ profile, isNew: false })}>
-                  {canWrite ? "Edit profile" : "View profile"}
+                  {canWrite ? t("profiles.edit") : t("profiles.view")}
                 </button>
-                <a className="button secondary" href={`/bff/tenants/${tenantId}/profiles/${profile.id}/export`}>Export OSCAL JSON</a>
+                <a className="button secondary" href={`/bff/tenants/${tenantId}/profiles/${profile.id}/export`}>{t("profiles.export")}</a>
                 {canWrite ? <button className="secondary" type="button" onClick={() => setWorkspace({
                   isNew: true, profile: { ...profile, id: "new", title: `${profile.title} (copy)`.slice(0, 255),
                     imports: profile.imports?.map((item) => ({ ...item, id: crypto.randomUUID() })) },
-                })}>Duplicate</button> : null}
+                })}>{t("profiles.duplicate")}</button> : null}
               </div>
             </li>
           ))}

@@ -1,23 +1,23 @@
 import { ApiProblem } from "@/components/ApiProblem";
 import { SystemsList } from "@/components/SystemsList";
 import { listSystemComponents, listSystemSecurityPlans, listSystems, listTenants } from "@/lib/api";
+import { getI18n } from "@/lib/i18n/server";
 
 export default async function SystemsPage({
   params,
 }: {
   params: Promise<{ tenantId: string }>;
 }) {
+  const { t } = await getI18n();
   const { tenantId } = await params;
   const here = `/t/${tenantId}/systems`;
   const result = await loadSystems(tenantId, here);
   if (!result.ok) return <ApiProblem error={result.error} />;
   return (
     <>
-      <h1>Systems and System Security Plans</h1>
+      <h1>{t("systemPage.title")}</h1>
       <p className="muted">
-        Systems are stable identities for the actual systems being secured. SSPs pin
-        Catalog revisions and document selected implementation contributions; they
-        are not assessment reports or compliance conclusions.
+        {t("systemPage.intro")}
       </p>
       <SystemsList
         tenantId={tenantId}

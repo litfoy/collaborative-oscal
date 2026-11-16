@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SystemWorkspace } from "@/components/SystemWorkspace";
 import { SystemsList } from "@/components/SystemsList";
 import { SystemSecurityPlanWorkspace } from "@/components/SystemSecurityPlanWorkspace";
+import { LocaleProvider } from "@/lib/i18n/provider";
 import type { ComponentDefinition, Implementation, InformationSystem, SystemComponent, SystemSecurityPlan, SystemSecurityPlanVersion } from "@/lib/types";
 
 import { CATALOG, REVISION, TENANT, catalog, jsonResponse, page, revision } from "./fixtures";
@@ -44,21 +45,99 @@ const version: SystemSecurityPlanVersion = {
 };
 const validation = { valid: true, diagnostics: [], baseline_control_count: 2, documented_control_count: 1 };
 
-function renderSystem() {
-  return render(<SystemWorkspace tenantId={TENANT} initialSystem={system} initialComponents={[component]}
+function renderSystem(locale: "en" | "de" = "en") {
+  return render(<LocaleProvider locale={locale}><SystemWorkspace tenantId={TENANT} initialSystem={system} initialComponents={[component]}
     initialPlans={[plan]} initialVersions={{ [plan.id]: [version] }} catalogs={[catalog()]}
     planRevisions={{ [plan.id]: revision() }}
-    revisions={[{ catalog: catalog(), revision: revision() }]} definitions={[definition]} canWrite />);
+    revisions={[{ catalog: catalog(), revision: revision() }]} definitions={[definition]} canWrite /></LocaleProvider>);
 }
-function renderPlan() {
-  return render(<SystemSecurityPlanWorkspace tenantId={TENANT} system={system} initialPlan={plan}
+function renderPlan(locale: "en" | "de" = "en") {
+  return render(<LocaleProvider locale={locale}><SystemSecurityPlanWorkspace tenantId={TENANT} system={system} initialPlan={plan}
     components={[component]} initialImplementations={[implementation]} initialVersions={[version]}
-    revision={revision()} initialRoot={page([])} canWrite />);
+    revision={revision()} initialRoot={page([])} canWrite /></LocaleProvider>);
 }
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Systems workspaces", () => {
+  it("renders German system labels, operational status and locale-formatted counts without changing system content", () => {
+    render(<LocaleProvider locale="de"><SystemsList tenantId={TENANT}
+      initialSystems={[{ ...system, operational_status: "under-major-modification" }]}
+      initialCounts={{ system: { components: 1234, plans: 2 } }} canWrite /></LocaleProvider>);
+    expect(screen.getByRole("searchbox", { name: "Systeme durchsuchen" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Neues System" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Identity" })).toBeVisible();
+    expect(screen.getByText("In wesentlicher Änderung · 1.234 Komponenten · 2 SSPs")).toBeVisible();
+    expect(screen.getByRole("link", { name: "System öffnen" })).toHaveAttribute("href", `/t/${TENANT}/systems/system`);
+  });
+
+  it("renders German system and component selectors while preserving their OSCAL values", async () => {
+    const user = userEvent.setup();
+    renderSystem("de");
+    expect(screen.getByRole("heading", { name: "Systemmerkmale" })).toBeVisible();
+    const systemStatus = screen.getByLabelText("OSCAL-Betriebsstatus des Systems");
+    for (const [value, label] of [
+      ["operational", "In Betrieb"],
+      ["under-development", "In Entwicklung"],
+      ["under-major-modification", "In wesentlicher Änderung"],
+      ["disposition", "Außerbetriebnahme"],
+      ["other", "Sonstige"],
+    ]) {
+      expect(within(systemStatus).getByRole("option", { name: label })).toHaveValue(value);
+    }
+    await user.click(screen.getByRole("button", { name: "Komponenten" }));
+    expect(screen.getByText("Deployed here")).toBeVisible();
+    expect(screen.getByText(/Dienst · In Betrieb/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Komponente hinzufügen" }));
+    const componentType = screen.getByLabelText("Komponententyp");
+    for (const [value, label] of [
+      ["service", "Dienst"], ["software", "Software"], ["hardware", "Hardware"],
+      ["system", "System"], ["interconnection", "Systemverbindung"],
+      ["policy", "Richtlinie"], ["physical", "Physisch"],
+      ["process-procedure", "Prozess / Verfahren"],
+      ["this-system", "Dieses System (systemweite Beiträge)"],
+    ]) {
+      expect(within(componentType).getByRole("option", { name: label })).toHaveValue(value);
+    }
+    const componentStatus = screen.getByLabelText("Betriebsstatus der Komponente");
+    for (const [value, label] of [
+      ["operational", "In Betrieb"], ["under-development", "In Entwicklung"],
+      ["disposition", "Außerbetriebnahme"], ["other", "Sonstige"],
+    ]) {
+      expect(within(componentStatus).getByRole("option", { name: label })).toHaveValue(value);
+    }
+  });
+
+  it("renders German SSP labels and statuses while preserving raw validation diagnostics", async () => {
+    const user = userEvent.setup();
+    const diagnostic = "Add an identifier. Original backend detail: system_ids[0].";
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({
+      ...validation, valid: false,
+      diagnostics: [{ severity: "error", code: "system_ids_required", message: diagnostic }],
+    })));
+    renderPlan("de");
+    expect(screen.getByRole("heading", { name: "Anforderungsbasis" })).toBeVisible();
+    expect(screen.getByText("Dokumentationsgrad: 1 von 2 Maßnahmen. Dies ist keine Konformitäts- oder Wirksamkeitsbewertung.")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Identity SSP" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Maßnahmenumsetzung" }));
+    expect(screen.getByText("Anwendungsworkflow: Umgesetzt · OSCAL-Status: Umgesetzt")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Beitrag bearbeiten" }));
+    expect(screen.getByLabelText("Beschreibung der anforderungsspezifischen Umsetzung")).toHaveValue("Contribution");
+    const oscalStatus = screen.getByLabelText("OSCAL-Umsetzungsstatus (unabhängig vom Anwendungsworkflow-Status)");
+    for (const [value, label] of [
+      ["implemented", "Umgesetzt"], ["partial", "Teilweise umgesetzt"], ["planned", "Geplant"],
+      ["alternative", "Alternative Umsetzung"], ["not-applicable", "Nicht anwendbar"],
+    ]) {
+      expect(within(oscalStatus).getByRole("option", { name: label })).toHaveValue(value);
+    }
+    await user.click(screen.getByRole("button", { name: "Entwurf verwerfen" }));
+    await user.click(screen.getByRole("button", { name: "Validierung" }));
+    await user.click(screen.getByRole("button", { name: "Arbeitsstand validieren" }));
+    expect(await screen.findByText("Bei der Validierung wurden zu behebende Probleme gefunden.")).toBeVisible();
+    expect(screen.getByText(/Add an identifier\. Original backend detail: system_ids\[0\]\./)).toHaveTextContent(diagnostic);
+    expect(screen.getByText("Fehler: system_ids_required")).toBeVisible();
+  });
+
   it("searches systems and creates one without inventing system characteristics", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse({ ...system, id: "new", name: "New" }));
@@ -142,10 +221,10 @@ describe("Systems workspaces", () => {
     ];
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(page(controls))));
     renderPlan();
-    await user.selectOptions(screen.getByLabelText("Documentation"), "undocumented");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Documentation" }), "undocumented");
     expect(await screen.findByRole("button", { name: /ac-2.*Accounts/ })).toBeVisible();
     expect(screen.queryByRole("button", { name: /ac-1.*Policy/ })).not.toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText("Documentation"), "documented");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Documentation" }), "documented");
     expect(screen.getByRole("button", { name: /ac-1.*Policy/ })).toBeVisible();
   });
 
