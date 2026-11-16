@@ -198,18 +198,28 @@ uv run ruff check .
 ```
 
 PostgreSQL integration tests require a dedicated PostgreSQL database whose name ends
-with `_test`; they never use SQLite. With the local Compose database running, create
-the test database with:
+with `_test`; they never use SQLite. Prefer an isolated, disposable PostgreSQL
+instance, separate from the demo database and its volumes:
 
 ```sh
-docker compose --env-file .env -f infrastructure/docker/compose.yaml exec -T db \
-  sh -c 'createdb -U "$POSTGRES_USER" collaborative_oscal_test'
+docker run --rm --name collaborative-oscal-integration-test \
+  -e POSTGRES_HOST_AUTH_METHOD=trust \
+  -e POSTGRES_DB=collaborative_oscal_test \
+  -p 127.0.0.1:55432:5432 -d postgres:17.11
+docker exec collaborative-oscal-integration-test pg_isready -U postgres
+# Wait for pg_isready to succeed before running pytest.
+cd apps/api
+TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:55432/collaborative_oscal_test \
+  uv run --locked pytest -ra
+# When finished:
+docker stop collaborative-oscal-integration-test
 ```
 
-Export `TEST_DATABASE_URL` with the same connection details as `DATABASE_URL` (or
-the `POSTGRES_*` settings) but with the database name `collaborative_oscal_test`,
-then run `uv run pytest` from `apps/api`. The migration integration test upgrades,
-downgrades, and reapplies the schema in that test database.
+Trust authentication is only for this disposable, loopback-bound test instance.
+Never use it for the demo or a deployed database. The suite upgrades the dedicated
+database to head; migration tests also exercise upgrade/downgrade sequences in
+transactional, isolated schemas and roll them back. Never point
+`TEST_DATABASE_URL` at a database containing data you need to retain.
 
 Run frontend lint and type checking from the repository root:
 
@@ -223,6 +233,36 @@ GitHub Actions runs linting and non-integration API tests on pushes and pull req
 PostgreSQL integration tests run only on pull requests, against a dedicated PostgreSQL
 service. Changes pushed directly to a branch without a pull request do not run the
 integration tests.
+
+### Verified integration baseline (2026-11-16)
+
+The complete API suite with a fresh, dedicated PostgreSQL 17 database passes:
+**262 passed, 0 failed, 0 errors, 0 skipped**. There are no remaining integration
+blockers or compatibility-policy exceptions. Frontend regression checks also pass:
+143 tests, ESLint, and TypeScript; API Ruff checks pass.
+
+The unmodified authoring-consolidation commit `ae57eb4` reproduced 228 passed,
+7 failed, and 25 setup errors. Its predecessor `7f2598f`, run in a separate Git
+worktree with its own database and locked dependencies, reproduced the same seven
+failures and 25 errors (214 passed, 8 failed total; its additional failure was an
+SSP schema digest assertion already corrected by `ae57eb4`).
+
+| Root cause | Correction and evidence |
+|---|---|
+| Invalid synthetic Catalog | `sample-security-practices.json` declares OSCAL 1.2.1. `/catalog/groups/0` contained `controls` with `ac-1` and `ac-2` alongside `groups` containing `ac-priv`. The official NIST 1.2.1 schema requires these alternatives to be mutually exclusive. Trestle rejected `Group1/controls` and `Group2/groups` as `extra_forbidden`; this was not a Trestle compatibility limitation. Moving `ac-priv` to a sibling group preserves all control IDs and content. A regression checks both Trestle and the official declared-version schema, without changing version dispatch. This removed all 25 setup errors. |
+| Incorrect hierarchy assertions | The persistence fixture places `ac-1` and its child `ac-1.1` inside the nested Account Management group, not the outer Access Control group. Assertions now identify the actual group and parent control rather than relying on unordered query results. Revision/path-derived identities remain unchanged. Explorer assertions reflect the corrected synthetic Catalog and still exercise nested groups through the existing nested-group fixture. |
+| Malformed fixture path | The duplicate-control rollback test addressed controls directly beneath the outer group. It now duplicates a control at the fixture's actual nested path and still requires the database integrity failure and complete rollback. |
+| Broken migration downgrade | Migration `ed72a1c94b30` created `uq_system_components_this_system` but dropped nonexistent `ix_system_components_this_system`. With explicit approval, only that downgrade name was corrected; upgrade behavior and deployed schemas are unchanged. Fresh upgrade, full downgrade, re-upgrade, populated profile migration, and its intentional data-loss downgrade rejection pass. |
+| Incorrect trigger exception expectation | The Component Definition revision guard uses PostgreSQL `RAISE EXCEPTION` without an explicit integrity SQLSTATE. Psycopg reports `RaiseException`, SQLSTATE `P0001`, wrapped by SQLAlchemy as `ProgrammingError`. The assertion requires that exact exception, SQLSTATE, guard message, and function context, then verifies revision content, digest, timestamp, and the Component Definition remain unchanged. No trigger was changed. |
+| Missing audit log capture | Alembic's `fileConfig` disabled already-imported application loggers. Keeping existing loggers enabled restores actual audit logging, rather than weakening the log assertion. |
+| Stale authoring-version assertions | Four Catalog API scenarios, previously hidden by fixture setup errors, still expected authored Profiles or Mappings to use 1.2.3. They now require the approved 1.2.1 policy; explicit legacy-version preservation assertions remain intact. Three Profile scenarios pass unchanged on the predecessor after correcting only the synthetic fixture, confirming these stale assertions were introduced by the consolidation. |
+| Related-mapping response serialization | Pydantic response conversion received `RelatedControl` dataclasses without attribute-based validation enabled. The response model now supports those attributes, consistent with existing response models, and the integration test checks complete source/target provenance. This failure also reproduces on the predecessor with only the synthetic fixture corrected. |
+| Local authentication configuration leakage | Catalog API tests now explicitly select their OIDC authentication mode, so a developer's ignored demo `.env` cannot bypass the stub token validator and cause unrelated 401 responses. |
+| Same-second Component Definition lifecycle | The existing update correction advances second-resolution `last-modified` monotonically. Deleting a component now uses the same rule instead of potentially moving time backwards. A frozen-clock regression verifies new document UUIDs and versions for real changes, stable component UUIDs, unchanged no-op updates and repeated exports, and valid OSCAL output. |
+
+No normative Catalogs, historical SSP versions, adoption snapshots, dependency
+locks, or authoring-version policies were changed. No tests were skipped and no
+schema-only fallback was introduced.
 
 ## Repository layout
 

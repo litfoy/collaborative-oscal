@@ -75,19 +75,17 @@
               {"id": "ac-2_smt", "name": "statement", "prose": "Accounts are created, changed, and disabled through a documented process."}
             ]
           }
-        ],
-        "groups": [
+        ]
+      },
+      {
+        "id": "ac-priv",
+        "title": "Privileged Access",
+        "controls": [
           {
-            "id": "ac-priv",
-            "title": "Privileged Access",
-            "controls": [
-              {
-                "id": "ac-6",
-                "title": "Least Privilege",
-                "parts": [
-                  {"id": "ac-6_smt", "name": "statement", "prose": "People receive only the access required for their role."}
-                ]
-              }
+            "id": "ac-6",
+            "title": "Least Privilege",
+            "parts": [
+              {"id": "ac-6_smt", "name": "statement", "prose": "People receive only the access required for their role."}
             ]
           }
         ]

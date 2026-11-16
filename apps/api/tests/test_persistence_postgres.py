@@ -122,7 +122,12 @@ def test_repository_operations_and_tenant_isolation(grc_service, session_factory
         assert nested_group.structural_path == "/catalog/groups/0/groups/0"
         assert nested_group.id == uuid5(revision_a1.id, f"group:{nested_group.structural_path}")
         assert nested_control.oscal_control_id == "ac-1.1"
-        assert nested_control.group_id == groups[0].id
+        root_group = next(group for group in groups if group.parent_group_id is None)
+        parent_control = next(control for control in controls if control.oscal_control_id == "ac-1")
+        assert nested_group.parent_group_id == root_group.id
+        assert parent_control.group_id == nested_group.id
+        assert nested_control.group_id == nested_group.id
+        assert nested_control.parent_control_id == parent_control.id
         assert nested_control.id == uuid5(
             revision_a1.id, f"control:{nested_control.structural_path}"
         )
@@ -158,8 +163,8 @@ def test_invalid_references_and_failed_revision_write_roll_back(
         )
     catalog = grc_service.create_catalog(tenant.id, "Rollback catalog", CatalogOriginType.CUSTOM)
     duplicate_controls = _catalog_document()
-    control = duplicate_controls["catalog"]["groups"][0]["controls"][0]
-    duplicate_controls["catalog"]["groups"][0]["controls"].append(dict(control))
+    controls = duplicate_controls["catalog"]["groups"][0]["groups"][0]["controls"]
+    controls.append(dict(controls[0]))
 
     with pytest.raises(IntegrityError):
         grc_service.create_draft_catalog_revision(tenant.id, catalog.id, duplicate_controls)

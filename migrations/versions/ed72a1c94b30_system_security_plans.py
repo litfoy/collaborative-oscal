@@ -579,7 +579,7 @@ def downgrade() -> None:
         "ix_system_security_plans_system_updated", table_name="system_security_plans"
     )
     op.drop_table("system_security_plans")
-    op.drop_index("ix_system_components_this_system", table_name="system_components")
+    op.drop_index("uq_system_components_this_system", table_name="system_components")
     op.drop_index("ix_system_components_system_created", table_name="system_components")
     op.drop_table("system_components")
     op.drop_index(

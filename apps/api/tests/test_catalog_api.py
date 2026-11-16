@@ -99,6 +99,7 @@ def _meta():
 @pytest.fixture
 def world(monkeypatch, postgres_url, session_factory, grc_service):
     monkeypatch.setenv("DATABASE_URL", postgres_url)
+    monkeypatch.setenv("AUTH_MODE", "keycloak")
     get_settings.cache_clear()
     create_session_factory.cache_clear()
     monkeypatch.setattr(dependencies, "get_access_token_validator", lambda: _StubValidator())
@@ -364,7 +365,7 @@ def test_profiles_reference_catalogs_and_select_controls_without_mutating_source
     assert profile["catalog_id"] == str(world.security.catalog.id)
     assert profile["revision_id"] == str(world.security.revision.id)
     assert profile["description"] == "Annual review scope"
-    assert profile["oscal_version"] == "1.2.3"
+    assert profile["oscal_version"] == "1.2.1"
     listed = client.get(profiles_path, headers=world.headers("alice"))
     assert listed.status_code == 200
     assert listed.json()["items"][0]["control_ids"] == ["ac-1", "ac-1.1"]
@@ -375,7 +376,7 @@ def test_profiles_reference_catalogs_and_select_controls_without_mutating_source
     assert exported_response.headers["content-type"] == "application/json"
     exported = exported_response.json()
     validate_profile_document(exported)
-    assert exported["profile"]["metadata"]["oscal-version"] == "1.2.3"
+    assert exported["profile"]["metadata"]["oscal-version"] == "1.2.1"
     assert exported["profile"]["metadata"]["title"] == "Access review profile"
     imported = exported["profile"]["imports"][0]
     assert imported["href"] == source_path
@@ -390,7 +391,7 @@ def test_profiles_reference_catalogs_and_select_controls_without_mutating_source
     updated_document = client.get(export_path, headers=world.headers("alice")).json()
     assert updated_document["profile"]["metadata"]["title"] == "Updated access profile"
     assert updated_document["profile"]["metadata"]["remarks"] == "Annual review scope"
-    assert updated_document["profile"]["metadata"]["oscal-version"] == "1.2.3"
+    assert updated_document["profile"]["metadata"]["oscal-version"] == "1.2.1"
     assert updated_document["profile"]["imports"][0]["include-controls"] == [{"with-ids": ["ac-2"]}]
 
     invalid_control = client.post(
@@ -626,13 +627,13 @@ def test_official_nist_and_bsi_catalogs_compose_in_default_profile(client, world
     )
     assert created.status_code == 201, created.text
     profile = created.json()
-    assert profile["oscal_version"] == "1.2.3"
+    assert profile["oscal_version"] == "1.2.1"
 
     exported = client.get(f"{profiles_path}/{profile['id']}/export", headers=reader)
     assert exported.status_code == 200
     document = exported.json()
     validate_profile_document(document)
-    assert document["profile"]["metadata"]["oscal-version"] == "1.2.3"
+    assert document["profile"]["metadata"]["oscal-version"] == "1.2.1"
     assert [item["include-controls"][0]["with-ids"] for item in document["profile"]["imports"]] == [
         selection["control_ids"] for selection in selections
     ]
@@ -690,7 +691,7 @@ def test_legacy_catalog_can_be_imported_and_used_in_mixed_version_profile(client
     )
     assert response.status_code == 201, response.text
     profile = response.json()
-    assert profile["oscal_version"] == "1.2.3"
+    assert profile["oscal_version"] == "1.2.1"
     exported = client.get(f"{profile_path}/{profile['id']}/export", headers=reader)
     assert exported.status_code == 200
     validate_profile_document(exported.json())
@@ -883,16 +884,17 @@ def test_outline_navigates_nested_groups_and_controls(client, world) -> None:
     root = client.get(path, headers=headers).json()
     assert [(n["kind"], n["oscal_id"]) for n in root["items"]] == [
         ("group", "ac"),
+        ("group", "ac-priv"),
         ("group", "ir"),
     ]
-    assert root["items"][0]["child_count"] == 3  # ac-1, ac-2, and the ac-priv subgroup
+    assert root["items"][0]["child_count"] == 2
+    assert root["items"][1]["child_count"] == 1
 
     access = root["items"][0]["id"]
     children = client.get(path + f"?parent_kind=group&parent_id={access}", headers=headers).json()
     assert [(n["kind"], n["oscal_id"], n["child_count"]) for n in children["items"]] == [
         ("control", "ac-1", 1),
         ("control", "ac-2", 0),
-        ("group", "ac-priv", 1),
     ]
 
     ac1 = children["items"][0]["id"]
@@ -901,11 +903,32 @@ def test_outline_navigates_nested_groups_and_controls(client, world) -> None:
         ("ac-1.1", "Policy Exceptions")
     ]
 
-    paged = client.get(
-        path + f"?parent_kind=group&parent_id={access}&limit=2&offset=2", headers=headers
-    ).json()
+    paged = client.get(path + "?limit=1&offset=1", headers=headers).json()
     assert paged["total"] == 3
     assert [n["oscal_id"] for n in paged["items"]] == ["ac-priv"]
+
+    # Nested groups cannot mix controls and groups, so use the nested-group fixture.
+    foreign_headers = world.headers("bob")
+    foreign_path = (
+        _base(world.tenant_b.id, world.foreign.catalog.id)
+        + f"/revisions/{world.foreign.revision.id}/outline"
+    )
+    foreign_root = client.get(foreign_path, headers=foreign_headers).json()["items"][0]
+    subgroup = client.get(
+        foreign_path + f"?parent_kind=group&parent_id={foreign_root['id']}",
+        headers=foreign_headers,
+    ).json()["items"]
+    assert [(n["kind"], n["title"], n["child_count"]) for n in subgroup] == [
+        ("group", "Account Management", 2)
+    ]
+    subgroup_controls = client.get(
+        foreign_path + f"?parent_kind=group&parent_id={subgroup[0]['id']}",
+        headers=foreign_headers,
+    ).json()["items"]
+    assert [(n["kind"], n["oscal_id"]) for n in subgroup_controls] == [
+        ("control", "ac-1"),
+        ("control", "ac-2"),
+    ]
 
     assert client.get(path + "?parent_kind=group", headers=headers).status_code == 422
     unknown = client.get(path + f"?parent_kind=group&parent_id={uuid4()}", headers=headers)
@@ -1211,7 +1234,7 @@ def test_control_detail_preserves_oscal_semantics(client, world) -> None:
     assert nested["parent_control_id"] == control["id"]
 
     deep = client.get(_revision_path(world) + "/controls/ac-6", headers=headers).json()
-    assert [a["oscal_id"] for a in deep["ancestors"]] == ["ac", "ac-priv"]
+    assert [a["oscal_id"] for a in deep["ancestors"]] == ["ac-priv"]
 
     missing = client.get(_revision_path(world) + "/controls/nope", headers=headers)
     assert missing.status_code == 404
@@ -1338,7 +1361,7 @@ def test_control_mappings_are_revision_scoped_and_export_as_oscal(
     created = client.post(path, headers=world.headers("editor"), json=body)
     assert created.status_code == 201, created.text
     collection = created.json()
-    assert collection["oscal_version"] == "1.2.3"
+    assert collection["oscal_version"] == "1.2.1"
     assert collection["mappings"][0]["source_revision_id"] == str(source.revision.id)
     assert collection["mappings"][0]["target_revision_id"] == str(target.revision.id)
     assert collection["mappings"][0]["entries"][0]["sources"] == ["ac-1", "ac-2"]
@@ -1356,6 +1379,21 @@ def test_control_mappings_are_revision_scoped_and_export_as_oscal(
     assert related_source.json()["items"][0]["relationship"] == "subset-of"
     assert len(related_source.json()["items"][0]["sources"]) == 2
     assert len(related_source.json()["items"][0]["targets"]) == 2
+    for side, imported in (("sources", source), ("targets", target)):
+        assert related_source.json()["items"][0][side] == [
+            {
+                "catalog_id": str(imported.catalog.id),
+                "catalog_name": imported.catalog.name,
+                "revision_id": str(imported.revision.id),
+                "revision_number": 1,
+                "control_id": control_id,
+                "title": title,
+            }
+            for control_id, title in (
+                ("ac-1", "Policy and Procedures"),
+                ("ac-2", "Account Management"),
+            )
+        ]
 
     related_target = client.get(
         _base(world.tenant_a.id, target.catalog.id)

@@ -200,18 +200,11 @@ class ComponentDefinitionService:
                 return current
 
             now = datetime.now(UTC)
-            previous_modified = datetime.fromisoformat(
-                old_json["metadata"]["last-modified"].replace("Z", "+00:00")
-            )
-            last_modified = max(
-                now.replace(microsecond=0),
-                previous_modified + timedelta(seconds=1),
-            )
             document = build_component_definition_document(
                 document_uuid=uuid4(),
                 title=title,
                 components=component_jsons,
-                last_modified=last_modified,
+                last_modified=_next_modified(old_json["metadata"]["last-modified"], now),
                 version=_next_version(old_json["metadata"]["version"]),
                 oscal_version=old_json["metadata"]["oscal-version"],
             )
@@ -278,7 +271,7 @@ class ComponentDefinitionService:
                 document_uuid=uuid4(),
                 title=body["metadata"]["title"],
                 components=remaining_json,
-                last_modified=now,
+                last_modified=_next_modified(body["metadata"]["last-modified"], now),
                 version=_next_version(body["metadata"]["version"]),
                 oscal_version=body["metadata"]["oscal-version"],
             )
@@ -573,6 +566,11 @@ def old_source_refs_by_source(
             grouped[key] = (set_uuid, {})
         grouped[key][1][control_id] = requirement_uuid
     return grouped
+
+
+def _next_modified(previous: str, now: datetime) -> datetime:
+    previous_modified = datetime.fromisoformat(previous.replace("Z", "+00:00"))
+    return max(now.replace(microsecond=0), previous_modified + timedelta(seconds=1))
 
 
 def _next_version(version: str) -> str:

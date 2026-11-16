@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.mappings import MappingCollection
 
@@ -157,6 +157,8 @@ class MappingCollectionListResponse(BaseModel):
 
 
 class RelatedControlResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     catalog_id: UUID
     catalog_name: str
     revision_id: UUID

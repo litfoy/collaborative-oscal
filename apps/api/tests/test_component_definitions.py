@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 from collaborative_oscal_oscal.component_definition import validate_component_definition_document
+from psycopg.errors import RaiseException
 from sqlalchemy import func, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import ProgrammingError
 
 from app.application.component_definitions import (
     ComponentDefinitionService,
@@ -231,7 +233,10 @@ def test_component_definition_sources_identity_and_deletion(
     assert implementation_count == 1
 
     with session_factory() as session:
-        with pytest.raises(IntegrityError, match="Component Definitions are immutable"):
+        with pytest.raises(
+            ProgrammingError,
+            match="Catalog revisions referenced by Component Definitions are immutable",
+        ) as rejected:
             session.execute(
                 update(CatalogRevisionRecord)
                 .where(CatalogRevisionRecord.id == revisions[0].id)
@@ -239,6 +244,22 @@ def test_component_definition_sources_identity_and_deletion(
             )
             session.commit()
         session.rollback()
+        assert isinstance(rejected.value.orig, RaiseException)
+        assert rejected.value.orig.sqlstate == "P0001"
+        assert rejected.value.orig.diag.message_primary == (
+            "Catalog revisions referenced by Component Definitions are immutable"
+        )
+        context = rejected.value.orig.diag.context
+        assert context is not None
+        assert "protect_component_definition_source_revision()" in context
+
+    with session_factory() as session:
+        stored = session.get(CatalogRevisionRecord, revisions[0].id)
+        assert stored is not None
+        assert stored.content == revisions[0].content
+        assert stored.content_sha256 == revisions[0].content_sha256
+        assert stored.updated_at == revisions[0].updated_at
+    assert service.export(tenant.id, created.id)["component-definition"] == after
 
     service.delete_component(tenant.id, actor.id, created.id, created.components[0].id)
     remaining = service.get(tenant.id, created.id)
@@ -273,3 +294,48 @@ def test_component_definition_sources_identity_and_deletion(
             .values(content={"catalog": {"after-delete": True}})
         )
         session.commit()
+
+
+def test_same_second_component_changes_preserve_document_lifecycle(
+    monkeypatch, grc_service, session_factory
+) -> None:
+    from app.application import component_definitions
+
+    now = datetime(2026, 11, 16, 12, 0, 0, 500000, tzinfo=UTC)
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz: tzinfo | None = None) -> datetime:
+            return now.astimezone(tz)
+
+    monkeypatch.setattr(component_definitions, "datetime", FrozenDatetime)
+    tenant = grc_service.create_tenant("Lifecycle", f"lifecycle-{uuid4().hex}")
+    actor = _actor(session_factory, tenant.id)
+    service = ComponentDefinitionService(lambda: session_factory.begin())
+    created = service.create(tenant.id, actor.id, "Policy", "policy", "Guidance", [])
+    original = service.export(tenant.id, created.id)
+    inputs = [
+        ComponentInput(created.components[0].id, "policy", "Policy", "Guidance", []),
+        ComponentInput(None, "process-procedure", "Enrollment", "Process", []),
+    ]
+    updated = service.update(tenant.id, actor.id, created.id, "Policies", inputs)
+    changed = service.export(tenant.id, created.id)
+    inputs[1] = ComponentInput(
+        updated.components[1].id, "process-procedure", "Enrollment", "Process", []
+    )
+    service.update(tenant.id, actor.id, created.id, "Policies", inputs)
+    assert service.export(tenant.id, created.id) == changed
+
+    service.delete_component(tenant.id, actor.id, created.id, updated.components[1].id)
+    deleted = service.export(tenant.id, created.id)
+    documents = [original, changed, deleted]
+    assert len({doc["component-definition"]["uuid"] for doc in documents}) == 3
+    for offset, doc in enumerate(documents):
+        body = doc["component-definition"]
+        assert body["metadata"]["version"] == f"1.0.{offset}"
+        modified = datetime.fromisoformat(body["metadata"]["last-modified"])
+        assert modified == now.replace(microsecond=0) + timedelta(seconds=offset)
+        assert body["components"][0]["uuid"] == str(created.components[0].oscal_uuid)
+        assert body["metadata"]["oscal-version"] == "1.2.1"
+        validate_component_definition_document(doc)
+    assert service.export(tenant.id, created.id) == deleted

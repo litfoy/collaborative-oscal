@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 import yaml
 from collaborative_oscal_oscal.catalog_import import (
+    _OSCAL_DRAFT7_VALIDATOR,
     CatalogInputFormat,
     validate_catalog_bytes,
 )
@@ -19,6 +20,7 @@ from collaborative_oscal_oscal.versions import (
     OscalDocumentModel,
     load_oscal_schema,
 )
+from jsonschema import Draft7Validator
 from sqlalchemy import func, select
 
 from app.application.catalog_import import (
@@ -54,6 +56,22 @@ def _catalog_document(oscal_version: str = "1.2.1") -> dict:
 
 def _json_bytes(document: dict | None = None) -> bytes:
     return json.dumps(document or _catalog_document(), ensure_ascii=False).encode("utf-8")
+
+
+def test_sample_security_catalog_passes_trestle_and_official_declared_schema() -> None:
+    path = Path(__file__).parents[3] / "examples" / "catalogs" / "sample-security-practices.json"
+    content = path.read_bytes()
+    document = json.loads(content)
+    assert document["catalog"]["metadata"]["oscal-version"] == "1.2.1"
+    outcome = validate_catalog_bytes(content)
+    assert outcome.result.valid, outcome.result.errors
+    assert outcome.result.validator_name == "compliance-trestle"
+    assert outcome.result.declared_oscal_version == "1.2.1"
+    assert outcome.document == document
+    _OSCAL_DRAFT7_VALIDATOR(
+        load_oscal_schema(OscalDocumentModel.CATALOG, "1.2.1"),
+        format_checker=Draft7Validator.FORMAT_CHECKER,
+    ).validate(document)
 
 
 def test_versioned_schema_validation_preserves_extension_data() -> None:
@@ -415,7 +433,9 @@ def test_import_json_yaml_idempotency_updates_and_tenant_isolation(
         assert groups[1].parent_group_id == groups[0].id
         assert [control.oscal_control_id for control in controls] == ["ac-1", "ac-1.1", "ac-2"]
         assert controls[1].parent_control_id == controls[0].id
-        assert controls[0].group_id == groups[0].id
+        assert controls[0].group_id == groups[1].id
+        assert controls[1].group_id == groups[1].id
+        assert controls[2].group_id == groups[1].id
 
 
 @pytest.mark.integration
