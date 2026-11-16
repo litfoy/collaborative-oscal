@@ -22,3 +22,12 @@
 ## Current scope
 
 The API exposes public `/health`, bearer-protected `GET /api/v1/me`, `GET /api/v1/tenants`, and read-only tenant-scoped catalog endpoints requiring `catalog:read`. OIDC access-token verification, identity/membership persistence, tenant-scoped roles, and trusted tenant-context dependencies are implemented. The Next.js app is an OIDC Backend-for-Frontend (openid-client, encrypted HttpOnly cookie session; tokens never reach the browser) hosting the read-only Catalog Explorer. Catalog import has no public endpoint (use `python -m app.cli`). GRC routes, catalog editing, profiles, public user management, and machine identities are not implemented. Control references use `catalog_id + revision_id + oscal_control_id`. See ADR 0007.
+
+### Domain-Oriented User Experience
+
+- The application is intended for security and privacy professionals.
+- Normal authoring workflows must not require users to manually enter internal identifiers, UUIDs, JSON structures, or API payloads.
+- Use existing domain objects, searchable selectors, structured editors, and human-readable references.
+- Raw OSCAL JSON may be exposed for optional technical inspection and export, but it must not substitute for a functional domain-oriented user interface.
+- A successful API integration is not sufficient evidence of a completed user-facing feature.
+- Verify representative workflows through the actual graphical user interface.
