@@ -187,8 +187,10 @@ npm --workspace apps/web run typecheck
 npm --workspace apps/web run test
 ```
 
-GitHub Actions runs the PostgreSQL integration tests against a dedicated PostgreSQL
-service as well as the health/unit and lint checks.
+GitHub Actions runs linting and non-integration API tests on pushes and pull requests.
+PostgreSQL integration tests run only on pull requests, against a dedicated PostgreSQL
+service. Changes pushed directly to a branch without a pull request do not run the
+integration tests.
 
 ## Repository layout
 

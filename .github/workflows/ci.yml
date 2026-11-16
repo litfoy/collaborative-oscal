@@ -8,7 +8,26 @@ permissions:
   contents: read
 
 jobs:
-  api:
+  api-quick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+        working-directory: apps/api
+      - run: uv run ruff check .
+        working-directory: apps/api
+      - run: uv run pytest -m "not integration"
+        working-directory: apps/api
+
+  api-integration:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     env:
       TEST_DATABASE_URL: postgresql+psycopg://collaborative_oscal:ci-only-password@localhost:5432/collaborative_oscal_test
@@ -37,9 +56,7 @@ jobs:
           python-version: "3.12"
       - run: uv sync --locked
         working-directory: apps/api
-      - run: uv run ruff check .
-        working-directory: apps/api
-      - run: uv run pytest
+      - run: uv run pytest -m integration
         working-directory: apps/api
 
   web:
