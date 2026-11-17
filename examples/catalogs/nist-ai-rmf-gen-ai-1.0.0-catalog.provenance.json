@@ -1,0 +1,11 @@
+{
+  "upstream_repository": "https://github.com/oscal-compass/oscal-content",
+  "upstream_revision": "56b1adba350b11f200636b94a64615b29fae33ed",
+  "upstream_path": "catalogs/nist_ai_rmf_gen_ai/1.0.0/catalog.json",
+  "source_uri": "https://github.com/oscal-compass/oscal-content/blob/56b1adba350b11f200636b94a64615b29fae33ed/catalogs/nist_ai_rmf_gen_ai/1.0.0/catalog.json",
+  "sha256": "5d23b8f05ab5d8e96c552e2a9dcc1f0da9062fe9dcbe61b8de3136edf4cb703e",
+  "license_identifier": "Apache-2.0",
+  "attribution": "OSCAL Compass contributors",
+  "notes": "Bundled for fictional AI governance demonstration workflows only. Preserve original OSCAL content, UUID, version, and control identifiers."
+}
+

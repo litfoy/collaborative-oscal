@@ -6,6 +6,7 @@ from uuid import UUID
 
 from sqlalchemy.dialects.postgresql import insert
 
+from app.application.ai_governance_demo import seed_ai_governance_demo
 from app.application.catalog_import import (
     CatalogImportMetadata,
     CatalogImportResult,
@@ -32,6 +33,18 @@ from app.persistence.identity import SQLIdentityRepository, SQLMembershipReposit
 from app.persistence.models import TenantMembershipRecord, TenantRecord, UserIdentityRecord
 
 logger = logging.getLogger(__name__)
+
+
+def _default_ai_catalog_path() -> Path:
+    bundled = Path("/opt/demo/nist-ai-rmf-gen-ai-1.0.0-catalog.json")
+    if bundled.exists():
+        return bundled
+    return (
+        Path(__file__).resolve().parents[3]
+        / "examples"
+        / "catalogs"
+        / "nist-ai-rmf-gen-ai-1.0.0-catalog.json"
+    )
 
 
 def _bootstrap_demo() -> None:
@@ -142,6 +155,33 @@ def _import_catalog(
     )
 
 
+def _seed_ai_governance_demo(*, tenant_id: UUID, actor_id: UUID, catalog_path: Path) -> str:
+    result = seed_ai_governance_demo(
+        session_factory=create_session_factory(),
+        tenant_id=tenant_id,
+        actor_id=actor_id,
+        catalog_path=catalog_path,
+    )
+    outcome = "applied" if result.applied else "already applied"
+    return (
+        f"AI governance demo seed {outcome}. "
+        f"Catalog {result.catalog_id}, revision {result.revision_id}."
+    )
+
+
+def _seed_ai_governance_demo_local(*, catalog_path: Path) -> str:
+    if get_settings().auth_mode != "demo":
+        raise ValueError("seed-ai-governance-demo-local requires AUTH_MODE=demo.")
+    with create_session_factory().begin() as session:
+        if not demo_state_valid(session):
+            raise ValueError("Demo bootstrap conflicts with existing identity or authorization.")
+    return _seed_ai_governance_demo(
+        tenant_id=DEMO_TENANT_ID,
+        actor_id=DEMO_USER_ID,
+        catalog_path=catalog_path,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -169,6 +209,34 @@ def main() -> None:
     importer.add_argument("--source-uri")
     importer.add_argument("--source-organization")
     importer.add_argument("--license-identifier")
+    ai_demo = commands.add_parser(
+        "seed-ai-governance-demo",
+        help=(
+            "Create the approved fictional AI governance demo dataset using "
+            "existing authoring services."
+        ),
+    )
+    ai_demo.add_argument("--tenant-id", required=True, type=UUID)
+    ai_demo.add_argument("--actor-id", required=True, type=UUID)
+    ai_demo.add_argument(
+        "--catalog-file",
+        type=Path,
+        default=_default_ai_catalog_path(),
+        help="Path to the approved upstream AI RMF catalog snapshot.",
+    )
+    ai_demo_local = commands.add_parser(
+        "seed-ai-governance-demo-local",
+        help=(
+            "Create the approved fictional AI governance demo dataset in local demo mode "
+            "using the fixed demo tenant and actor."
+        ),
+    )
+    ai_demo_local.add_argument(
+        "--catalog-file",
+        type=Path,
+        default=_default_ai_catalog_path(),
+        help="Path to the approved upstream AI RMF catalog snapshot.",
+    )
     arguments = parser.parse_args()
 
     if arguments.command == "bootstrap-demo":
@@ -218,6 +286,22 @@ def main() -> None:
             f"Catalog {result.catalog.id} revision {result.revision.id} "
             f"(#{result.revision.revision_number}, {result.control_count} controls) {outcome}."
         )
+    elif arguments.command == "seed-ai-governance-demo":
+        try:
+            message = _seed_ai_governance_demo(
+                tenant_id=arguments.tenant_id,
+                actor_id=arguments.actor_id,
+                catalog_path=arguments.catalog_file,
+            )
+        except (OSError, ValueError, EntityNotFoundError, RuntimeError) as exc:
+            parser.error(str(exc))
+        print(message)
+    elif arguments.command == "seed-ai-governance-demo-local":
+        try:
+            message = _seed_ai_governance_demo_local(catalog_path=arguments.catalog_file)
+        except (OSError, ValueError, EntityNotFoundError, RuntimeError) as exc:
+            parser.error(str(exc))
+        print(message)
 
 
 if __name__ == "__main__":

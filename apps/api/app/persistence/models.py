@@ -33,6 +33,27 @@ class TenantRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class DemoSeedRunRecord(Base):
+    __tablename__ = "demo_seed_runs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id"],
+            ["tenants.id"],
+            name="fk_demo_seed_runs_tenant_id_tenants",
+            ondelete="RESTRICT",
+        ),
+        Index("ix_demo_seed_runs_tenant_applied", "tenant_id", "applied_at"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    seed_name: Mapped[str] = mapped_column(String(100), primary_key=True)
+    applied_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+
 class UserIdentityRecord(Base):
     __tablename__ = "user_identities"
     __table_args__ = (
