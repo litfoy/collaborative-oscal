@@ -24,7 +24,8 @@ export async function bffGet<T>(
   }
   if (!response.ok) {
     const kind = kindForStatus(response.status);
-    throw new ApiError(kind, response.status, await responseMessage(response, kind));
+    const parsed = await parseErrorResponse(response, kind);
+    throw new ApiError(kind, response.status, parsed.message, parsed.detail);
   }
   return (await response.json()) as T;
 }
@@ -49,18 +50,25 @@ export async function bffWrite<T>(
   }
   if (!response.ok) {
     const kind = kindForStatus(response.status);
-    throw new ApiError(kind, response.status, await responseMessage(response, kind));
+    const parsed = await parseErrorResponse(response, kind);
+    throw new ApiError(kind, response.status, parsed.message, parsed.detail);
   }
   if (response.status === 204) return;
   return (await response.json()) as T;
 }
 
-async function responseMessage(response: Response, kind: ApiError["kind"]): Promise<string> {
+async function parseErrorResponse(
+  response: Response,
+  kind: ApiError["kind"],
+): Promise<{ message: string; detail?: unknown }> {
   try {
     const problem = (await response.json()) as { detail?: unknown };
-    if (typeof problem.detail === "string") return problem.detail;
+    if (typeof problem.detail === "string") return { message: problem.detail };
+    if (problem.detail !== undefined) {
+      return { message: ERROR_MESSAGES[kind], detail: problem.detail };
+    }
   } catch {
     // Keep the standard status message when the proxy did not return JSON.
   }
-  return ERROR_MESSAGES[kind];
+  return { message: ERROR_MESSAGES[kind] };
 }

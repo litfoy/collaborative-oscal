@@ -3,6 +3,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 
 import { bffGet, bffWrite } from "@/lib/bff-client";
+import { ApiError } from "@/lib/errors";
 import { useI18n } from "@/lib/i18n/provider";
 import type {
   AssessmentMethod,
@@ -19,6 +20,11 @@ import type {
 const METHODS: AssessmentMethod[] = ["EXAMINE", "INTERVIEW", "TEST"];
 
 type Tab = "overview" | "observations" | "findings" | "validation";
+type InvalidContext =
+  | "errors.invalid"
+  | "assessmentResults.saveRejected"
+  | "assessmentResults.publishRejected";
+type ApiDiagnostic = { code: string; message: string; path?: string };
 
 export function AssessmentResultWorkspace({
   tenantId,
@@ -54,19 +60,13 @@ export function AssessmentResultWorkspace({
   );
 
   const statementTargetOptions = useMemo(
-    () =>
-      result.statement_options.filter((item) =>
-        result.reviewed_control_ids.includes(item.control_id),
-      ),
-    [result.reviewed_control_ids, result.statement_options],
+    () => result.statement_options,
+    [result.statement_options],
   );
 
   const objectiveTargetOptions = useMemo(
-    () =>
-      result.objective_options.filter((item) =>
-        result.reviewed_control_ids.includes(item.control_id),
-      ),
-    [result.objective_options, result.reviewed_control_ids],
+    () => result.objective_options,
+    [result.objective_options],
   );
 
   function diagnosticMessage(item: { code: string; message: string }): string {
@@ -76,7 +76,44 @@ export function AssessmentResultWorkspace({
     if (item.code === "invalid_evidence_href") {
       return t("assessmentResults.diagnostic.invalidEvidenceHref");
     }
+    if (item.code === "duplicate_authored_entity_ids") {
+      return t("assessmentResults.diagnostic.duplicateAuthoredEntityIds");
+    }
+    if (item.code === "ambiguous_statement_target") {
+      return t("assessmentResults.diagnostic.ambiguousStatementTarget");
+    }
+    if (item.code === "ambiguous_objective_target") {
+      return t("assessmentResults.diagnostic.ambiguousObjectiveTarget");
+    }
     return item.message;
+  }
+
+  function diagnosticsFromCause(cause: unknown): ApiDiagnostic[] {
+    if (!(cause instanceof ApiError) || cause.kind !== "invalid") return [];
+    if (!cause.detail || typeof cause.detail !== "object") return [];
+    const diagnostics = (cause.detail as { diagnostics?: unknown }).diagnostics;
+    if (!Array.isArray(diagnostics)) return [];
+    const parsed: ApiDiagnostic[] = [];
+    for (const item of diagnostics) {
+      if (!item || typeof item !== "object") continue;
+      const maybe = item as { code?: unknown; message?: unknown; path?: unknown };
+      if (typeof maybe.code !== "string" || typeof maybe.message !== "string") continue;
+      parsed.push({
+        code: maybe.code,
+        message: maybe.message,
+        path: typeof maybe.path === "string" ? maybe.path : undefined,
+      });
+    }
+    return parsed;
+  }
+
+  function formatDiagnosticsMessage(context: InvalidContext, diagnostics: ApiDiagnostic[]): string {
+    const lines = diagnostics.map((item) => {
+      const base = diagnosticMessage(item);
+      if (!item.path) return `- ${base}`;
+      return `- ${base} (${t("assessmentResults.validationPath")}: ${item.path})`;
+    });
+    return [t(context), ...lines].join("\n");
   }
 
   function updateResult(next: AssessmentResult) {
@@ -104,7 +141,7 @@ export function AssessmentResultWorkspace({
       setSavedResult(updated);
       setValidationStale(true);
       return t("assessmentResults.saved");
-    });
+    }, "assessmentResults.saveRejected");
   }
 
   async function validateResult() {
@@ -135,16 +172,24 @@ export function AssessmentResultWorkspace({
       return version.created
         ? t("assessmentResults.versionCreated", { version: version.document_version })
         : t("assessmentResults.versionUnchanged");
-    });
+    }, "assessmentResults.publishRejected");
   }
 
-  async function run(action: () => Promise<string>) {
+  async function run(
+    action: () => Promise<string>,
+    invalidContext: InvalidContext = "errors.invalid",
+  ) {
     setBusy(true);
     setError("");
     setNotice("");
     try {
       setNotice(await action());
     } catch (cause) {
+      const diagnostics = diagnosticsFromCause(cause);
+      if (diagnostics.length) {
+        setError(formatDiagnosticsMessage(invalidContext, diagnostics));
+        return;
+      }
       setError(errorMessage(cause));
     } finally {
       setBusy(false);

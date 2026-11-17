@@ -23,7 +23,7 @@ from app.domain.implementations import (
     OscalImplementationStatus,
 )
 from app.persistence.identity import SQLIdentityRepository, SQLMembershipRepository
-from app.persistence.models import CatalogControlIndexRecord
+from app.persistence.models import AssessmentResultRecord, CatalogControlIndexRecord
 
 pytestmark = pytest.mark.integration
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "oscal_catalog.json"
@@ -174,7 +174,9 @@ def _prepare_plan_scope_context(
     session_factory,
     *,
     selected_control_count: int = 2,
+    selected_control_ids: list[str] | None = None,
     selected_subject_indexes: tuple[int, ...] = (0,),
+    source_objectives: list[dict[str, object]] | None = None,
     local_objectives: list[dict[str, object]] | None = None,
     catalog_document: dict | None = None,
 ) -> dict[str, object]:
@@ -302,8 +304,12 @@ def _prepare_plan_scope_context(
         title=plan["title"],
         description=plan["description"],
         working_data={
-            "control_ids": controls[:selected_control_count],
-            "source_objectives": [],
+            "control_ids": (
+                selected_control_ids
+                if selected_control_ids is not None
+                else controls[:selected_control_count]
+            ),
+            "source_objectives": source_objectives or [],
             "local_objectives": local_objectives or [],
             "subject_uuids": selected_subjects,
             "activities": [],
@@ -1674,6 +1680,282 @@ def test_assessment_result_rejects_duplicate_observation_and_finding_ids(
     assert "duplicate_finding_ids" in codes
 
 
+def test_assessment_result_rejects_cross_entity_uuid_collisions(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    result = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="Cross-entity UUID AR",
+        description=None,
+    )
+    shared_id = str(uuid4())
+
+    with pytest.raises(InvalidAssessmentResult) as error:
+        service.update_result(
+            tenant_id,
+            actor,
+            result["id"],
+            title="Cross-entity UUID AR",
+            description=None,
+            working_data=_working_payload(
+                control_id=control_id,
+                observations=[
+                    {
+                        "id": shared_id,
+                        "title": "Observation",
+                        "description": "desc",
+                        "methods": ["EXAMINE"],
+                        "collected_at": "2026-11-20T00:30:00+00:00",
+                        "subject_uuids": [str(subject_uuid)],
+                        "evidence": [
+                            {
+                                "id": shared_id,
+                                "title": "Evidence",
+                                "description": "desc",
+                                "href": "https://example.test/evidence/collision",
+                            }
+                        ],
+                    }
+                ],
+                findings=[
+                    {
+                        "id": shared_id,
+                        "title": "Finding",
+                        "description": "desc",
+                        "target_type": "objective-id",
+                        "target_id": "local-mfa-objective",
+                        "status": "satisfied",
+                        "related_observation_ids": [],
+                    }
+                ],
+            ),
+        )
+
+    assert any(
+        item["code"] == "duplicate_authored_entity_ids"
+        for item in error.value.diagnostics
+    )
+
+
+def test_assessment_result_rejects_entities_reusing_assessment_result_uuid_on_publish(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        _subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    result = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="Result UUID collision AR",
+        description=None,
+    )
+
+    with session_factory.begin() as session:
+        record = session.scalar(
+            select(AssessmentResultRecord).where(
+                AssessmentResultRecord.tenant_id == tenant_id,
+                AssessmentResultRecord.id == result["id"],
+            )
+        )
+        assert record is not None
+        record.working_data = {
+            "reviewed_control_ids": [control_id],
+            "start": None,
+            "end": None,
+            "observations": [
+                {
+                    "id": str(result["id"]),
+                    "title": "Observation",
+                    "description": "desc",
+                    "methods": ["EXAMINE"],
+                    "collected_at": "2026-11-20T00:30:00+00:00",
+                    "subject_uuids": [],
+                    "evidence": [],
+                }
+            ],
+            "findings": [],
+        }
+
+    with pytest.raises(InvalidAssessmentResult) as publish_error:
+        service.create_version(tenant_id, actor, result["id"])
+
+    assert any(
+        item["code"] == "duplicate_authored_entity_ids"
+        for item in publish_error.value.diagnostics
+    )
+    assert service.list_versions(tenant_id, result["id"]) == []
+
+
+def test_assessment_result_rejects_ambiguous_statement_targets_even_when_actual_scope_is_narrowed(
+    grc_service, session_factory
+) -> None:
+    catalog = json.loads(FIXTURE_PATH.read_text())
+    controls = catalog["catalog"]["groups"][0]["groups"][0]["controls"]
+    controls[0]["parts"][0]["id"] = "shared-statement"
+    controls[1]["parts"][0]["id"] = "shared-statement"
+
+    context = _prepare_plan_scope_context(
+        grc_service,
+        session_factory,
+        selected_control_ids=["ac-1", "ac-2"],
+        catalog_document=catalog,
+    )
+    service = context["ar_service"]
+
+    statement_controls = AssessmentResultService._statement_controls(catalog)
+    assert statement_controls.get("shared-statement") == {"ac-1": 1, "ac-2": 1}
+
+    result = service.create_result(
+        context["tenant_id"],
+        context["actor"],
+        context["system_id"],
+        assessment_plan_id=context["plan"]["id"],
+        assessment_plan_version_id=context["plan_version"]["id"],
+        title="Ambiguous statement AR",
+        description=None,
+    )
+
+    assert set(result["planned_control_ids"]) == {"ac-1", "ac-2"}
+    planned_shared_statement_definitions = {
+        control_id: count
+        for control_id, count in statement_controls["shared-statement"].items()
+        if control_id in set(result["planned_control_ids"])
+    }
+    assert planned_shared_statement_definitions == {"ac-1": 1, "ac-2": 1}
+
+    assert all(
+        option["statement_id"] != "shared-statement"
+        for option in result["statement_options"]
+    )
+
+    with pytest.raises(InvalidAssessmentResult) as error:
+        service.update_result(
+            context["tenant_id"],
+            context["actor"],
+            result["id"],
+            title="Ambiguous statement AR",
+            description=None,
+            working_data={
+                "reviewed_control_ids": ["ac-1"],
+                "observations": [],
+                "findings": [
+                    {
+                        "title": "Ambiguous target",
+                        "description": "desc",
+                        "target_type": "statement-id",
+                        "target_id": "shared-statement",
+                        "status": "satisfied",
+                        "related_observation_ids": [],
+                    }
+                ],
+                "start": None,
+                "end": None,
+            },
+        )
+
+    assert any(
+        item["code"] == "ambiguous_statement_target"
+        for item in error.value.diagnostics
+    )
+
+
+def test_assessment_result_rejects_ambiguous_catalog_objective_targets(
+    grc_service, session_factory
+) -> None:
+    catalog = json.loads(FIXTURE_PATH.read_text())
+    controls = catalog["catalog"]["groups"][0]["groups"][0]["controls"]
+    controls[0].setdefault("parts", []).append(
+        {
+            "id": "shared-objective",
+            "name": "objective",
+            "prose": "Objective one.",
+        }
+    )
+    controls[0]["objectives"] = [{"objective-id": "shared-objective"}]
+
+    context = _prepare_plan_scope_context(
+        grc_service,
+        session_factory,
+        selected_control_count=1,
+        source_objectives=[
+            {
+                "objective_id": "shared-objective",
+                "control_id": "ac-1",
+            }
+        ],
+        catalog_document=catalog,
+    )
+    service = context["ar_service"]
+    result = service.create_result(
+        context["tenant_id"],
+        context["actor"],
+        context["system_id"],
+        assessment_plan_id=context["plan"]["id"],
+        assessment_plan_version_id=context["plan_version"]["id"],
+        title="Ambiguous objective AR",
+        description=None,
+    )
+
+    assert all(
+        option["objective_id"] != "shared-objective"
+        for option in result["objective_options"]
+    )
+
+    with pytest.raises(InvalidAssessmentResult) as error:
+        service.update_result(
+            context["tenant_id"],
+            context["actor"],
+            result["id"],
+            title="Ambiguous objective AR",
+            description=None,
+            working_data={
+                "reviewed_control_ids": [context["controls"][0]],
+                "observations": [],
+                "findings": [
+                    {
+                        "title": "Ambiguous objective target",
+                        "description": "desc",
+                        "target_type": "objective-id",
+                        "target_id": "shared-objective",
+                        "status": "satisfied",
+                        "related_observation_ids": [],
+                    }
+                ],
+                "start": None,
+                "end": None,
+            },
+        )
+
+    assert any(
+        item["code"] == "ambiguous_objective_target"
+        for item in error.value.diagnostics
+    )
+
+
 def test_assessment_result_export_resolves_relevant_evidence_to_back_matter_resource(
     grc_service, session_factory
 ) -> None:
@@ -1873,6 +2155,11 @@ def test_assessment_result_accepts_http_and_https_evidence_urls(
         "https://example.test/evidence ",
         "https://example.test\\evidence",
         "https://example.test/evi dence",
+        "https://example.test:abc/path",
+        "https://example.test:99999/path",
+        "https://%/",
+        "https://exa|mple.test/path",
+        "https://[bad",
     ],
 )
 def test_assessment_result_rejects_unsafe_or_ambiguous_evidence_urls(

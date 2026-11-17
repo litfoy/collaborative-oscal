@@ -150,7 +150,7 @@ describe("AssessmentResultWorkspace", () => {
     expect(body.findings[0].id).toBeTruthy();
   });
 
-  it("filters finding targets by actual reviewed controls in unsaved edits", async () => {
+  it("keeps finding target options stable when reviewed controls change", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async () => jsonResponse(result));
     vi.stubGlobal("fetch", fetchMock);
@@ -162,7 +162,7 @@ describe("AssessmentResultWorkspace", () => {
 
     const targetSelect = screen.getByRole("combobox", { name: "Target" });
     expect(screen.getByRole("option", { name: /ac-1_smt/ })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: /ac-2_smt/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /ac-2_smt/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Overview" }));
     const reviewedControls = screen.getByRole("listbox", { name: "Reviewed controls" });
@@ -170,11 +170,7 @@ describe("AssessmentResultWorkspace", () => {
     await user.selectOptions(reviewedControls, ["ac-2"]);
 
     await user.click(screen.getByRole("button", { name: "Findings" }));
-    expect(
-      screen.getByRole("option", {
-        name: /ac-1_smt .*outside current reviewed control scope/i,
-      }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /ac-1_smt/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /ac-2_smt/ })).toBeInTheDocument();
 
     expect(targetSelect).toBeInTheDocument();
@@ -302,6 +298,86 @@ describe("AssessmentResultWorkspace", () => {
       "22222222-2222-4222-8222-222222222222",
     );
     expect(body.findings[0].id).toBe("33333333-3333-4333-8333-333333333333");
+  });
+
+  it("renders structured save diagnostics and keeps unsaved edits", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(
+        {
+          detail: {
+            diagnostics: [
+              {
+                severity: "error",
+                code: "invalid_evidence_href",
+                message: "Evidence href must include a valid hostname and optional port.",
+                path: "$.observations[0].evidence[0].href",
+              },
+            ],
+          },
+        },
+        422,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWorkspace();
+
+    const titleInput = screen.getByRole("textbox", { name: "Assessment Results title" });
+    await user.clear(titleInput);
+    await user.type(titleInput, "Results Draft");
+
+    await user.click(screen.getByRole("button", { name: "Save working state" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Save rejected. Fix the listed diagnostics and try again.",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Evidence links must be absolute HTTP(S) URLs without fragments, credentials, malformed hosts or ports, whitespace, or backslashes.",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Validation path: $.observations[0].evidence[0].href",
+    );
+    expect(titleInput).toHaveValue("Results Draft");
+  });
+
+  it("renders structured publication diagnostics", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(
+        {
+          detail: {
+            diagnostics: [
+              {
+                severity: "error",
+                code: "ambiguous_statement_target",
+                message: "Finding target statement-id 'shared-statement' is ambiguous.",
+                path: "$.findings[0].target",
+              },
+            ],
+          },
+        },
+        422,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWorkspace();
+
+    await user.click(screen.getByRole("button", { name: "Validation & Versions" }));
+    await user.click(screen.getByRole("button", { name: "Create immutable version" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Version creation rejected. Fix the listed diagnostics and try again.",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "This statement target is ambiguous in the pinned Assessment Plan context. Choose an unambiguous statement identifier.",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Validation path: $.findings[0].target",
+    );
   });
 });
 

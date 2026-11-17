@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import copy
+import re
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime
+from ipaddress import ip_address
 from typing import Any
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
@@ -31,6 +33,7 @@ from app.persistence.models import (
 
 SessionScope = Callable[[], AbstractContextManager[Session]]
 _ALLOWED_METHODS = frozenset({"EXAMINE", "INTERVIEW", "TEST"})
+_HOST_LABEL_RE = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")
 
 
 class InvalidAssessmentResult(ValueError):
@@ -142,6 +145,7 @@ class AssessmentResultService:
             normalized = self._normalize_working_data(working_data, previous=record.working_data)
             self._validate_working_integrity(
                 normalized,
+                result_uuid=record.id,
                 planned_control_ids=context["planned_control_set"],
                 allowed_subject_uuids=context["subject_uuid_set"],
                 statement_controls=context["statement_controls"],
@@ -292,6 +296,7 @@ class AssessmentResultService:
         try:
             self._validate_working_integrity(
                 record.working_data,
+                result_uuid=record.id,
                 planned_control_ids=context["planned_control_set"],
                 allowed_subject_uuids=context["subject_uuid_set"],
                 statement_controls=context["statement_controls"],
@@ -494,10 +499,11 @@ class AssessmentResultService:
         self,
         working_data: dict[str, Any],
         *,
+        result_uuid: UUID | None,
         planned_control_ids: set[str],
         allowed_subject_uuids: set[UUID],
-        statement_controls: dict[str, set[str]],
-        catalog_objective_controls: dict[str, set[str]],
+        statement_controls: dict[str, dict[str, int]],
+        catalog_objective_controls: dict[str, dict[str, int]],
         selected_catalog_objective_ids: set[str],
         local_objective_controls: dict[str, str],
         require_related_observations: bool,
@@ -531,9 +537,13 @@ class AssessmentResultService:
 
         observation_ids: list[UUID] = []
         document_evidence_ids: list[UUID] = []
+        authored_entity_definitions: list[tuple[str, UUID]] = []
+        if result_uuid is not None:
+            authored_entity_definitions.append(("assessment-results", result_uuid))
         for observation in working_data.get("observations", []):
             observation_id = UUID(str(observation["id"]))
             observation_ids.append(observation_id)
+            authored_entity_definitions.append(("observation", observation_id))
             methods = set(observation.get("methods", []))
             disallowed = sorted(method for method in methods if method not in _ALLOWED_METHODS)
             if disallowed:
@@ -569,6 +579,7 @@ class AssessmentResultService:
                 evidence_id = UUID(str(evidence["id"]))
                 evidence_ids.append(evidence_id)
                 document_evidence_ids.append(evidence_id)
+                authored_entity_definitions.append(("evidence", evidence_id))
                 href_error = self._validate_authored_evidence_href(evidence.get("href"))
                 if href_error is not None:
                     diagnostics.append(
@@ -615,14 +626,15 @@ class AssessmentResultService:
         for finding in working_data.get("findings", []):
             finding_id = UUID(str(finding["id"]))
             finding_ids.append(finding_id)
+            authored_entity_definitions.append(("finding", finding_id))
 
             target_type = finding["target_type"]
             target_id = str(finding["target_id"])
             if target_type == "statement-id":
-                statement_candidate_controls = (
-                    statement_controls.get(target_id, set()) & planned_control_ids
+                statement_candidate_counts = self._planned_definition_counts(
+                    statement_controls.get(target_id, {}), planned_control_ids
                 )
-                if not statement_candidate_controls:
+                if not statement_candidate_counts:
                     diagnostics.append(
                         {
                             "category": "application_reference",
@@ -634,42 +646,46 @@ class AssessmentResultService:
                         }
                     )
                 else:
-                    actual_statement_controls = (
-                        statement_candidate_controls & reviewed_control_set
-                    )
-                    if not actual_statement_controls:
-                        diagnostics.append(
-                            {
-                                "category": "application_reference",
-                                "code": "statement_target_outside_actual_scope",
-                                "message": (
-                                    "Finding target statement-id "
-                                    f"{target_id!r} is outside the current reviewed control scope."
-                                ),
-                            }
-                        )
-                    elif len(actual_statement_controls) > 1:
+                    statement_controls_in_scope = sorted(statement_candidate_counts)
+                    if not self._is_unambiguous_target(statement_candidate_counts):
                         diagnostics.append(
                             {
                                 "category": "application_reference",
                                 "code": "ambiguous_statement_target",
                                 "message": (
                                     "Finding target statement-id "
-                                    f"{target_id!r} resolves to multiple reviewed controls: "
-                                    + ", ".join(sorted(actual_statement_controls))
+                                    f"{target_id!r} resolves to ambiguous definitions in "
+                                    "the pinned Assessment Plan context: "
+                                    + ", ".join(statement_controls_in_scope)
                                 ),
                             }
                         )
+                    else:
+                        statement_control = next(iter(statement_candidate_counts))
+                        actual_statement_controls = (
+                            {statement_control} & reviewed_control_set
+                        )
+                        if not actual_statement_controls:
+                            diagnostics.append(
+                                {
+                                    "category": "application_reference",
+                                    "code": "statement_target_outside_actual_scope",
+                                    "message": (
+                                        "Finding target statement-id "
+                                        f"{target_id!r} is outside the current "
+                                        "reviewed control scope."
+                                    ),
+                                }
+                            )
             if target_type == "objective-id":
                 has_local_objective = target_id in local_objective_controls
                 local_control_id = local_objective_controls.get(target_id)
-                catalog_candidate_controls = set()
+                catalog_candidate_counts: dict[str, int] = {}
                 if target_id in selected_catalog_objective_ids:
-                    catalog_candidate_controls = (
-                        catalog_objective_controls.get(target_id, set()) & planned_control_ids
+                    catalog_candidate_counts = self._planned_definition_counts(
+                        catalog_objective_controls.get(target_id, {}), planned_control_ids
                     )
-
-                if has_local_objective and catalog_candidate_controls:
+                if has_local_objective and catalog_candidate_counts:
                     diagnostics.append(
                         {
                             "category": "application_reference",
@@ -681,12 +697,15 @@ class AssessmentResultService:
                         }
                     )
                 else:
-                    objective_candidate_controls: set[str] = set()
+                    objective_candidate_counts: dict[str, int] = {}
                     if local_control_id is not None and local_control_id in planned_control_ids:
-                        objective_candidate_controls.add(local_control_id)
-                    objective_candidate_controls.update(catalog_candidate_controls)
+                        objective_candidate_counts[local_control_id] = 1
+                    for control_id, count in catalog_candidate_counts.items():
+                        objective_candidate_counts[control_id] = (
+                            objective_candidate_counts.get(control_id, 0) + count
+                        )
 
-                    if not objective_candidate_controls:
+                    if not objective_candidate_counts:
                         diagnostics.append(
                             {
                                 "category": "application_reference",
@@ -697,9 +716,23 @@ class AssessmentResultService:
                                 ),
                             }
                         )
+                    elif not self._is_unambiguous_target(objective_candidate_counts):
+                        diagnostics.append(
+                            {
+                                "category": "application_reference",
+                                "code": "ambiguous_objective_target",
+                                "message": (
+                                    "Finding target objective-id "
+                                    f"{target_id!r} resolves to ambiguous definitions in "
+                                    "the pinned Assessment Plan context: "
+                                    + ", ".join(sorted(objective_candidate_counts))
+                                ),
+                            }
+                        )
                     else:
+                        objective_control = next(iter(objective_candidate_counts))
                         actual_objective_controls = (
-                            objective_candidate_controls & reviewed_control_set
+                            {objective_control} & reviewed_control_set
                         )
                         if not actual_objective_controls:
                             diagnostics.append(
@@ -710,18 +743,6 @@ class AssessmentResultService:
                                         "Finding target objective-id "
                                         f"{target_id!r} is outside the current "
                                         "reviewed control scope."
-                                    ),
-                                }
-                            )
-                        elif len(actual_objective_controls) > 1:
-                            diagnostics.append(
-                                {
-                                    "category": "application_reference",
-                                    "code": "ambiguous_objective_target",
-                                    "message": (
-                                        "Finding target objective-id "
-                                        f"{target_id!r} resolves to multiple reviewed controls: "
-                                        + ", ".join(sorted(actual_objective_controls))
                                     ),
                                 }
                             )
@@ -767,6 +788,21 @@ class AssessmentResultService:
                     "category": "application_integrity",
                     "code": "duplicate_finding_ids",
                     "message": "Finding UUIDs must be unique.",
+                }
+            )
+
+        duplicate_entity_ids = self._cross_entity_uuid_collisions(authored_entity_definitions)
+        if duplicate_entity_ids:
+            diagnostics.append(
+                {
+                    "category": "application_integrity",
+                    "code": "duplicate_authored_entity_ids",
+                    "message": (
+                        "OSCAL authored entity UUIDs must be unambiguous across "
+                        "assessment-results, "
+                        "observations, findings, and evidence resources: "
+                        + ", ".join(duplicate_entity_ids)
+                    ),
                 }
             )
 
@@ -816,6 +852,32 @@ class AssessmentResultService:
         return duplicates
 
     @staticmethod
+    def _cross_entity_uuid_collisions(values: list[tuple[str, UUID]]) -> list[str]:
+        entities_by_uuid: dict[UUID, set[str]] = {}
+        for entity_kind, value in values:
+            entities_by_uuid.setdefault(value, set()).add(entity_kind)
+        collisions: list[str] = []
+        for value in sorted(entities_by_uuid, key=str):
+            entity_kinds = entities_by_uuid[value]
+            if len(entity_kinds) > 1:
+                collisions.append(f"{value} ({', '.join(sorted(entity_kinds))})")
+        return collisions
+
+    @staticmethod
+    def _planned_definition_counts(
+        definitions: dict[str, int], planned_control_ids: set[str]
+    ) -> dict[str, int]:
+        return {
+            control_id: count
+            for control_id, count in definitions.items()
+            if control_id in planned_control_ids
+        }
+
+    @staticmethod
+    def _is_unambiguous_target(definitions: dict[str, int]) -> bool:
+        return len(definitions) == 1 and next(iter(definitions.values())) == 1
+
+    @staticmethod
     def _validate_authored_evidence_href(value: Any) -> str | None:
         if value is None:
             return None
@@ -837,14 +899,45 @@ class AssessmentResultService:
         if any(ord(char) < 32 or ord(char) == 127 for char in value):
             return "Evidence href cannot contain control characters."
 
-        parsed = urlsplit(value)
+        try:
+            parsed = urlsplit(value)
+        except ValueError:
+            return "Evidence href must be a syntactically valid URL."
         if parsed.scheme not in {"http", "https"}:
             return "Evidence href must use http or https."
-        if not parsed.netloc or parsed.hostname is None:
-            return "Evidence href must include a valid hostname."
         if parsed.username is not None or parsed.password is not None:
             return "Evidence href cannot include embedded credentials."
+        try:
+            hostname = parsed.hostname
+            _ = parsed.port
+        except ValueError:
+            return "Evidence href must include a valid hostname and optional port."
+        if not parsed.netloc or hostname is None:
+            return "Evidence href must include a valid hostname."
+        if not AssessmentResultService._is_valid_http_host(hostname):
+            return "Evidence href must include a valid hostname."
         return None
+
+    @staticmethod
+    def _is_valid_http_host(hostname: str) -> bool:
+        if not hostname:
+            return False
+        if ":" in hostname:
+            # IPv6 literals are normalized without brackets by urlsplit().
+            try:
+                ip_address(hostname)
+                return True
+            except ValueError:
+                return False
+        try:
+            ip_address(hostname)
+            return True
+        except ValueError:
+            pass
+        ascii_host = hostname.rstrip(".")
+        if not ascii_host or len(ascii_host) > 253:
+            return False
+        return all(_HOST_LABEL_RE.fullmatch(label) for label in ascii_host.split("."))
 
     @staticmethod
     def _default_working_data(*, reviewed_control_ids: list[str]) -> dict[str, Any]:
@@ -940,8 +1033,8 @@ class AssessmentResultService:
         return options
 
     @staticmethod
-    def _statement_controls(catalog_content: dict[str, Any]) -> dict[str, set[str]]:
-        controls_by_statement: dict[str, set[str]] = {}
+    def _statement_controls(catalog_content: dict[str, Any]) -> dict[str, dict[str, int]]:
+        controls_by_statement: dict[str, dict[str, int]] = {}
 
         def walk_controls(controls: list[dict[str, Any]]) -> None:
             for control in controls:
@@ -953,7 +1046,8 @@ class AssessmentResultService:
                         statement_id = part.get("id")
                         if not isinstance(statement_id, str) or not statement_id:
                             continue
-                        controls_by_statement.setdefault(statement_id, set()).add(control_id)
+                        controls = controls_by_statement.setdefault(statement_id, {})
+                        controls[control_id] = controls.get(control_id, 0) + 1
                 walk_controls(control.get("controls", []))
 
         def walk_groups(groups: list[dict[str, Any]]) -> None:
@@ -968,12 +1062,14 @@ class AssessmentResultService:
 
     @staticmethod
     def _statement_options(
-        statement_controls: dict[str, set[str]], planned_control_ids: set[str]
+        statement_controls: dict[str, dict[str, int]], planned_control_ids: set[str]
     ) -> list[dict[str, Any]]:
         options: list[dict[str, Any]] = []
         for statement_id in sorted(statement_controls):
-            controls = statement_controls[statement_id] & planned_control_ids
-            if len(controls) != 1:
+            controls = AssessmentResultService._planned_definition_counts(
+                statement_controls[statement_id], planned_control_ids
+            )
+            if not AssessmentResultService._is_unambiguous_target(controls):
                 continue
             options.append(
                 {
@@ -985,8 +1081,8 @@ class AssessmentResultService:
         return options
 
     @staticmethod
-    def _catalog_objective_controls(catalog_content: dict[str, Any]) -> dict[str, set[str]]:
-        catalog_objectives: dict[str, set[str]] = {}
+    def _catalog_objective_controls(catalog_content: dict[str, Any]) -> dict[str, dict[str, int]]:
+        catalog_objectives: dict[str, dict[str, int]] = {}
 
         def walk_controls(controls: list[dict[str, Any]]) -> None:
             for control in controls:
@@ -997,11 +1093,13 @@ class AssessmentResultService:
                             continue
                         objective_id = part.get("id")
                         if isinstance(objective_id, str) and objective_id:
-                            catalog_objectives.setdefault(objective_id, set()).add(control_id)
+                            controls = catalog_objectives.setdefault(objective_id, {})
+                            controls[control_id] = controls.get(control_id, 0) + 1
                     for objective in control.get("objectives", []):
                         objective_id = objective.get("objective-id") or objective.get("id")
                         if isinstance(objective_id, str) and objective_id:
-                            catalog_objectives.setdefault(objective_id, set()).add(control_id)
+                            controls = catalog_objectives.setdefault(objective_id, {})
+                            controls[control_id] = controls.get(control_id, 0) + 1
                 walk_controls(control.get("controls", []))
 
         def walk_groups(groups: list[dict[str, Any]]) -> None:
@@ -1017,7 +1115,7 @@ class AssessmentResultService:
     @staticmethod
     def _objective_options(
         *,
-        catalog_objective_controls: dict[str, set[str]],
+        catalog_objective_controls: dict[str, dict[str, int]],
         selected_catalog_objective_ids: set[str],
         local_objective_controls: dict[str, str],
         planned_control_ids: set[str],
@@ -1038,8 +1136,10 @@ class AssessmentResultService:
         for objective_id in sorted(selected_catalog_objective_ids):
             if objective_id in local_objective_controls:
                 continue
-            controls = catalog_objective_controls.get(objective_id, set()) & planned_control_ids
-            if len(controls) != 1:
+            controls = AssessmentResultService._planned_definition_counts(
+                catalog_objective_controls.get(objective_id, {}), planned_control_ids
+            )
+            if not AssessmentResultService._is_unambiguous_target(controls):
                 continue
             options.append(
                 {
