@@ -389,6 +389,80 @@ textarea {
 .system-workspace [hidden] {
   display: none !important;
 }
+.system-components-layout {
+  display: grid;
+  gap: 1rem;
+  width: 100%;
+}
+.system-components-layout.has-editor {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 24rem);
+  align-items: start;
+}
+.system-components-layout > * {
+  min-width: 0;
+}
+.system-component-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+}
+.system-components-toolbar {
+  width: 100%;
+}
+.system-components-toolbar > * {
+  min-width: 0;
+}
+.system-components-toolbar button,
+.system-components-toolbar .button {
+  max-width: 100%;
+  white-space: normal;
+}
+.system-component-card {
+  display: grid;
+  gap: 0.55rem;
+}
+.system-component-card p {
+  margin: 0;
+}
+.system-component-title-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: start;
+  justify-content: space-between;
+}
+.system-component-title-row strong {
+  overflow-wrap: anywhere;
+}
+.system-component-actions {
+  margin-top: 0.25rem;
+}
+.system-component-editor {
+  position: sticky;
+  top: 1rem;
+  max-width: 100%;
+}
+.system-component-editor .stack,
+.system-component-editor .field {
+  min-width: 0;
+}
+.system-component-editor input,
+.system-component-editor select,
+.system-component-editor textarea {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+@media (max-width: 72rem) {
+  .system-components-layout.has-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .system-component-editor {
+    position: static;
+  }
+}
 .repeatable-fields {
   border: 0;
   padding: 0;
@@ -919,6 +993,19 @@ summary {
   }
 }
 @media (max-width: 55rem) {
+  .system-components-toolbar {
+    align-items: stretch;
+  }
+  .system-components-toolbar button,
+  .system-components-toolbar .button {
+    width: 100%;
+  }
+  .system-components-layout.has-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .system-component-editor {
+    position: static;
+  }
   .profile-workspace {
     height: auto;
     min-height: 0;

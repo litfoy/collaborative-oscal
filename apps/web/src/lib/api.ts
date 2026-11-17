@@ -217,6 +217,18 @@ export function listSystemComponents(
   return getJson(`/api/v1/tenants/${tenantId}/systems/${systemId}/components`, returnTo);
 }
 
+export function exportComponentDefinitionSnapshotComponent(
+  tenantId: string,
+  snapshotId: string,
+  componentId: string,
+  returnTo: string,
+): Promise<Record<string, unknown>> {
+  return getJson(
+    `/api/v1/tenants/${tenantId}/component-definition-snapshots/${snapshotId}/components/${componentId}/export`,
+    returnTo,
+  );
+}
+
 export function listSystemSecurityPlans(
   tenantId: string,
   systemId: string,

@@ -21,6 +21,18 @@ interface RevisionOption {
   revision: RevisionSummary;
 }
 
+const EMPTY_COMPONENT_DRAFT = JSON.stringify({
+  componentType: "service",
+  editingComponent: null,
+  sourceSelection: "",
+  adopting: false,
+  title: "",
+  description: "",
+  purpose: "",
+  componentStatus: "",
+  componentRemarks: "",
+});
+
 export function SystemWorkspace({
   tenantId,
   initialSystem,
@@ -70,6 +82,7 @@ export function SystemWorkspace({
   const [purpose, setPurpose] = useState("");
   const [componentStatus, setComponentStatus] = useState("");
   const [componentRemarks, setComponentRemarks] = useState("");
+  const [componentDraftBaseline, setComponentDraftBaseline] = useState(EMPTY_COMPONENT_DRAFT);
   const [planTitle, setPlanTitle] = useState("");
   const [controlDescription, setControlDescription] = useState("");
   const [baseline, setBaseline] = useState("");
@@ -220,7 +233,32 @@ export function SystemWorkspace({
     }
   }
 
+  function serializeComponentDraft(next?: {
+    componentType?: string;
+    editingComponent?: string | null;
+    sourceSelection?: string;
+    adopting?: boolean;
+    title?: string;
+    description?: string;
+    purpose?: string;
+    componentStatus?: string;
+    componentRemarks?: string;
+  }): string {
+    return JSON.stringify({
+      componentType: next?.componentType ?? componentType,
+      editingComponent: next?.editingComponent ?? editingComponent,
+      sourceSelection: next?.sourceSelection ?? sourceSelection,
+      adopting: next?.adopting ?? adopting,
+      title: next?.title ?? title,
+      description: next?.description ?? description,
+      purpose: next?.purpose ?? purpose,
+      componentStatus: next?.componentStatus ?? componentStatus,
+      componentRemarks: next?.componentRemarks ?? componentRemarks,
+    });
+  }
+
   function resetComponentForm() {
+    setComponentType("service");
     setEditingComponent(null);
     setAdopting(false);
     setSourceSelection("");
@@ -229,29 +267,101 @@ export function SystemWorkspace({
     setPurpose("");
     setComponentStatus("");
     setComponentRemarks("");
+    setComponentDraftBaseline(EMPTY_COMPONENT_DRAFT);
   }
 
   function openComponentForm(mode: "new" | "adopt" | SystemComponent) {
     const same = mode === "new" ? !editingComponent && !adopting : mode === "adopt" ? adopting : editingComponent === mode.id;
-    const hasDraft = !!(title || description || purpose || componentStatus || componentRemarks || sourceSelection);
+    const hasDraft = serializeComponentDraft() !== componentDraftBaseline;
     if (!same && hasDraft && !window.confirm(t("systems.discardComponentDraftConfirm"))) return;
     if (!same) {
-      resetComponentForm();
-      if (mode === "adopt") setAdopting(true);
-      else if (mode !== "new") {
-        setEditingComponent(mode.id);
-        setTitle(mode.component.title);
-        setDescription(mode.component.description);
-        setPurpose(mode.component.purpose ?? "");
-        setComponentStatus(mode.component.status.state);
-        setComponentRemarks(mode.component.status.remarks ?? "");
+      if (mode === "new") {
+        const next = {
+          componentType: "service",
+          editingComponent: null,
+          sourceSelection: "",
+          adopting: false,
+          title: "",
+          description: "",
+          purpose: "",
+          componentStatus: "",
+          componentRemarks: "",
+        };
+        setComponentType(next.componentType);
+        setEditingComponent(next.editingComponent);
+        setSourceSelection(next.sourceSelection);
+        setAdopting(next.adopting);
+        setTitle(next.title);
+        setDescription(next.description);
+        setPurpose(next.purpose);
+        setComponentStatus(next.componentStatus);
+        setComponentRemarks(next.componentRemarks);
+        setComponentDraftBaseline(serializeComponentDraft(next));
+      } else if (mode === "adopt") {
+        const next = {
+          componentType: "service",
+          editingComponent: null,
+          sourceSelection: "",
+          adopting: true,
+          title: "",
+          description: "",
+          purpose: "",
+          componentStatus: "",
+          componentRemarks: "",
+        };
+        setComponentType(next.componentType);
+        setEditingComponent(next.editingComponent);
+        setSourceSelection(next.sourceSelection);
+        setAdopting(next.adopting);
+        setTitle(next.title);
+        setDescription(next.description);
+        setPurpose(next.purpose);
+        setComponentStatus(next.componentStatus);
+        setComponentRemarks(next.componentRemarks);
+        setComponentDraftBaseline(serializeComponentDraft(next));
+      } else {
+        const next = {
+          componentType: "service",
+          editingComponent: mode.id,
+          sourceSelection: "",
+          adopting: false,
+          title: mode.component.title,
+          description: mode.component.description,
+          purpose: mode.component.purpose ?? "",
+          componentStatus: mode.component.status.state,
+          componentRemarks: mode.component.status.remarks ?? "",
+        };
+        setComponentType(next.componentType);
+        setEditingComponent(next.editingComponent);
+        setSourceSelection(next.sourceSelection);
+        setAdopting(next.adopting);
+        setTitle(next.title);
+        setDescription(next.description);
+        setPurpose(next.purpose);
+        setComponentStatus(next.componentStatus);
+        setComponentRemarks(next.componentRemarks);
+        setComponentDraftBaseline(serializeComponentDraft(next));
       }
     }
     setComponentForm(true);
   }
 
+  function closeComponentForm() {
+    const hasDraft = serializeComponentDraft() !== componentDraftBaseline;
+    if (hasDraft) {
+      if (!window.confirm(t("systems.discardComponentDraftConfirm"))) return;
+      resetComponentForm();
+    }
+    setComponentForm(false);
+  }
+
   const selectedSource = sourceSelection.split("|");
   const selectedDefinition = definitions.find((definition) => definition.id === selectedSource[0]);
+  const sourceReferenceByOscalUuid = new Map(
+    definitions.flatMap((definition) =>
+      definition.components.map((source) => [source.oscal_uuid, { definitionTitle: definition.title, componentTitle: source.title }] as const),
+    ),
+  );
   const availableRevisions = revisions.filter(
     (item) => item.revision.lifecycle_status !== "withdrawn",
   );
@@ -374,117 +484,144 @@ export function SystemWorkspace({
       <section className="panel" hidden={tab !== "components"}>
         <h2>{t("systems.concreteSystemComponents")}</h2>
         <p className="muted">{t("systems.actualComponentsGuidance")}</p>
-        {canWrite ? <div className="workspace-actions">
-          <button type="button" onClick={() => openComponentForm("new")}>{t("systems.addComponent")}</button>
-          <button type="button" className="secondary" disabled={!definitions.some((item) => item.components.length)} onClick={() => openComponentForm("adopt")}>{t("systems.adoptReusableMeasure")}</button>
-        </div> : null}
-        {components.length ? (
-          <ul className="profile-list">
-            {components.map((item) => (
-              <li key={item.id}>
-                <strong>{item.component.title}</strong>
-                {item.is_system_component ? <span> · {t("systems.thisSystem")}</span> : null}
-                <p>{item.component.description}</p>
-                <p className="muted">
-                  {item.component.type === "process-procedure" ? t("systems.processProcedure") : enumLabel(item.component.type)} · {enumLabel(item.component.status.state)}
-                  {item.source_snapshot_id ? ` · ${t("systems.adoptedImmutableSnapshot")}` : ""}
-                </p>
-                {item.source_snapshot_id && item.source_component_uuid ? (
-                  <a href={`/bff/tenants/${tenantId}/component-definition-snapshots/${item.source_snapshot_id}/components/${item.source_component_uuid}/export`}>{t("systems.viewSourceSnapshot")}</a>
+        <div className="workspace-actions system-components-toolbar">
+          {canWrite ? <>
+            <button type="button" onClick={() => openComponentForm("new")}>{t("systems.addComponent")}</button>
+            <button type="button" className="secondary" disabled={!definitions.some((item) => item.components.length)} onClick={() => openComponentForm("adopt")}>{t("systems.adoptReusableMeasure")}</button>
+          </> : null}
+        </div>
+        <div className={`system-components-layout${componentForm && canWrite ? " has-editor" : ""}`}>
+          <div>
+            {components.length ? (
+              <ul className="system-component-grid">
+                {components.map((item) => {
+                  const sourceReference = item.source_component_uuid ? sourceReferenceByOscalUuid.get(item.source_component_uuid) : null;
+                  const sourceHref =
+                    item.source_snapshot_id && item.source_component_uuid
+                      ? `/t/${tenantId}/systems/${system.id}/components/${item.id}/source-snapshot`
+                      : null;
+                  return (
+                    <li key={item.id} className="card system-component-card">
+                      <div className="system-component-title-row">
+                        <strong>{item.component.title}</strong>
+                        <span className={item.source_snapshot_id ? "badge badge-warn" : "badge"}>
+                          {item.source_snapshot_id ? t("systems.adoptedComponent") : t("systems.nativeComponent")}
+                        </span>
+                      </div>
+                      <p>{item.component.description}</p>
+                      <dl className="meta-list">
+                        <dt>{t("systems.componentType")}</dt>
+                        <dd>{item.component.type === "process-procedure" ? t("systems.processProcedure") : enumLabel(item.component.type)}</dd>
+                        <dt>{t("systems.componentOperationalStatus")}</dt>
+                        <dd>{enumLabel(item.component.status.state)}</dd>
+                        {item.is_system_component ? <>
+                          <dt>{t("systems.scope")}</dt>
+                          <dd>{t("systems.thisSystem")}</dd>
+                        </> : null}
+                      </dl>
+                      {item.source_snapshot_id ? <p className="muted">{t("systems.adoptedImmutableSnapshot")}</p> : null}
+                      {sourceReference ? (
+                        <p className="muted">{t("systems.adoptionSource", { definition: sourceReference.definitionTitle, component: sourceReference.componentTitle })}</p>
+                      ) : item.source_snapshot_id ? (
+                        <p className="muted">{t("systems.adoptionSourceUnavailable")}</p>
+                      ) : null}
+                      <div className="workspace-actions system-component-actions">
+                        {sourceHref ? <a className="button secondary" href={sourceHref}>{t("systems.viewSourceSnapshot")}</a> : null}
+                        {canWrite ? (
+                          <button className="secondary" type="button" onClick={() => openComponentForm(item)}>
+                            {t("systems.editComponent")}
+                          </button>
+                        ) : null}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : <p className="muted">{t("systems.noConcreteComponents")}</p>}
+          </div>
+          {canWrite && componentForm ? (
+            <aside className="panel system-component-editor" aria-live="polite">
+              <form className="stack" onSubmit={saveComponent}>
+                <h3>{editingComponent ? t("systems.editComponent") : adopting ? t("systems.adoptReusableComponent") : t("systems.addConcreteComponent")}</h3>
+                {!editingComponent && !adopting ? (
+                  <label className="field">
+                    {t("systems.componentType")}
+                    <select value={componentType} onChange={(event) => setComponentType(event.target.value)}>
+                      <option value="service">{enumLabel("service")}</option>
+                      <option value="software">{enumLabel("software")}</option>
+                      <option value="hardware">{enumLabel("hardware")}</option>
+                      <option value="system">{enumLabel("system")}</option>
+                      <option value="interconnection">{enumLabel("interconnection")}</option>
+                      <option value="policy">{enumLabel("policy")}</option>
+                      <option value="physical">{enumLabel("physical")}</option>
+                      <option value="process-procedure">{t("systems.processProcedure")}</option>
+                      <option value="this-system">{t("systems.thisSystemContributions")}</option>
+                    </select>
+                  </label>
                 ) : null}
-                {canWrite ? (
-                  <button
-                    className="secondary"
-                    type="button"
-                    onClick={() => openComponentForm(item)}
-                  >
-                    {t("systems.editComponent")}
+                {adopting ? (
+                  <label className="field">
+                    {t("systems.reusableDefinitionComponent")}
+                    <select
+                      required
+                      value={sourceSelection}
+                      onChange={(event) => chooseReusableComponent(event.target.value)}
+                    >
+                      <option value="">{t("systems.selectSourceComponent")}</option>
+                      {definitions.flatMap((definition) =>
+                        definition.components.map((source) => (
+                          <option key={`${definition.id}|${source.id}`} value={`${definition.id}|${source.id}`}>
+                            {definition.title} — {source.title}
+                          </option>
+                        )),
+                      )}
+                    </select>
+                  </label>
+                ) : null}
+                {selectedDefinition && adopting ? (
+                  <p className="muted">
+                    {t("systems.sourceSnapshot", { name: selectedDefinition.title })}
+                  </p>
+                ) : null}
+                <label className="field">
+                  {t("systems.componentTitle")}
+                  <input required value={title} onChange={(event) => setTitle(event.target.value)} />
+                </label>
+                <label className="field">
+                  {t("systems.actualDeploymentDescription")}
+                  <textarea required value={description} onChange={(event) => setDescription(event.target.value)} />
+                </label>
+                <label className="field">
+                  {t("systems.purposeOptional")}
+                  <input value={purpose} onChange={(event) => setPurpose(event.target.value)} />
+                </label>
+                <label className="field">
+                  {t("systems.componentOperationalStatus")}
+                  <select required value={componentStatus} onChange={(event) => setComponentStatus(event.target.value)}>
+                    <option value="">{t("systems.selectStatus")}</option>
+                    <option value="operational">{enumLabel("operational")}</option>
+                    <option value="under-development">{enumLabel("under-development")}</option>
+                    <option value="disposition">{enumLabel("disposition")}</option>
+                    <option value="other">{enumLabel("other")}</option>
+                  </select>
+                </label>
+                {componentStatus === "other" ? (
+                  <label className="field">
+                    {t("systems.explainOtherStatus")}
+                    <textarea value={componentRemarks} onChange={(event) => setComponentRemarks(event.target.value)} />
+                  </label>
+                ) : null}
+                <div className="workspace-actions">
+                  <button disabled={busy || (adopting && !sourceSelection)}>
+                    {busy ? t("systems.saving") : editingComponent ? t("systems.saveComponent") : adopting ? t("systems.adoptComponent") : t("systems.addComponent")}
                   </button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        ) : <p className="muted">{t("systems.noConcreteComponents")}</p>}
-        {canWrite && componentForm ? (
-          <form className="stack" onSubmit={saveComponent}>
-            <h3>{editingComponent ? t("systems.editComponent") : adopting ? t("systems.adoptReusableComponent") : t("systems.addConcreteComponent")}</h3>
-            {!editingComponent && !adopting ? (
-              <label className="field">
-                {t("systems.componentType")}
-                <select value={componentType} onChange={(event) => setComponentType(event.target.value)}>
-                  <option value="service">{enumLabel("service")}</option>
-                  <option value="software">{enumLabel("software")}</option>
-                  <option value="hardware">{enumLabel("hardware")}</option>
-                  <option value="system">{enumLabel("system")}</option>
-                  <option value="interconnection">{enumLabel("interconnection")}</option>
-                  <option value="policy">{enumLabel("policy")}</option>
-                  <option value="physical">{enumLabel("physical")}</option>
-                  <option value="process-procedure">{t("systems.processProcedure")}</option>
-                  <option value="this-system">{t("systems.thisSystemContributions")}</option>
-                </select>
-              </label>
-            ) : null}
-            {adopting ? (
-              <label className="field">
-                {t("systems.reusableDefinitionComponent")}
-                <select
-                  required
-                  value={sourceSelection}
-                  onChange={(event) => chooseReusableComponent(event.target.value)}
-                >
-                  <option value="">{t("systems.selectSourceComponent")}</option>
-                  {definitions.flatMap((definition) =>
-                    definition.components.map((source) => (
-                      <option key={`${definition.id}|${source.id}`} value={`${definition.id}|${source.id}`}>
-                        {definition.title} — {source.title}
-                      </option>
-                    )),
-                  )}
-                </select>
-              </label>
-            ) : null}
-            {selectedDefinition && adopting ? (
-              <p className="muted">
-                {t("systems.sourceSnapshot", { name: selectedDefinition.title })}
-              </p>
-            ) : null}
-            <label className="field">
-              {t("systems.componentTitle")}
-              <input required value={title} onChange={(event) => setTitle(event.target.value)} />
-            </label>
-            <label className="field">
-              {t("systems.actualDeploymentDescription")}
-              <textarea required value={description} onChange={(event) => setDescription(event.target.value)} />
-            </label>
-            <label className="field">
-              {t("systems.purposeOptional")}
-              <input value={purpose} onChange={(event) => setPurpose(event.target.value)} />
-            </label>
-            <label className="field">
-              {t("systems.componentOperationalStatus")}
-              <select required value={componentStatus} onChange={(event) => setComponentStatus(event.target.value)}>
-                <option value="">{t("systems.selectStatus")}</option>
-                <option value="operational">{enumLabel("operational")}</option>
-                <option value="under-development">{enumLabel("under-development")}</option>
-                <option value="disposition">{enumLabel("disposition")}</option>
-                <option value="other">{enumLabel("other")}</option>
-              </select>
-            </label>
-            {componentStatus === "other" ? (
-              <label className="field">
-                {t("systems.explainOtherStatus")}
-                <textarea value={componentRemarks} onChange={(event) => setComponentRemarks(event.target.value)} />
-              </label>
-            ) : null}
-            <div className="workspace-actions">
-              <button disabled={busy || (adopting && !sourceSelection)}>
-                {busy ? t("systems.saving") : editingComponent ? t("systems.saveComponent") : adopting ? t("systems.adoptComponent") : t("systems.addComponent")}
-              </button>
-              <button className="secondary" type="button" onClick={() => setComponentForm(false)}>{t("systems.close")}</button>
-              <button className="secondary" type="button" onClick={() => { resetComponentForm(); setComponentForm(false); }}>{t("systems.discardDraft")}</button>
-            </div>
-          </form>
-        ) : null}
+                  <button className="secondary" type="button" onClick={closeComponentForm}>{t("systems.cancel")}</button>
+                  <button className="secondary" type="button" onClick={() => { resetComponentForm(); setComponentForm(false); }}>{t("systems.discardDraft")}</button>
+                </div>
+              </form>
+            </aside>
+          ) : null}
+        </div>
       </section>
 
       <section className="panel" hidden={tab !== "plans"}>

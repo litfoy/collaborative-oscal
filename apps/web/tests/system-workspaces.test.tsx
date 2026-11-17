@@ -29,6 +29,11 @@ const component: SystemComponent = {
   source_snapshot_id: "snapshot", source_component_uuid: "source-uuid",
   component: { uuid: "component-uuid", type: "service", title: "Deployed service", description: "Deployed here", status: { state: "operational" } },
 };
+const secondComponent: SystemComponent = {
+  id: "component-2", system_id: system.id, oscal_component_uuid: "component-uuid-2", is_system_component: true,
+  source_snapshot_id: null, source_component_uuid: null,
+  component: { uuid: "component-uuid-2", type: "software", title: "Identity app", description: "Supports authentication", status: { state: "operational" } },
+};
 const definition: ComponentDefinition = {
   id: "definition", tenant_id: TENANT, title: "Guidance", oscal_document_uuid: "doc", oscal_version: "1.2.3",
   version: "1", components: [{ id: "source", oscal_uuid: "source-uuid", type: "service", title: "Reusable service", description: "Generic guidance", requirements: [] }],
@@ -98,7 +103,10 @@ describe("Systems workspaces", () => {
     }
     await user.click(screen.getByRole("button", { name: "Komponenten" }));
     expect(screen.getByText("Deployed here")).toBeVisible();
-    expect(screen.getByText(/Dienst · In Betrieb/)).toBeVisible();
+    const componentCard = screen.getByText("Deployed service").closest("li");
+    expect(componentCard).not.toBeNull();
+    expect(within(componentCard!).getByText("Dienst")).toBeVisible();
+    expect(within(componentCard!).getByText("In Betrieb")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Komponente hinzufügen" }));
     const componentType = screen.getByLabelText("Komponententyp");
     for (const [value, label] of [
@@ -189,7 +197,7 @@ describe("Systems workspaces", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderSystem();
     await user.click(screen.getByRole("button", { name: "Components" }));
-    expect(screen.getByRole("link", { name: "View source snapshot" })).toHaveAttribute("href", `/bff/tenants/${TENANT}/component-definition-snapshots/snapshot/components/source-uuid/export`);
+    expect(screen.getByRole("link", { name: "View source snapshot" })).toHaveAttribute("href", `/t/${TENANT}/systems/${system.id}/components/${component.id}/source-snapshot`);
     await user.click(screen.getByRole("button", { name: "Adopt reusable measure" }));
     await user.selectOptions(screen.getByLabelText("Reusable Component Definition component"), "definition|source");
     expect(screen.getByLabelText("Actual deployment description")).toHaveValue("");
@@ -222,6 +230,22 @@ describe("Systems workspaces", () => {
     await user.type(screen.getByLabelText("SSP title"), "New plan");
     await user.click(screen.getByRole("button", { name: "Create SSP draft" }));
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toMatchObject({ catalog_id: CATALOG, revision_id: REVISION, title: "New plan" });
+  });
+
+  it("switches untouched edit targets without prompting to discard", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<LocaleProvider locale="en"><SystemWorkspace tenantId={TENANT} initialSystem={system} initialComponents={[component, secondComponent]}
+      initialPlans={[plan]} initialVersions={{ [plan.id]: [version] }} catalogs={[catalog()]}
+      initialAssessmentPlans={assessmentPlans}
+      initialAssessmentResults={[]}
+      planRevisions={{ [plan.id]: revision() }}
+      revisions={[{ catalog: catalog(), revision: revision() }]} definitions={[definition]} canWrite /></LocaleProvider>);
+    await user.click(screen.getByRole("button", { name: "Components" }));
+    const editButtons = screen.getAllByRole("button", { name: "Edit component" });
+    await user.click(editButtons[0]);
+    await user.click(editButtons[1]);
+    expect(confirmSpy).not.toHaveBeenCalled();
   });
 
   it("finds documented and undocumented controls in the pinned baseline", async () => {
