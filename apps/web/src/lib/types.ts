@@ -498,6 +498,7 @@ export interface AssessmentResult {
   assessment_plan_version_id: string;
   title: string;
   description: string | null;
+  planned_control_ids: string[];
   reviewed_control_ids: string[];
   observations: AssessmentResultObservation[];
   findings: AssessmentResultFinding[];
@@ -513,6 +514,7 @@ export interface AssessmentResult {
 export interface AssessmentResultValidation {
   valid: boolean;
   diagnostics: SystemSecurityPlanDiagnostic[];
+  planned_control_ids: string[];
   subject_options: AssessmentResultSubjectOption[];
   statement_options: AssessmentResultStatementOption[];
   objective_options: AssessmentResultObjectiveOption[];

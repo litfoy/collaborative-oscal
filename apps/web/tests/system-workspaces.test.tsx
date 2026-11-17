@@ -379,6 +379,7 @@ describe("Systems workspaces", () => {
               assessment_plan_version_id: "assessment-plan-version-1",
               title: "Q1 Result",
               description: null,
+              planned_control_ids: [],
               reviewed_control_ids: [],
               observations: [],
               findings: [],

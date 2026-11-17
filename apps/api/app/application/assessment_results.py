@@ -23,7 +23,6 @@ from app.persistence.models import (
     AssessmentPlanVersionRecord,
     AssessmentResultRecord,
     AssessmentResultVersionRecord,
-    CatalogControlIndexRecord,
     CatalogRevisionRecord,
     InformationSystemRecord,
     SystemSecurityPlanVersionRecord,
@@ -142,10 +141,13 @@ class AssessmentResultService:
             normalized = self._normalize_working_data(working_data, previous=record.working_data)
             self._validate_working_integrity(
                 normalized,
-                baseline_control_ids=context["baseline_control_ids"],
+                planned_control_ids=context["planned_control_set"],
                 allowed_subject_uuids=context["subject_uuid_set"],
-                allowed_statement_ids=context["statement_id_set"],
-                allowed_objective_ids=context["objective_id_set"],
+                statement_controls=context["statement_controls"],
+                catalog_objective_controls=context["catalog_objective_controls"],
+                selected_catalog_objective_ids=context["selected_catalog_objective_ids"],
+                local_objective_controls=context["local_objective_controls"],
+                require_related_observations=False,
             )
             record.title = title.strip()
             record.description = description
@@ -163,6 +165,7 @@ class AssessmentResultService:
             return {
                 "valid": len(errors) == 0,
                 "diagnostics": diagnostics,
+                "planned_control_ids": context["planned_control_ids"],
                 "statement_options": context["statement_options"],
                 "objective_options": context["objective_options"],
                 "subject_options": context["subject_options"],
@@ -285,14 +288,19 @@ class AssessmentResultService:
     ) -> tuple[dict[str, Any], list[dict[str, str]], dict[str, Any]]:
         context = self._context_for_result(session, record)
         diagnostics: list[dict[str, str]] = []
-
-        self._validate_working_integrity(
-            record.working_data,
-            baseline_control_ids=context["baseline_control_ids"],
-            allowed_subject_uuids=context["subject_uuid_set"],
-            allowed_statement_ids=context["statement_id_set"],
-            allowed_objective_ids=context["objective_id_set"],
-        )
+        try:
+            self._validate_working_integrity(
+                record.working_data,
+                planned_control_ids=context["planned_control_set"],
+                allowed_subject_uuids=context["subject_uuid_set"],
+                statement_controls=context["statement_controls"],
+                catalog_objective_controls=context["catalog_objective_controls"],
+                selected_catalog_objective_ids=context["selected_catalog_objective_ids"],
+                local_objective_controls=context["local_objective_controls"],
+                require_related_observations=True,
+            )
+        except InvalidAssessmentResult as error:
+            diagnostics.extend(error.diagnostics)
 
         now = datetime.now(UTC).replace(microsecond=0)
         oscal_version = authoring_version_for(OscalDocumentModel.ASSESSMENT_RESULT)
@@ -423,39 +431,75 @@ class AssessmentResultService:
         )
 
         subject_options = self._subject_options(ssp_version)
-        subject_uuid_set = {
-            item["uuid"] if isinstance(item["uuid"], UUID) else UUID(str(item["uuid"]))
+        component_titles = {
+            item["uuid"] if isinstance(item["uuid"], UUID) else UUID(str(item["uuid"])): {
+                "title": item["title"],
+                "type": item["type"],
+            }
             for item in subject_options
         }
 
-        statement_options = self._statement_options(revision.content)
-        statement_id_set = {item["statement_id"] for item in statement_options}
+        plan_scope = self._plan_scope(plan_version.document)
+        planned_control_ids = plan_scope["planned_control_ids"]
+        planned_control_set = set(planned_control_ids)
 
-        objective_options = self._objective_options(plan_version.document, revision.content)
-        objective_id_set = {item["objective_id"] for item in objective_options}
+        selected_subjects = [
+            subject
+            for subject in plan_scope["selected_subject_uuids"]
+            if subject in component_titles
+        ]
+        scoped_subject_options = [
+            {
+                "uuid": subject,
+                "title": component_titles[subject]["title"],
+                "type": component_titles[subject]["type"],
+            }
+            for subject in selected_subjects
+        ]
+        subject_uuid_set = set(selected_subjects)
 
-        baseline_control_ids = self._baseline_control_ids(
-            session, record.tenant_id, ssp_version.revision_id
+        statement_controls = self._statement_controls(revision.content)
+        statement_options = self._statement_options(
+            statement_controls,
+            planned_control_set,
+        )
+
+        catalog_objective_controls = self._catalog_objective_controls(revision.content)
+        local_objective_controls = plan_scope["local_objective_controls"]
+        selected_catalog_objective_ids = plan_scope["selected_catalog_objective_ids"]
+        objective_options = self._objective_options(
+            catalog_objective_controls=catalog_objective_controls,
+            selected_catalog_objective_ids=selected_catalog_objective_ids,
+            local_objective_controls=local_objective_controls,
+            planned_control_ids=planned_control_set,
         )
 
         return {
-            "subject_options": subject_options,
+            "planned_control_ids": planned_control_ids,
+            "planned_control_set": planned_control_set,
+            "subject_options": scoped_subject_options,
             "subject_uuid_set": subject_uuid_set,
             "statement_options": statement_options,
-            "statement_id_set": statement_id_set,
+            "statement_id_set": {item["statement_id"] for item in statement_options},
+            "statement_controls": statement_controls,
             "objective_options": objective_options,
-            "objective_id_set": objective_id_set,
-            "baseline_control_ids": baseline_control_ids,
+            "objective_id_set": {item["objective_id"] for item in objective_options},
+            "catalog_objective_controls": catalog_objective_controls,
+            "selected_catalog_objective_ids": selected_catalog_objective_ids,
+            "local_objective_controls": local_objective_controls,
         }
 
     def _validate_working_integrity(
         self,
         working_data: dict[str, Any],
         *,
-        baseline_control_ids: set[str],
+        planned_control_ids: set[str],
         allowed_subject_uuids: set[UUID],
-        allowed_statement_ids: set[str],
-        allowed_objective_ids: set[str],
+        statement_controls: dict[str, set[str]],
+        catalog_objective_controls: dict[str, set[str]],
+        selected_catalog_objective_ids: set[str],
+        local_objective_controls: dict[str, str],
+        require_related_observations: bool,
     ) -> None:
         diagnostics: list[dict[str, str]] = []
 
@@ -470,14 +514,15 @@ class AssessmentResultService:
                     "message": "Reviewed controls must be unique.",
                 }
             )
-        unknown_controls = sorted(set(reviewed_control_ids) - baseline_control_ids)
+        reviewed_control_set = set(reviewed_control_ids)
+        unknown_controls = sorted(reviewed_control_set - planned_control_ids)
         if unknown_controls:
             diagnostics.append(
                 {
                     "category": "application_reference",
-                    "code": "control_outside_baseline",
+                    "code": "control_outside_assessment_plan_scope",
                     "message": (
-                        "Reviewed controls are outside the pinned baseline: "
+                        "Reviewed controls are outside the pinned Assessment Plan scope: "
                         + ", ".join(unknown_controls)
                     ),
                 }
@@ -510,7 +555,8 @@ class AssessmentResultService:
                         "category": "application_reference",
                         "code": "unknown_subject_uuid",
                         "message": (
-                            "Observations reference subjects outside the pinned SSP snapshot: "
+                            "Observations reference subjects outside the pinned "
+                            "Assessment Plan selection: "
                             + ", ".join(missing)
                         ),
                     }
@@ -543,28 +589,113 @@ class AssessmentResultService:
 
             target_type = finding["target_type"]
             target_id = str(finding["target_id"])
-            if target_type == "statement-id" and target_id not in allowed_statement_ids:
-                diagnostics.append(
-                    {
-                        "category": "application_reference",
-                        "code": "unknown_statement_target",
-                        "message": (
-                            "Finding target statement-id "
-                            f"{target_id!r} is outside the pinned historical baseline."
-                        ),
-                    }
+            if target_type == "statement-id":
+                statement_candidate_controls = (
+                    statement_controls.get(target_id, set()) & planned_control_ids
                 )
-            if target_type == "objective-id" and target_id not in allowed_objective_ids:
-                diagnostics.append(
-                    {
-                        "category": "application_reference",
-                        "code": "unknown_objective_target",
-                        "message": (
-                            "Finding target objective-id "
-                            f"{target_id!r} is outside the pinned Assessment Plan context."
-                        ),
-                    }
-                )
+                if not statement_candidate_controls:
+                    diagnostics.append(
+                        {
+                            "category": "application_reference",
+                            "code": "unknown_statement_target",
+                            "message": (
+                                "Finding target statement-id "
+                                f"{target_id!r} is outside the pinned historical baseline."
+                            ),
+                        }
+                    )
+                else:
+                    actual_statement_controls = (
+                        statement_candidate_controls & reviewed_control_set
+                    )
+                    if not actual_statement_controls:
+                        diagnostics.append(
+                            {
+                                "category": "application_reference",
+                                "code": "statement_target_outside_actual_scope",
+                                "message": (
+                                    "Finding target statement-id "
+                                    f"{target_id!r} is outside the current reviewed control scope."
+                                ),
+                            }
+                        )
+                    elif len(actual_statement_controls) > 1:
+                        diagnostics.append(
+                            {
+                                "category": "application_reference",
+                                "code": "ambiguous_statement_target",
+                                "message": (
+                                    "Finding target statement-id "
+                                    f"{target_id!r} resolves to multiple reviewed controls: "
+                                    + ", ".join(sorted(actual_statement_controls))
+                                ),
+                            }
+                        )
+            if target_type == "objective-id":
+                has_local_objective = target_id in local_objective_controls
+                local_control_id = local_objective_controls.get(target_id)
+                catalog_candidate_controls = set()
+                if target_id in selected_catalog_objective_ids:
+                    catalog_candidate_controls = (
+                        catalog_objective_controls.get(target_id, set()) & planned_control_ids
+                    )
+
+                if has_local_objective and catalog_candidate_controls:
+                    diagnostics.append(
+                        {
+                            "category": "application_reference",
+                            "code": "ambiguous_objective_target",
+                            "message": (
+                                "Finding target objective-id "
+                                f"{target_id!r} is ambiguous between local and catalog objectives."
+                            ),
+                        }
+                    )
+                else:
+                    objective_candidate_controls: set[str] = set()
+                    if local_control_id is not None and local_control_id in planned_control_ids:
+                        objective_candidate_controls.add(local_control_id)
+                    objective_candidate_controls.update(catalog_candidate_controls)
+
+                    if not objective_candidate_controls:
+                        diagnostics.append(
+                            {
+                                "category": "application_reference",
+                                "code": "unknown_objective_target",
+                                "message": (
+                                    "Finding target objective-id "
+                                    f"{target_id!r} is outside the pinned Assessment Plan context."
+                                ),
+                            }
+                        )
+                    else:
+                        actual_objective_controls = (
+                            objective_candidate_controls & reviewed_control_set
+                        )
+                        if not actual_objective_controls:
+                            diagnostics.append(
+                                {
+                                    "category": "application_reference",
+                                    "code": "objective_target_outside_actual_scope",
+                                    "message": (
+                                        "Finding target objective-id "
+                                        f"{target_id!r} is outside the current "
+                                        "reviewed control scope."
+                                    ),
+                                }
+                            )
+                        elif len(actual_objective_controls) > 1:
+                            diagnostics.append(
+                                {
+                                    "category": "application_reference",
+                                    "code": "ambiguous_objective_target",
+                                    "message": (
+                                        "Finding target objective-id "
+                                        f"{target_id!r} resolves to multiple reviewed controls: "
+                                        + ", ".join(sorted(actual_objective_controls))
+                                    ),
+                                }
+                            )
             if target_type not in {"statement-id", "objective-id"}:
                 diagnostics.append(
                     {
@@ -577,6 +708,17 @@ class AssessmentResultService:
             related = {
                 UUID(str(item)) for item in finding.get("related_observation_ids", []) if item
             }
+            if require_related_observations and not related:
+                diagnostics.append(
+                    {
+                        "category": "application_integrity",
+                        "code": "finding_missing_related_observations",
+                        "message": (
+                            "Every finding must reference at least one related observation "
+                            "before validation and immutable publication."
+                        ),
+                    }
+                )
             missing_related = sorted(str(item) for item in related if item not in observation_set)
             if missing_related:
                 diagnostics.append(
@@ -699,6 +841,7 @@ class AssessmentResultService:
             "assessment_plan_version_id": record.assessment_plan_version_id,
             "title": record.title,
             "description": record.description,
+            "planned_control_ids": context["planned_control_ids"],
             "reviewed_control_ids": working.get("reviewed_control_ids", []),
             "observations": working.get("observations", []),
             "findings": working.get("findings", []),
@@ -747,9 +890,8 @@ class AssessmentResultService:
         return options
 
     @staticmethod
-    def _statement_options(catalog_content: dict[str, Any]) -> list[dict[str, Any]]:
-        options: list[dict[str, Any]] = []
-        by_id: set[str] = set()
+    def _statement_controls(catalog_content: dict[str, Any]) -> dict[str, set[str]]:
+        controls_by_statement: dict[str, set[str]] = {}
 
         def walk_controls(controls: list[dict[str, Any]]) -> None:
             for control in controls:
@@ -761,16 +903,7 @@ class AssessmentResultService:
                         statement_id = part.get("id")
                         if not isinstance(statement_id, str) or not statement_id:
                             continue
-                        if statement_id in by_id:
-                            continue
-                        by_id.add(statement_id)
-                        options.append(
-                            {
-                                "statement_id": statement_id,
-                                "control_id": control_id,
-                                "title": part.get("title") or statement_id,
-                            }
-                        )
+                        controls_by_statement.setdefault(statement_id, set()).add(control_id)
                 walk_controls(control.get("controls", []))
 
         def walk_groups(groups: list[dict[str, Any]]) -> None:
@@ -781,15 +914,29 @@ class AssessmentResultService:
         catalog = catalog_content.get("catalog", {})
         walk_controls(catalog.get("controls", []))
         walk_groups(catalog.get("groups", []))
+        return controls_by_statement
+
+    @staticmethod
+    def _statement_options(
+        statement_controls: dict[str, set[str]], planned_control_ids: set[str]
+    ) -> list[dict[str, Any]]:
+        options: list[dict[str, Any]] = []
+        for statement_id in sorted(statement_controls):
+            controls = statement_controls[statement_id] & planned_control_ids
+            if len(controls) != 1:
+                continue
+            options.append(
+                {
+                    "statement_id": statement_id,
+                    "control_id": next(iter(controls)),
+                    "title": statement_id,
+                }
+            )
         return options
 
     @staticmethod
-    def _objective_options(
-        plan_document: dict[str, Any], catalog_content: dict[str, Any]
-    ) -> list[dict[str, Any]]:
-        body = plan_document.get("assessment-plan", {})
-
-        catalog_objectives: dict[str, str] = {}
+    def _catalog_objective_controls(catalog_content: dict[str, Any]) -> dict[str, set[str]]:
+        catalog_objectives: dict[str, set[str]] = {}
 
         def walk_controls(controls: list[dict[str, Any]]) -> None:
             for control in controls:
@@ -800,11 +947,11 @@ class AssessmentResultService:
                             continue
                         objective_id = part.get("id")
                         if isinstance(objective_id, str) and objective_id:
-                            catalog_objectives[objective_id] = control_id
+                            catalog_objectives.setdefault(objective_id, set()).add(control_id)
                     for objective in control.get("objectives", []):
                         objective_id = objective.get("objective-id") or objective.get("id")
                         if isinstance(objective_id, str) and objective_id:
-                            catalog_objectives[objective_id] = control_id
+                            catalog_objectives.setdefault(objective_id, set()).add(control_id)
                 walk_controls(control.get("controls", []))
 
         def walk_groups(groups: list[dict[str, Any]]) -> None:
@@ -815,19 +962,50 @@ class AssessmentResultService:
         catalog = catalog_content.get("catalog", {})
         walk_controls(catalog.get("controls", []))
         walk_groups(catalog.get("groups", []))
+        return catalog_objectives
 
-        local_objectives: dict[str, str] = {}
-        for local in body.get("local-definitions", {}).get("objectives-and-methods", []):
-            control_id = local.get("control-id")
-            objective_id = None
-            for part in local.get("parts", []):
-                if part.get("name") == "objective" and part.get("id"):
-                    objective_id = part["id"]
-                    break
-            if isinstance(objective_id, str) and isinstance(control_id, str):
-                local_objectives[objective_id] = control_id
+    @staticmethod
+    def _objective_options(
+        *,
+        catalog_objective_controls: dict[str, set[str]],
+        selected_catalog_objective_ids: set[str],
+        local_objective_controls: dict[str, str],
+        planned_control_ids: set[str],
+    ) -> list[dict[str, Any]]:
+        options: list[dict[str, Any]] = []
 
-        reviewed_ids = {
+        for objective_id, control_id in sorted(local_objective_controls.items()):
+            if control_id not in planned_control_ids:
+                continue
+            options.append(
+                {
+                    "objective_id": objective_id,
+                    "control_id": control_id,
+                    "title": objective_id,
+                }
+            )
+
+        for objective_id in sorted(selected_catalog_objective_ids):
+            if objective_id in local_objective_controls:
+                continue
+            controls = catalog_objective_controls.get(objective_id, set()) & planned_control_ids
+            if len(controls) != 1:
+                continue
+            options.append(
+                {
+                    "objective_id": objective_id,
+                    "control_id": next(iter(controls)),
+                    "title": objective_id,
+                }
+            )
+        return options
+
+    @staticmethod
+    def _plan_scope(plan_document: dict[str, Any]) -> dict[str, Any]:
+        body = plan_document.get("assessment-plan", {})
+        planned_control_ids = AssessmentResultService._plan_reviewed_control_ids_from_body(body)
+
+        selected_catalog_objective_ids = {
             include["objective-id"]
             for selection in body.get("reviewed-controls", {}).get(
                 "control-objective-selections", []
@@ -836,23 +1014,45 @@ class AssessmentResultService:
             if include.get("objective-id")
         }
 
-        options: list[dict[str, Any]] = []
-        for objective_id in sorted(reviewed_ids.union(local_objectives)):
-            control_id = local_objectives.get(objective_id) or catalog_objectives.get(
-                objective_id, "unknown"
-            )
-            options.append(
-                {
-                    "objective_id": objective_id,
-                    "control_id": control_id,
-                    "title": objective_id,
-                }
-            )
-        return options
+        local_objective_controls: dict[str, str] = {}
+        for local in body.get("local-definitions", {}).get("objectives-and-methods", []):
+            control_id = local.get("control-id")
+            objective_id = None
+            for part in local.get("parts", []):
+                if part.get("name") == "objective" and part.get("id"):
+                    objective_id = part["id"]
+                    break
+            if isinstance(objective_id, str) and isinstance(control_id, str):
+                local_objective_controls[objective_id] = control_id
+
+        selected_subject_uuids: list[UUID] = []
+        for subject in body.get("assessment-subjects", []):
+            include_subjects = subject.get("include-subjects", [])
+            if not isinstance(include_subjects, list):
+                continue
+            for selected in include_subjects:
+                subject_uuid = selected.get("subject-uuid")
+                subject_type = selected.get("type") or subject.get("type")
+                if subject_type != "component":
+                    continue
+                if not subject_uuid:
+                    continue
+                try:
+                    parsed = UUID(str(subject_uuid))
+                except ValueError:
+                    continue
+                if parsed not in selected_subject_uuids:
+                    selected_subject_uuids.append(parsed)
+
+        return {
+            "planned_control_ids": planned_control_ids,
+            "selected_catalog_objective_ids": selected_catalog_objective_ids,
+            "local_objective_controls": local_objective_controls,
+            "selected_subject_uuids": selected_subject_uuids,
+        }
 
     @staticmethod
-    def _plan_reviewed_control_ids(plan_version: AssessmentPlanVersionRecord) -> list[str]:
-        body = plan_version.document.get("assessment-plan", {})
+    def _plan_reviewed_control_ids_from_body(body: dict[str, Any]) -> list[str]:
         ids = []
         for selection in body.get("reviewed-controls", {}).get("control-selections", []):
             for include in selection.get("include-controls", []):
@@ -860,6 +1060,11 @@ class AssessmentResultService:
                 if isinstance(control_id, str) and control_id not in ids:
                     ids.append(control_id)
         return ids
+
+    @staticmethod
+    def _plan_reviewed_control_ids(plan_version: AssessmentPlanVersionRecord) -> list[str]:
+        body = plan_version.document.get("assessment-plan", {})
+        return AssessmentResultService._plan_reviewed_control_ids_from_body(body)
 
     @staticmethod
     def _plan_href(record: AssessmentResultRecord) -> str:
@@ -873,17 +1078,6 @@ class AssessmentResultService:
         if isinstance(value, str):
             value = datetime.fromisoformat(value)
         return value.astimezone(UTC).replace(microsecond=0).isoformat()
-
-    def _baseline_control_ids(
-        self, session: Session, tenant_id: UUID, revision_id: UUID
-    ) -> set[str]:
-        controls = session.scalars(
-            select(CatalogControlIndexRecord.oscal_control_id).where(
-                CatalogControlIndexRecord.tenant_id == tenant_id,
-                CatalogControlIndexRecord.catalog_revision_id == revision_id,
-            )
-        ).all()
-        return set(controls)
 
     @staticmethod
     def _get_system(

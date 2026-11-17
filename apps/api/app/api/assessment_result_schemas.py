@@ -125,6 +125,7 @@ class AssessmentResultResponse(BaseModel):
     assessment_plan_version_id: UUID
     title: str
     description: str | None
+    planned_control_ids: list[str]
     reviewed_control_ids: list[str]
     observations: list[AssessmentResultObservation]
     findings: list[AssessmentResultFinding]
@@ -140,6 +141,7 @@ class AssessmentResultResponse(BaseModel):
 class AssessmentResultValidationResponse(BaseModel):
     valid: bool
     diagnostics: list[dict]
+    planned_control_ids: list[str]
     statement_options: list[AssessmentResultStatementOption]
     objective_options: list[AssessmentResultObjectiveOption]
     subject_options: list[AssessmentResultSubjectOption]

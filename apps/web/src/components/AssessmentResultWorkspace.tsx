@@ -53,6 +53,22 @@ export function AssessmentResultWorkspace({
     [result, savedResult],
   );
 
+  const statementTargetOptions = useMemo(
+    () =>
+      result.statement_options.filter((item) =>
+        result.reviewed_control_ids.includes(item.control_id),
+      ),
+    [result.reviewed_control_ids, result.statement_options],
+  );
+
+  const objectiveTargetOptions = useMemo(
+    () =>
+      result.objective_options.filter((item) =>
+        result.reviewed_control_ids.includes(item.control_id),
+      ),
+    [result.objective_options, result.reviewed_control_ids],
+  );
+
   function updateResult(next: AssessmentResult) {
     setResult(next);
     setValidationStale(true);
@@ -154,21 +170,27 @@ export function AssessmentResultWorkspace({
 
   function removeObservation(index: number) {
     const removedId = result.observations[index]?.id;
+    const referencedBy = result.findings
+      .filter((finding) => finding.related_observation_ids.includes(String(removedId)))
+      .map((finding) => finding.title || finding.id);
+    if (referencedBy.length) {
+      setError(
+        t("assessmentResults.cannotRemoveObservationInUse", {
+          findings: referencedBy.join(", "),
+        }),
+      );
+      return;
+    }
     updateResult({
       ...result,
       observations: result.observations.filter((_, itemIndex) => itemIndex !== index),
-      findings: result.findings.map((finding) => ({
-        ...finding,
-        related_observation_ids: finding.related_observation_ids.filter(
-          (item) => item !== removedId,
-        ),
-      })),
     });
   }
 
   function addFinding() {
-    const defaultTarget = result.statement_options[0]?.statement_id ?? result.objective_options[0]?.objective_id ?? "";
-    const defaultType = result.statement_options.length ? "statement-id" : "objective-id";
+    const defaultTarget =
+      statementTargetOptions[0]?.statement_id ?? objectiveTargetOptions[0]?.objective_id ?? "";
+    const defaultType = statementTargetOptions.length ? "statement-id" : "objective-id";
     updateResult({
       ...result,
       findings: [
@@ -248,11 +270,7 @@ export function AssessmentResultWorkspace({
               }
               disabled={!canWrite || busy}
             >
-              {Array.from(new Set([
-                ...result.reviewed_control_ids,
-                ...result.statement_options.map((item) => item.control_id),
-                ...result.objective_options.map((item) => item.control_id),
-              ])).map((controlId) => (
+              {result.planned_control_ids.map((controlId) => (
                 <option key={controlId} value={controlId}>
                   {controlId}
                 </option>
@@ -479,8 +497,8 @@ export function AssessmentResultWorkspace({
                         const targetType = event.target.value as AssessmentResultFinding["target_type"];
                         const targetId =
                           targetType === "statement-id"
-                            ? result.statement_options[0]?.statement_id ?? ""
-                            : result.objective_options[0]?.objective_id ?? "";
+                            ? statementTargetOptions[0]?.statement_id ?? finding.target_id
+                            : objectiveTargetOptions[0]?.objective_id ?? finding.target_id;
                         updateFinding(index, { ...finding, target_type: targetType, target_id: targetId });
                       }}
                       disabled={!canWrite || busy}
@@ -496,9 +514,30 @@ export function AssessmentResultWorkspace({
                       onChange={(event) => updateFinding(index, { ...finding, target_id: event.target.value })}
                       disabled={!canWrite || busy}
                     >
-                      {(finding.target_type === "statement-id"
-                        ? result.statement_options.map((item) => ({ id: item.statement_id, title: `${item.statement_id} · ${item.control_id} · ${item.title}` }))
-                        : result.objective_options.map((item) => ({ id: item.objective_id, title: `${item.objective_id} · ${item.control_id}` }))).map((item) => (
+                      {(() => {
+                        const options =
+                          finding.target_type === "statement-id"
+                            ? statementTargetOptions.map((item) => ({
+                                id: item.statement_id,
+                                title: `${item.statement_id} · ${item.control_id} · ${item.title}`,
+                              }))
+                            : objectiveTargetOptions.map((item) => ({
+                                id: item.objective_id,
+                                title: `${item.objective_id} · ${item.control_id}`,
+                              }));
+                        if (
+                          finding.target_id &&
+                          !options.some((item) => item.id === finding.target_id)
+                        ) {
+                          options.unshift({
+                            id: finding.target_id,
+                            title: t("assessmentResults.targetOutOfScope", {
+                              id: finding.target_id,
+                            }),
+                          });
+                        }
+                        return options;
+                      })().map((item) => (
                         <option key={item.id} value={item.id}>
                           {item.title}
                         </option>

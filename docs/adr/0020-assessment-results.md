@@ -23,10 +23,15 @@ references for subjects, statements, objectives, and exported OSCAL documents.
   2. Official OSCAL 1.2.1 Assessment Results JSON Schema validation.
   3. Application integrity checks for pinned historical scope and references.
 - Enforce application-level integrity for:
+  - planned-vs-actual reviewed-control scope (`historical baseline -> pinned AP scope -> actual AR scope`),
   - finding targets (`statement-id`/`objective-id`) resolved from pinned history,
-  - observation subject UUIDs resolved from pinned SSP snapshot,
+  - observation subject UUIDs resolved from explicit pinned AP subject selections,
   - related-observation UUID referential integrity,
   - observation method policy (`EXAMINE|INTERVIEW|TEST`).
+- Treat Assessment Plans without explicit `assessment-subjects` selections as authorizing no explicit component subject references in Assessment Results observations.
+- Require every published manually-authored finding to reference at least one related observation UUID; incomplete drafts may be saved but cannot validate/publish.
+- Keep backend enforcement authoritative; frontend filtering and guardrails do not relax service-layer checks.
+- Require explicit user decisions before removing relationships that would reinterpret finding meaning (for example deleting referenced observations).
 - Generate immutable snapshots with substantive-content deduplication by digest,
   excluding volatile root metadata (`uuid`, `metadata.last-modified`,
   `metadata.version`).
@@ -38,6 +43,7 @@ references for subjects, statements, objectives, and exported OSCAL documents.
 
 - Assessment Results preserve fixed historical context across AP/SSP/catalog
   evolution and can be exported directly from immutable snapshots.
+- Existing immutable Assessment Results snapshots remain unchanged after integrity-policy hardening; no historical rewrite or regeneration is performed.
 - Database constraints/triggers protect pinned AP references and immutable
   versions; foreign-key `RESTRICT` semantics protect historical references from
   deletion.

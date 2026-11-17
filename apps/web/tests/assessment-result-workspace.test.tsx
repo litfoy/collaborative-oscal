@@ -62,12 +62,19 @@ const result: AssessmentResult = {
   assessment_plan_version_id: "ap-v1",
   title: "Results Alpha",
   description: null,
+  planned_control_ids: ["ac-1", "ac-2"],
   reviewed_control_ids: ["ac-1"],
   observations: [],
   findings: [],
   subject_options: [{ uuid: "component-1", title: "Auth Service", type: "service" }],
-  statement_options: [{ statement_id: "ac-1_smt", control_id: "ac-1", title: "Statement" }],
-  objective_options: [{ objective_id: "local-1", control_id: "ac-1", title: "Objective" }],
+  statement_options: [
+    { statement_id: "ac-1_smt", control_id: "ac-1", title: "Statement" },
+    { statement_id: "ac-2_smt", control_id: "ac-2", title: "Statement 2" },
+  ],
+  objective_options: [
+    { objective_id: "local-1", control_id: "ac-1", title: "Objective" },
+    { objective_id: "local-2", control_id: "ac-2", title: "Objective 2" },
+  ],
   start: null,
   end: null,
   created_at: "2026-01-01T00:00:00Z",
@@ -77,6 +84,7 @@ const result: AssessmentResult = {
 const validation: AssessmentResultValidation = {
   valid: true,
   diagnostics: [],
+  planned_control_ids: result.planned_control_ids,
   subject_options: result.subject_options,
   statement_options: result.statement_options,
   objective_options: result.objective_options,
@@ -140,6 +148,90 @@ describe("AssessmentResultWorkspace", () => {
     expect(body).not.toHaveProperty("oscal_candidate");
     expect(body.observations[0].id).toBeTruthy();
     expect(body.findings[0].id).toBeTruthy();
+  });
+
+  it("filters finding targets by actual reviewed controls in unsaved edits", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async () => jsonResponse(result));
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWorkspace();
+
+    await user.click(screen.getByRole("button", { name: "Findings" }));
+    await user.click(screen.getByRole("button", { name: "Add finding" }));
+
+    const targetSelect = screen.getByRole("combobox", { name: "Target" });
+    expect(screen.getByRole("option", { name: /ac-1_smt/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /ac-2_smt/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Overview" }));
+    const reviewedControls = screen.getByRole("listbox", { name: "Reviewed controls" });
+    await user.deselectOptions(reviewedControls, ["ac-1"]);
+    await user.selectOptions(reviewedControls, ["ac-2"]);
+
+    await user.click(screen.getByRole("button", { name: "Findings" }));
+    expect(
+      screen.getByRole("option", {
+        name: /ac-1_smt .*outside current reviewed control scope/i,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /ac-2_smt/ })).toBeInTheDocument();
+
+    expect(targetSelect).toBeInTheDocument();
+  });
+
+  it("prevents deleting an observation that is still referenced by a finding", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async () => jsonResponse(result));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const referencedResult: AssessmentResult = {
+      ...result,
+      observations: [
+        {
+          id: "obs-1",
+          title: "Observed",
+          description: "desc",
+          methods: ["EXAMINE"],
+          collected_at: "2026-01-01T00:00:00Z",
+          subject_uuids: [],
+          evidence: [],
+        },
+      ],
+      findings: [
+        {
+          id: "finding-1",
+          title: "Linked finding",
+          description: "desc",
+          target_type: "statement-id",
+          target_id: "ac-1_smt",
+          status: "satisfied",
+          related_observation_ids: ["obs-1"],
+        },
+      ],
+    };
+
+    render(
+      <LocaleProvider locale="en">
+        <AssessmentResultWorkspace
+          tenantId={TENANT}
+          system={system}
+          plan={plan}
+          initialResult={referencedResult}
+          initialValidation={validation}
+          initialVersions={versions}
+          canWrite
+        />
+      </LocaleProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Observations" }));
+    await user.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Remove observation references from findings",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
