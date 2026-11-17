@@ -80,6 +80,45 @@ export function SystemSecurityPlanWorkspace({
   const availableComponents = components;
   const dirtyPlan = plan.title !== savedPlan.title || plan.control_implementation_description !== savedPlan.control_implementation_description;
   const pendingContribution = !!selectedId;
+  const validationStale = Boolean(validation && (dirtyPlan || pendingContribution));
+  const undocumentedControlCount = Math.max(plan.baseline_control_count - plan.documented_control_count, 0);
+  const contributionGroups = useMemo(() => {
+    const implementationById = new Map(implementations.map((item) => [item.id, item] as const));
+    const componentById = new Map(components.map((item) => [item.id, item] as const));
+    const groups = new Map<string, {
+      oscalControlId: string;
+      entries: Array<{
+        implementationId: string;
+        implementation: Implementation | undefined;
+        component: SystemComponent | undefined;
+      }>;
+    }>();
+    plan.included_implementations.forEach((entry) => {
+      const group = groups.get(entry.oscal_control_id) ?? {
+        oscalControlId: entry.oscal_control_id,
+        entries: [],
+      };
+      group.entries.push({
+        implementationId: entry.implementation_id,
+        implementation: implementationById.get(entry.implementation_id),
+        component: componentById.get(entry.system_component_id),
+      });
+      groups.set(entry.oscal_control_id, group);
+    });
+    return [...groups.values()]
+      .map((group) => ({ ...group, entries: group.entries.sort((left, right) => (left.implementation?.description ?? "").localeCompare(right.implementation?.description ?? "")) }))
+      .sort((left, right) => left.oscalControlId.localeCompare(right.oscalControlId));
+  }, [components, implementations, plan.included_implementations]);
+  const filteredGroups = contributionGroups.filter((group) => {
+    const haystack = [
+      group.oscalControlId,
+      ...group.entries.flatMap((entry) => [
+        entry.implementation?.description ?? "",
+        entry.component?.component.title ?? "",
+      ]),
+    ].join(" ").toLowerCase();
+    return haystack.includes(contributionQuery.toLowerCase());
+  });
 
   async function savePlan(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -230,6 +269,16 @@ export function SystemSecurityPlanWorkspace({
     setComponentId(plan.included_implementations.find((entry) => entry.implementation_id === id)?.system_component_id ?? item.system_component_id ?? "");
   }
 
+  function openRequirement(controlId: string) {
+    setContributionQuery(controlId);
+    setTab("baseline");
+  }
+
+  function openContributions(controlId: string) {
+    setContributionQuery(controlId);
+    setTab("implementation");
+  }
+
   return (
     <div className="workspace system-workspace">
       <a href={`/t/${tenantId}/systems/${system.id}`}>← {system.name}</a>
@@ -251,10 +300,42 @@ export function SystemSecurityPlanWorkspace({
       <section hidden={tab !== "baseline"}>
         <h2>{t("systems.baseline")}</h2>
         <p className="muted">{t("systems.documentationCoverage", { documented: number(plan.documented_control_count), baseline: number(plan.baseline_control_count) })}</p>
+        <div className="ssp-coverage-cards" role="status">
+          <article className="card ssp-coverage-card">
+            <h3>{t("systems.baselineControls")}</h3>
+            <p className="ssp-coverage-count">{number(plan.baseline_control_count)}</p>
+          </article>
+          <article className="card ssp-coverage-card">
+            <h3>{t("systems.documentedControlsLabel")}</h3>
+            <p className="ssp-coverage-count">{number(plan.documented_control_count)}</p>
+            <button type="button" className="secondary" onClick={() => openContributions("")}>{t("systems.openContributionsWorkspace")}</button>
+          </article>
+          <article className="card ssp-coverage-card">
+            <h3>{t("systems.undocumentedControlsLabel")}</h3>
+            <p className="ssp-coverage-count">{number(undocumentedControlCount)}</p>
+          </article>
+        </div>
+        {contributionGroups.length ? (
+          <section className="panel">
+            <h3>{t("systems.documentedRequirementDirectory")}</h3>
+            <ul className="profile-list">
+              {contributionGroups.map((group) => (
+                <li key={group.oscalControlId}>
+                  <strong>{group.oscalControlId}</strong>
+                  <p className="muted">{t("systems.contributionCount", { count: number(group.entries.length) })}</p>
+                  <button type="button" className="secondary" onClick={() => openContributions(group.oscalControlId)}>
+                    {t("systems.viewImplementationContributions")}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
         <ControlBrowser tenantId={tenantId} catalogId={plan.catalog_id} revisionId={plan.revision_id} initialRoot={initialRoot} initialControl={null} documentedControlIds={plan.included_implementations.map((item) => item.oscal_control_id)} />
       </section>
       <section className="panel" hidden={tab !== "implementation"}>
-        <h2>{t("systems.workingState")}</h2>
+        <h2>{t("systems.controlImplementation")}</h2>
+        <h3>{t("systems.sspMetadata")}</h3>
         <form className="stack" onSubmit={savePlan}>
           <label className="field">
             {t("systems.sspDocumentTitle")}
@@ -287,45 +368,58 @@ export function SystemSecurityPlanWorkspace({
         <label className="field">{t("systems.searchContributions")}
           <input type="search" value={contributionQuery} onChange={(event) => setContributionQuery(event.target.value)} />
         </label>
-        {plan.included_implementations.length ? (
-          <ul className="profile-list">
-            {plan.included_implementations.filter((entry) => {
-              const implementation = implementations.find((item) => item.id === entry.implementation_id);
-              return `${entry.oscal_control_id} ${implementation?.description ?? ""}`.toLowerCase().includes(contributionQuery.toLowerCase());
-            }).map((entry) => {
-              const implementation = implementations.find((item) => item.id === entry.implementation_id);
-              const component = components.find((item) => item.id === entry.system_component_id);
-              return (
-                <li key={entry.implementation_id}>
-                  <strong>{entry.oscal_control_id}</strong>
-                  {" · "}
-                  {t("systems.actualComponent")} {component?.component.title ?? t("systems.componentUnavailable")}
-                  <p>{t("systems.requirementContribution")} {implementation?.description || t("systems.implementationDescriptionIncomplete")}</p>
-                  <p className="muted">
-                    {t("systems.applicationWorkflow")} {implementation?.status ? enumLabel(implementation.status) : t("systems.unknown")} · {t("systems.oscalStatus")}{" "}
-                    {implementation?.oscal_implementation_status ? enumLabel(implementation.oscal_implementation_status) : t("systems.notSelected")}
-                  </p>
-                  {canWrite ? (
-                    <div className="workspace-actions">
-                    <button type="button" className="secondary" disabled={busy || !implementation} onClick={() => { chooseImplementation(entry.implementation_id); setEditingContribution(true); }}>                    {t("systems.editContribution")}</button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={busy}
-                      onClick={() => removeImplementation(entry.implementation_id)}
-                    >
-                      {t("systems.removeFromSsp")}
-                    </button>
+        <div className={`system-components-layout${editingContribution && canWrite ? " has-editor" : ""}`}>
+          <div>
+            {filteredGroups.length ? (
+              <ul className="profile-list ssp-contribution-groups">
+                {filteredGroups.map((group) => (
+                  <li key={group.oscalControlId} className="card ssp-contribution-group">
+                    <div className="ssp-contribution-group-heading">
+                      <h3>{group.oscalControlId}</h3>
+                      <div className="workspace-actions">
+                        <span className="muted">{t("systems.contributionCount", { count: number(group.entries.length) })}</span>
+                        <button type="button" className="secondary" onClick={() => openRequirement(group.oscalControlId)}>
+                          {t("systems.viewRequirement")}
+                        </button>
+                      </div>
                     </div>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        ) : <p className="muted">{t("systems.noImplementationRecords")}</p>}
-
-        {canWrite && !editingContribution ? <button type="button" onClick={() => setEditingContribution(true)}>{selectedId ? t("systems.resumeContribution") : t("systems.addContribution")}</button> : null}
-        {canWrite && editingContribution ? (
+                    <ul className="profile-list">
+                      {group.entries.map((entry) => (
+                        <li key={entry.implementationId}>
+                          <p>{t("systems.requirementContribution")} {entry.implementation?.description || t("systems.implementationDescriptionIncomplete")}</p>
+                          <dl className="meta-list">
+                            <dt>{t("systems.actualComponent")}</dt>
+                            <dd>{entry.component?.component.title ?? t("systems.componentUnavailable")}</dd>
+                            <dt>{t("systems.applicationWorkflow")}</dt>
+                            <dd>{entry.implementation?.status ? enumLabel(entry.implementation.status) : t("systems.unknown")}</dd>
+                            <dt>{t("systems.oscalStatus")}</dt>
+                            <dd>{entry.implementation?.oscal_implementation_status ? enumLabel(entry.implementation.oscal_implementation_status) : t("systems.notSelected")}</dd>
+                          </dl>
+                          {canWrite ? (
+                            <div className="workspace-actions">
+                              <button type="button" className="secondary" disabled={busy || !entry.implementation} onClick={() => { chooseImplementation(entry.implementationId); setEditingContribution(true); }}>
+                                {t("systems.editContribution")}
+                              </button>
+                              <button type="button" className="secondary" disabled={busy} onClick={() => removeImplementation(entry.implementationId)}>
+                                {t("systems.removeFromSsp")}
+                              </button>
+                            </div>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            ) : plan.included_implementations.length ? (
+              <p className="muted">{t("systems.noContributionMatches")}</p>
+            ) : (
+              <p className="muted">{t("systems.noImplementationRecords")}</p>
+            )}
+            {canWrite && !editingContribution ? <button type="button" onClick={() => setEditingContribution(true)}>{selectedId ? t("systems.resumeContribution") : t("systems.addContribution")}</button> : null}
+          </div>
+          {canWrite && editingContribution ? (
+            <aside className="panel system-component-editor" aria-live="polite">
           <form className="stack" onSubmit={includeImplementation}>
             <h3>{t("systems.includeExistingRegisterRecord")}</h3>
             <label className="field">
@@ -376,7 +470,16 @@ export function SystemSecurityPlanWorkspace({
             <button type="button" className="secondary" onClick={() => setEditingContribution(false)}>{t("systems.close")}</button>
             <button type="button" className="secondary" onClick={() => { setSelectedId(""); setComponentId(""); setDescription(""); setOscalStatus(""); setStatusExplanation(""); setEditingContribution(false); }}>{t("systems.discardDraft")}</button>
           </form>
-        ) : null}
+                {selected ? (
+                  <div className="workspace-actions">
+                    <button type="button" className="secondary" onClick={() => openRequirement(selected.oscal_control_id)}>
+                      {t("systems.viewRequirement")}
+                    </button>
+                  </div>
+                ) : null}
+                </aside>
+              ) : null}
+            </div>
         {components.length === 0 ? (
           <p className="muted">{t("systems.addComponentBeforeContributions")}</p>
         ) : null}
@@ -384,7 +487,7 @@ export function SystemSecurityPlanWorkspace({
 
       <section className="panel" hidden={tab !== "validation"}>
         <h2>{t("systems.validation")}</h2>
-        <p>{t("systems.oscalDistinctions")}</p>
+        <p>{t("systems.validationUserSummary")}</p>
         {canWrite ? (
           <div className="workspace-actions">
             <button type="button" className="secondary" onClick={validate} disabled={busy || dirtyPlan || pendingContribution}>
@@ -392,7 +495,25 @@ export function SystemSecurityPlanWorkspace({
             </button>
           </div>
         ) : null}
-        {validation ? <Diagnostics diagnostics={validation.diagnostics} t={t} enumLabel={enumLabel} /> : null}
+        {validation ? (
+          <section className="panel">
+            <h3>{validation.valid ? t("systems.validationResultPass") : t("systems.validationResultNeedsAttention")}</h3>
+            <p className="muted">
+              {t("systems.validationCoverageChecked", {
+                documented: number(validation.documented_control_count),
+                baseline: number(validation.baseline_control_count),
+              })}
+            </p>
+            {validationStale ? <p role="status">{t("systems.validationStale")}</p> : null}
+            {!validationStale ? <Diagnostics diagnostics={validation.diagnostics} t={t} enumLabel={enumLabel} /> : null}
+          </section>
+        ) : (
+          <p className="muted">{t("systems.validationNotRunYet")}</p>
+        )}
+        <details className="technical-details">
+          <summary>{t("systems.validationTechnicalDetails")}</summary>
+          <p className="muted">{t("systems.oscalDistinctions")}</p>
+        </details>
         <p className="muted">{t("systems.validationDoesNotAssertCompliance")}</p>
       </section>
 
@@ -403,13 +524,24 @@ export function SystemSecurityPlanWorkspace({
         {versions.length ? (
           <ul className="profile-list">
             {versions.map((version) => (
-              <li key={version.id}>
+              <li key={version.id} className="card">
                 <strong>{t("common.version")} {version.document_version}</strong>
                 <p className="muted">
                   OSCAL {version.oscal_version} ·{" "}
                   <time dateTime={version.last_modified}>{date(version.last_modified)}</time>
                 </p>
+                <p className="muted">{t("systems.immutableVersionReference", { reference: version.id })}</p>
                 <div className="workspace-actions">
+                  <a
+                    className="button"
+                    href={`/t/${tenantId}/systems/${system.id}/system-security-plans/${plan.id}/versions/${version.id}`}
+                  >
+                    {t("systems.openHistoricalView")}
+                  </a>
+                </div>
+                <details className="technical-details">
+                  <summary>{t("systems.versionTechnicalActions")}</summary>
+                  <div className="workspace-actions">
                   <a
                     className="button secondary"
                     href={`/bff/tenants/${tenantId}/system-security-plans/${plan.id}/versions/${version.id}/export`}
@@ -422,7 +554,8 @@ export function SystemSecurityPlanWorkspace({
                   >
                     {t("systems.stableSspVersionReference")}
                   </a>
-                </div>
+                  </div>
+                </details>
                 <Diagnostics diagnostics={version.diagnostics} t={t} enumLabel={enumLabel} />
               </li>
             ))}

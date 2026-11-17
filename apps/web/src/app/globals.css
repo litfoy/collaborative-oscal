@@ -455,6 +455,41 @@ textarea {
   min-width: 0;
   max-width: 100%;
 }
+.ssp-overview-cards,
+.ssp-contribution-groups {
+  margin: 0;
+}
+.ssp-overview-card,
+.ssp-contribution-group {
+  display: grid;
+  gap: 0.75rem;
+}
+.ssp-overview-card h3,
+.ssp-overview-card h4,
+.ssp-contribution-group h3 {
+  margin: 0;
+}
+.ssp-coverage-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem;
+}
+.ssp-coverage-card {
+  display: grid;
+  gap: 0.45rem;
+}
+.ssp-coverage-count {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 700;
+}
+.ssp-contribution-group-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
 @media (max-width: 72rem) {
   .system-components-layout.has-editor {
     grid-template-columns: minmax(0, 1fr);

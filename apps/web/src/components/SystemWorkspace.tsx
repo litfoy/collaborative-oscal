@@ -372,6 +372,25 @@ export function SystemWorkspace({
       revision: planRevisions[plan.id],
     })),
   );
+  const sspVersionById = new Map(availableSspVersions.map(({ version, plan, revision }) => [
+    version.id,
+    { version, plan, revision },
+  ] as const));
+  const assessmentPlansBySspPlanId = new Map<string, AssessmentPlan[]>();
+  assessmentPlans.forEach((assessmentPlan) => {
+    const linked = sspVersionById.get(assessmentPlan.system_security_plan_version_id);
+    if (!linked) return;
+    const current = assessmentPlansBySspPlanId.get(linked.plan.id) ?? [];
+    current.push(assessmentPlan);
+    assessmentPlansBySspPlanId.set(linked.plan.id, current);
+  });
+  const assessmentPlanById = new Map(assessmentPlans.map((item) => [item.id, item] as const));
+  const assessmentResultsByPlanId = new Map<string, AssessmentResult[]>();
+  assessmentResults.forEach((result) => {
+    const current = assessmentResultsByPlanId.get(result.assessment_plan_id) ?? [];
+    current.push(result);
+    assessmentResultsByPlanId.set(result.assessment_plan_id, current);
+  });
   const sspVersionLabelById = Object.fromEntries(
     availableSspVersions.map(({ plan, version }) => [
       version.id,
@@ -629,9 +648,14 @@ export function SystemWorkspace({
         <p className="muted">{t("systems.baselineExplanation")}</p>
         {canWrite ? <button type="button" onClick={() => setPlanForm(true)}>{t("systems.newSsp")}</button> : null}
         {plans.length ? (
-          <ul className="profile-list">
-            {plans.map((plan) => (
-              <li key={plan.id}>
+          <ul className="profile-list ssp-overview-cards">
+            {plans.map((plan) => {
+              const relatedPlans = (assessmentPlansBySspPlanId.get(plan.id) ?? []).sort((left, right) => left.title.localeCompare(right.title));
+              const relatedResults = relatedPlans.flatMap((assessmentPlan) =>
+                (assessmentResultsByPlanId.get(assessmentPlan.id) ?? []).map((result) => ({ assessmentPlan, result })),
+              );
+              return (
+              <li key={plan.id} className="card ssp-overview-card">
                 <h3>{plan.title}</h3>
                 <p>
                   {plan.catalog_name} · {t("systems.pinnedRevision", { revision: number(planRevisions[plan.id]?.revision_number ?? revisions.find((item) => item.revision.id === plan.revision_id)?.revision.revision_number ?? 0) })}
@@ -640,11 +664,65 @@ export function SystemWorkspace({
                 <p className="muted">
                   {t("systems.documentedControls", { documented: number(plan.documented_control_count), baseline: number(plan.baseline_control_count) })}
                 </p>
+                <section>
+                  <h4>{t("assessmentPlans.sectionTitle")}</h4>
+                  {relatedPlans.length ? (
+                    <ul className="profile-list">
+                      {relatedPlans.map((assessmentPlan) => {
+                        const linkedVersion = sspVersionById.get(assessmentPlan.system_security_plan_version_id);
+                        return (
+                        <li key={assessmentPlan.id}>
+                          <strong>{assessmentPlan.title}</strong>
+                          <p className="muted">
+                            {t("assessmentPlans.pinnedSspVersion", {
+                              version: linkedVersion
+                                ? `${linkedVersion.plan.title} · ${linkedVersion.version.document_version}`
+                                : assessmentPlan.system_security_plan_version_id,
+                            })}
+                          </p>
+                          <a
+                            className="button secondary"
+                            href={`/t/${tenantId}/systems/${system.id}/assessment-plans/${assessmentPlan.id}`}
+                          >
+                            {t("assessmentPlans.openPlan")}
+                          </a>
+                        </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="muted">{t("assessmentPlans.noPlans")}</p>
+                  )}
+                </section>
+                <section>
+                  <h4>{t("assessmentResults.sectionTitle")}</h4>
+                  {relatedResults.length ? (
+                    <ul className="profile-list">
+                      {relatedResults.map(({ assessmentPlan, result }) => (
+                        <li key={result.id}>
+                          <strong>{result.title}</strong>
+                          <p className="muted">
+                            {t("systems.assessmentResultRelationship", {
+                              plan: assessmentPlan.title,
+                              reference: result.assessment_plan_version_id,
+                            })}
+                          </p>
+                          <a className="button secondary" href={`/t/${tenantId}/systems/${system.id}/assessment-results/${result.id}`}>
+                            {t("assessmentResults.openResult")}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="muted">{t("assessmentResults.noResultsWorkspace")}</p>
+                  )}
+                </section>
                 <a className="button" href={`/t/${tenantId}/systems/${system.id}/system-security-plans/${plan.id}`}>
                   {t("systems.openSspWorkingState")}
                 </a>
               </li>
-            ))}
+              );
+            })}
           </ul>
         ) : <p className="muted">{t("systems.noSspDrafts")}</p>}
         {canWrite && planForm ? (
@@ -759,7 +837,7 @@ export function SystemWorkspace({
               <li key={item.id}>
                 <h4>{item.title}</h4>
                 <p className="muted">
-                  {t("assessmentResults.planVersion")}: {sspVersionLabelById[item.assessment_plan_version_id] ?? item.assessment_plan_version_id}
+                  {t("assessmentResults.planVersion")}: {assessmentPlanById.get(item.assessment_plan_id)?.title ?? item.assessment_plan_id} · {item.assessment_plan_version_id}
                 </p>
                 <p className="muted">
                   {t("assessmentResults.scopeSummary", {

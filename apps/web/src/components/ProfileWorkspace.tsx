@@ -199,6 +199,10 @@ export function ProfileWorkspace({
     const ids = new Set(loaded.nodes.filter((node) => node.kind === "control").map((node) => node.id));
     return item.control_ids.filter((id) => !ids.has(id)).map((id) => `${item.id}: ${id}`);
   });
+  const duplicateAddSource = Boolean(
+    addCatalogId && addRevisionId &&
+    sources.some((item) => item.catalog_id === addCatalogId && item.revision_id === addRevisionId),
+  );
 
   function changeSelection(nodes: ProfileBrowserNode[], include: boolean) {
     const next = new Set(selected);
@@ -373,11 +377,20 @@ export function ProfileWorkspace({
               <button type="button" className="secondary" disabled={revisionOffset === 0} onClick={() => setRevisionOffset(Math.max(0, revisionOffset - 200))}>{t("profiles.previousRevisions")}</button>
               <button type="button" className="secondary" disabled={revisionOffset + 200 >= revisionTotal} onClick={() => setRevisionOffset(revisionOffset + 200)}>{t("profiles.nextRevisions")}</button>
             </div> : null}
-            <button type="button" disabled={!addCatalogId || !addRevisionId} onClick={() => {
+            <button type="button" disabled={!addCatalogId || !addRevisionId || duplicateAddSource} onClick={() => {
+              const existing = sources.find((item) => item.catalog_id === addCatalogId && item.revision_id === addRevisionId);
+              if (existing) {
+                setActiveSourceId(existing.id);
+                setStatus(null);
+                setError(t("profiles.sourceAlreadyAdded"));
+                return;
+              }
               const id = crypto.randomUUID();
               setSources((current) => [...current, { id, catalog_id: addCatalogId, revision_id: addRevisionId, control_ids: [] }]);
               setActiveSourceId(id); setBranch(null); setActive(null); setQuery(""); setFilters({}); setPage(0);
+              setError(null);
             }}>{t("profiles.addSource")}</button>
+            {duplicateAddSource ? <p className="muted">{t("profiles.sourceAlreadyAdded")}</p> : null}
           </details> : null}
           {collisions.length > 0 ? <p role="status">{t("profiles.duplicateIds", { name: collisions.join(", ") })}</p> : null}
         </div>

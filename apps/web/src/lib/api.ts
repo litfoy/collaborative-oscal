@@ -267,6 +267,18 @@ export function listSystemSecurityPlanVersions(
   return getJson(`/api/v1/tenants/${tenantId}/system-security-plans/${planId}/versions`, returnTo);
 }
 
+export function getSystemSecurityPlanVersion(
+  tenantId: string,
+  planId: string,
+  versionId: string,
+  returnTo: string,
+): Promise<SystemSecurityPlanVersion> {
+  return getJson(
+    `/api/v1/tenants/${tenantId}/system-security-plans/${planId}/versions/${versionId}`,
+    returnTo,
+  );
+}
+
 export function exportSystemSecurityPlanVersion(
   tenantId: string,
   planId: string,

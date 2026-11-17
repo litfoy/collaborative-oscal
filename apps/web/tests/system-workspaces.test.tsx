@@ -139,7 +139,8 @@ describe("Systems workspaces", () => {
     expect(screen.getByText("Dokumentationsgrad: 1 von 2 Maßnahmen. Dies ist keine Konformitäts- oder Wirksamkeitsbewertung.")).toBeVisible();
     expect(screen.getByRole("heading", { name: "Identity SSP" })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Maßnahmenumsetzung" }));
-    expect(screen.getByText("Anwendungsworkflow: Umgesetzt · OSCAL-Status: Umgesetzt")).toBeVisible();
+    expect(screen.getByText("Anwendungsworkflow:")).toBeVisible();
+    expect(screen.getByText("OSCAL-Status:")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Beitrag bearbeiten" }));
     expect(screen.getByLabelText("Beschreibung der anforderungsspezifischen Umsetzung")).toHaveValue("Contribution");
     const oscalStatus = screen.getByLabelText("OSCAL-Umsetzungsstatus (unabhängig vom Anwendungsworkflow-Status)");
@@ -151,6 +152,7 @@ describe("Systems workspaces", () => {
     }
     await user.click(screen.getByRole("button", { name: "Entwurf verwerfen" }));
     await user.click(screen.getByRole("button", { name: "Validierung" }));
+    expect(screen.getByText("Validieren Sie den gespeicherten SSP-Arbeitsstand vor der Erstellung einer unveränderlichen Version. Die Validierung erkennt Dokumentprobleme, bewertet jedoch nicht die Wirksamkeit.")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Arbeitsstand validieren" }));
     expect(await screen.findByText("Bei der Validierung wurden zu behebende Probleme gefunden.")).toBeVisible();
     expect(screen.getByText(/Add an identifier\. Original backend detail: system_ids\[0\]\./)).toHaveTextContent(diagnostic);
@@ -263,6 +265,17 @@ describe("Systems workspaces", () => {
     expect(screen.getByRole("button", { name: /ac-1.*Policy/ })).toBeVisible();
   });
 
+  it("navigates from documented requirements to grouped contribution editing", async () => {
+    const user = userEvent.setup();
+    renderPlan();
+    expect(screen.getByRole("heading", { name: "Documented requirement directory" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "View implementation contributions" }));
+    expect(screen.getByRole("button", { name: "Control implementation" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { name: "ac-1" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "View requirement" }));
+    expect(screen.getByRole("button", { name: "Baseline" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("edits included contributions with the SSP's actual component and preserves unsaved plan changes", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse({ ...implementation, description: "Edited" }));
@@ -311,6 +324,87 @@ describe("Systems workspaces", () => {
     expect(screen.getByRole("button", { name: "Create immutable SSP version" })).toBeDisabled();
   });
 
+  it("marks validation output as stale after relevant working-state edits", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(validation)));
+    renderPlan();
+    await user.click(screen.getByRole("button", { name: "Validation" }));
+    await user.click(screen.getByRole("button", { name: "Validate working state" }));
+    expect(await screen.findByText("Validation passed for the latest saved working state.")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Control implementation" }));
+    await user.type(screen.getByLabelText("SSP document title"), " changed");
+    await user.click(screen.getByRole("button", { name: "Validation" }));
+    expect(screen.getByText("Working-state changes are pending. Run validation again before treating these results as current.")).toBeVisible();
+  });
+
+  it("renders structured SSP assessment relationships in security plan overview cards", async () => {
+    const user = userEvent.setup();
+    const linkedAssessmentPlan: AssessmentPlan = {
+      id: "assessment-plan-1",
+      tenant_id: TENANT,
+      system_id: system.id,
+      system_security_plan_id: plan.id,
+      system_security_plan_version_id: version.id,
+      title: "Quarterly assessment",
+      description: null,
+      control_ids: [],
+      source_objectives: [],
+      local_objectives: [],
+      subject_uuids: [],
+      activities: [],
+      tasks: [],
+      roles: [],
+      parties: [],
+      terms: null,
+      baseline_catalog_id: CATALOG,
+      baseline_revision_id: REVISION,
+      ssp_oscal_version: "1.2.1",
+      created_at: "",
+      updated_at: "",
+    };
+    render(
+      <LocaleProvider locale="en">
+        <SystemWorkspace
+          tenantId={TENANT}
+          initialSystem={system}
+          initialComponents={[component]}
+          initialPlans={[plan]}
+          initialAssessmentPlans={[linkedAssessmentPlan]}
+          initialAssessmentResults={[
+            {
+              id: "assessment-result-1",
+              tenant_id: TENANT,
+              system_id: system.id,
+              assessment_plan_id: linkedAssessmentPlan.id,
+              assessment_plan_version_id: "assessment-plan-version-1",
+              title: "Q1 Result",
+              description: null,
+              reviewed_control_ids: [],
+              observations: [],
+              findings: [],
+              subject_options: [],
+              statement_options: [],
+              objective_options: [],
+              start: null,
+              end: null,
+              created_at: "",
+              updated_at: "",
+            },
+          ]}
+          initialVersions={{ [plan.id]: [version] }}
+          planRevisions={{ [plan.id]: revision() }}
+          catalogs={[catalog()]}
+          revisions={[{ catalog: catalog(), revision: revision() }]}
+          definitions={[definition]}
+          canWrite
+        />
+      </LocaleProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Security plans" }));
+    expect(screen.getByRole("heading", { name: "Quarterly assessment" })).toBeVisible();
+    expect(screen.getByText("Assessment result from plan: Quarterly assessment · plan version reference assessment-plan-version-1")).toBeVisible();
+  });
+
   it("validates and creates a version while exports remain bound to each stored version", async () => {
     const user = userEvent.setup();
     const newVersion = { ...version, id: "version-2", document_version: "2.0" };
@@ -323,6 +417,7 @@ describe("Systems workspaces", () => {
     await user.click(screen.getByRole("button", { name: "Versions" }));
     await user.click(screen.getByRole("button", { name: "Create immutable SSP version" }));
     const first = await screen.findByText("Version 2.0");
+    expect(within(first.closest("li")!).getByRole("link", { name: "Open historical SSP view" })).toHaveAttribute("href", `/t/${TENANT}/systems/${system.id}/system-security-plans/${plan.id}/versions/version-2`);
     expect(within(first.closest("li")!).getByRole("link", { name: "Export stored OSCAL JSON" })).toHaveAttribute("href", `/bff/tenants/${TENANT}/system-security-plans/plan/versions/version-2/export`);
     const old = screen.getByText("Version 1.0");
     expect(within(old.closest("li")!).getByRole("link", { name: "Export stored OSCAL JSON" })).toHaveAttribute("href", `/bff/tenants/${TENANT}/system-security-plans/plan/versions/version-1/export`);

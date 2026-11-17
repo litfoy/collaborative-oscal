@@ -81,6 +81,31 @@ describe("Profile Builder", () => {
     expect(await screen.findAllByRole("button", { name: "Remove ac-1" })).toHaveLength(2);
   });
 
+  it("prevents adding the same catalog revision source more than once", async () => {
+    const user = userEvent.setup();
+    mocks.bffGet.mockImplementation(async (path: string) => {
+      if (path.endsWith("/revisions")) {
+        return { items: [revision()], total: 1, limit: 200, offset: 0 };
+      }
+      if (path.endsWith("profile-browser")) return { nodes };
+      if (path.includes("/controls/")) {
+        return control({ raw_control: { id: "ac-1", parts: [{ prose: "{{ insert: param, frequency }}" }] } });
+      }
+      return { ...revision(), group_count: 1, source_document: {} };
+    });
+
+    renderManager();
+    await user.click(screen.getByRole("button", { name: "Create profile" }));
+    await screen.findByRole("region", { name: "Requirement browser" });
+    await user.click(screen.getByText("Add catalog source"));
+    await user.selectOptions(screen.getByLabelText("Catalog"), CATALOG);
+    await screen.findByRole("option", { name: new RegExp(`Revision 1 · ${REVISION}`) });
+
+    expect(screen.getByRole("button", { name: "Add source" })).toBeDisabled();
+    expect(screen.getByText("This catalog revision is already listed as a source.")).toBeInTheDocument();
+    expect(within(screen.getByRole("combobox", { name: "Catalog source" })).getAllByRole("option")).toHaveLength(1);
+  });
+
   it("keeps duplicate control IDs independent across imports and reviews both sources", async () => {
     const user = userEvent.setup();
     const first = { id: "import-one", catalog_id: CATALOG, revision_id: REVISION, control_ids: ["ac-1"] };
