@@ -73,6 +73,22 @@ services:
       retries: 20
     restart: unless-stopped
 
+  ai-governance-seed:
+    profiles: ["ai-governance-demo"]
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    entrypoint: ["/bin/sh", "/opt/compose/api-entrypoint.sh"]
+    command: ["python", "-m", "app.cli", "seed-ai-governance-demo-local"]
+    environment: *api-environment
+    group_add: ["10002"]
+    volumes:
+      - credentials:/run/demo-credentials:ro
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    restart: "no"
+
   web:
     build:
       context: .

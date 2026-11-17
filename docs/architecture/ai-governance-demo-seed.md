@@ -2,6 +2,46 @@
 
 This note records lifecycle verification commands and empirical outcomes for the AI governance demo seed.
 
+## Supported Docker Compose startup
+
+From the repository root:
+
+```bash
+docker compose up --build -d credentials db db-init api web
+```
+
+This starts the standard local demo stack and does not run the AI governance demo seed automatically.
+
+To opt in to AI governance demo seed execution during startup:
+
+```bash
+docker compose --profile ai-governance-demo up --build -d
+```
+
+The optional one-shot `ai-governance-seed` service runs `python -m app.cli seed-ai-governance-demo-local` after `db-init` completes successfully.
+
+## Troubleshooting
+
+Check one-shot service completion state:
+
+```bash
+docker compose ps -a ai-governance-seed
+```
+
+Inspect logs for successful apply or idempotent reruns (`already applied`):
+
+```bash
+docker compose logs ai-governance-seed
+```
+
+If the service exits non-zero, keep the stack running for diagnosis and review the error in logs; the failure is intentionally observable via service exit status and logs.
+
+Manual invocation remains supported:
+
+```bash
+python -m app.cli seed-ai-governance-demo-local
+```
+
 ## Scope
 
 - Investigate why `tests/test_ai_governance_demo_seed.py` was skipped.
@@ -213,5 +253,6 @@ docker rm -f ai-gov-pytest-db | cat
 ```
 
 These commands target only `ai-gov-lifecycle` and `ai-gov-pytest-db`; no commands were run against the default Compose project name.
+
 
 

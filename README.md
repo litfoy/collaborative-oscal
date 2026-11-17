@@ -16,10 +16,16 @@ The project explores how organizations can reuse security measures, system infor
 
 ## Quick start
 
-With Docker and Docker Compose installed, run the following from the repository root:
+With Docker and Docker Compose installed, run one of the following from the repository root:
 
 ```bash
-docker compose up
+docker compose up --build -d credentials db db-init api web
+```
+
+To include the optional AI Governance demo seed in the startup flow:
+
+```bash
+docker compose --profile ai-governance-demo up --build -d
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
