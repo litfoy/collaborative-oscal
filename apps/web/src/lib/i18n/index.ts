@@ -2,6 +2,7 @@ import { ApiError, ERROR_MESSAGES } from "@/lib/errors";
 
 import * as common from "./common";
 import * as assessmentPlans from "./assessment-plans";
+import * as assessmentResults from "./assessment-results";
 import * as catalogProfiles from "./catalog-profiles";
 import * as measuresMappings from "./measures-mappings";
 import * as systems from "./systems";
@@ -10,6 +11,7 @@ import type { Locale } from "./locale";
 export const en = {
   ...common.en,
   ...assessmentPlans.en,
+  ...assessmentResults.en,
   ...catalogProfiles.en,
   ...measuresMappings.en,
   ...systems.en,
@@ -18,6 +20,7 @@ export type TranslationKey = keyof typeof en;
 export const de: Record<TranslationKey, string> = {
   ...common.de,
   ...assessmentPlans.de,
+  ...assessmentResults.de,
   ...catalogProfiles.de,
   ...measuresMappings.de,
   ...systems.de,

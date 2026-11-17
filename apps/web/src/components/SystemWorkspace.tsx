@@ -5,6 +5,7 @@ import { useState, type FormEvent } from "react";
 import { useI18n } from "@/lib/i18n/provider";
 import type { Translate } from "@/lib/i18n";
 import type {
+  AssessmentResult,
   AssessmentPlan,
   Catalog,
   ComponentDefinition,
@@ -26,6 +27,7 @@ export function SystemWorkspace({
   initialComponents,
   initialPlans,
   initialAssessmentPlans,
+  initialAssessmentResults,
   initialVersions,
   planRevisions,
   catalogs,
@@ -38,6 +40,7 @@ export function SystemWorkspace({
   initialComponents: SystemComponent[];
   initialPlans: SystemSecurityPlan[];
   initialAssessmentPlans: AssessmentPlan[];
+  initialAssessmentResults: AssessmentResult[];
   initialVersions: Record<string, SystemSecurityPlanVersion[]>;
   planRevisions: Record<string, RevisionSummary>;
   catalogs: Catalog[];
@@ -50,6 +53,7 @@ export function SystemWorkspace({
   const [components, setComponents] = useState(initialComponents);
   const [plans, setPlans] = useState(initialPlans);
   const [assessmentPlans, setAssessmentPlans] = useState(initialAssessmentPlans);
+  const [assessmentResults, setAssessmentResults] = useState(initialAssessmentResults);
   const [tab, setTab] = useState<"overview" | "components" | "plans">("overview");
   const [componentForm, setComponentForm] = useState(false);
   const [planForm, setPlanForm] = useState(false);
@@ -74,6 +78,12 @@ export function SystemWorkspace({
   const [assessmentSspVersion, setAssessmentSspVersion] = useState("");
   const [systemIds, setSystemIds] = useState(system.system_ids);
   const [informationTypes, setInformationTypes] = useState<Array<{ uuid?: string; title: string; description: string }>>(system.information_types);
+
+  function upsertById<T extends { id: string }>(items: T[], next: T): T[] {
+    const index = items.findIndex((item) => item.id === next.id);
+    if (index === -1) return [...items, next];
+    return items.map((item, itemIndex) => (itemIndex === index ? next : item));
+  }
 
   async function saveSystem(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -134,11 +144,7 @@ export function SystemWorkspace({
         t,
         errorMessage,
       );
-      setComponents((current) =>
-        editingComponent
-          ? current.map((item) => (item.id === result.id ? result : item))
-          : [...current, result],
-      );
+      setComponents((current) => upsertById(current, result));
       resetComponentForm();
       setComponentForm(false);
       return editingComponent ? t("systems.systemComponentUpdated") : t("systems.systemComponentAdded");
@@ -157,7 +163,7 @@ export function SystemWorkspace({
         t,
         errorMessage,
       );
-      setPlans((current) => [...current, result]);
+      setPlans((current) => upsertById(current, result));
       setPlanTitle("");
       setControlDescription("");
       setPlanForm(false);
@@ -193,7 +199,7 @@ export function SystemWorkspace({
         t,
         errorMessage,
       );
-      setAssessmentPlans((current) => [...current, result]);
+      setAssessmentPlans((current) => upsertById(current, result));
       setAssessmentPlanTitle("");
       setAssessmentPlanDescription("");
       setAssessmentSspVersion("");
@@ -607,6 +613,33 @@ export function SystemWorkspace({
             </button>
           </form>
         ) : null}
+
+        <h3>{t("assessmentResults.sectionTitle")}</h3>
+        <p className="muted">{t("assessmentResults.workspaceIntro")}</p>
+        {assessmentResults.length ? (
+          <ul className="profile-list">
+            {assessmentResults.map((item) => (
+              <li key={item.id}>
+                <h4>{item.title}</h4>
+                <p className="muted">
+                  {t("assessmentResults.planVersion")}: {sspVersionLabelById[item.assessment_plan_version_id] ?? item.assessment_plan_version_id}
+                </p>
+                <p className="muted">
+                  {t("assessmentResults.scopeSummary", {
+                    controls: number(item.reviewed_control_ids.length),
+                    observations: number(item.observations.length),
+                    findings: number(item.findings.length),
+                  })}
+                </p>
+                <a className="button" href={`/t/${tenantId}/systems/${system.id}/assessment-results/${item.id}`}>
+                  {t("assessmentResults.openResult")}
+                </a>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">{t("assessmentResults.noResultsWorkspace")}</p>
+        )}
       </section>
     </div>
   );

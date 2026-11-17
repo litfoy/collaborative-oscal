@@ -1120,6 +1120,120 @@ class AssessmentPlanVersionRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class AssessmentResultRecord(Base):
+    __tablename__ = "assessment_results"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_assessment_results_tenant_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "id",
+            "system_id",
+            "assessment_plan_id",
+            "assessment_plan_version_id",
+            name="uq_assessment_results_context",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "system_id"],
+            ["information_systems.tenant_id", "information_systems.id"],
+            name="fk_assessment_results_system",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "assessment_plan_id"],
+            ["assessment_plans.tenant_id", "assessment_plans.id"],
+            name="fk_assessment_results_plan",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "assessment_plan_version_id"],
+            ["assessment_plan_versions.tenant_id", "assessment_plan_versions.id"],
+            name="fk_assessment_results_plan_version",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["created_by"],
+            ["user_identities.id"],
+            name="fk_assessment_results_created_by",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["updated_by"],
+            ["user_identities.id"],
+            name="fk_assessment_results_updated_by",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_assessment_results_system_updated",
+            "tenant_id",
+            "system_id",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    system_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    assessment_plan_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    assessment_plan_version_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    working_data: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    updated_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AssessmentResultVersionRecord(Base):
+    __tablename__ = "assessment_result_versions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_assessment_result_versions_tenant_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "id",
+            "assessment_result_id",
+            name="uq_assessment_result_versions_identity",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "assessment_result_id",
+            "content_sha256",
+            name="uq_assessment_result_versions_digest",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "assessment_result_id"],
+            ["assessment_results.tenant_id", "assessment_results.id"],
+            name="fk_assessment_result_versions_result",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "assessment_plan_version_id"],
+            ["assessment_plan_versions.tenant_id", "assessment_plan_versions.id"],
+            name="fk_assessment_result_versions_plan_version",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_assessment_result_versions_result_created",
+            "tenant_id",
+            "assessment_result_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    assessment_result_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    assessment_plan_version_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    oscal_document_uuid: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    oscal_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    document_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    last_modified: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    document: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    diagnostics: Mapped[list[dict]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class SystemSecurityPlanImplementationRecord(Base):
     __tablename__ = "system_security_plan_implementations"
     __table_args__ = (

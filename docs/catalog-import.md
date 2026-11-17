@@ -114,13 +114,15 @@ official NIST `oscal_component_schema.json` release asset
 It is a separate model schema and does not change Catalog, Profile, or Control
 Mapping dispatch.
 
-The application-authored OSCAL 1.2.1 Mapping, Component Definition, and SSP
-paths use their exact version-pinned official NIST JSON Schema release assets:
+The application-authored OSCAL 1.2.1 Mapping, Component Definition, Assessment
+Results, and SSP paths use their exact version-pinned official NIST JSON Schema
+release assets:
 
 | Model schema | OSCAL 1.2.1 SHA-256 |
 |---|---|
 | Mapping | `5b8f6f9b8117bb42ad8466d11d1695f0be9cc31350c2a3aea770614d96d70d3f` |
 | Component Definition | `ce95b3b3ea8de87c020ad4a91075241f6f863a77afe212ee828009830d6042d1` |
+| Assessment Results | `4f9e277a177adbcca9527612ce450a33dc6096773fa229d413d801d196c61985` |
 | System Security Plan | `3027ffb23ba94a8ca4e43ce9417cf2b02f27b7c36d8a4ead8fe2905483c6d10a` |
 
 These are the exact bytes from the corresponding official

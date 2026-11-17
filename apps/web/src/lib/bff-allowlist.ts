@@ -30,15 +30,20 @@ const READ_PATHS = [
   new RegExp(`^tenants/${UUID}/systems/${UUID}/components/${UUID}$`),
   new RegExp(`^tenants/${UUID}/systems/${UUID}/system-security-plans$`),
   new RegExp(`^tenants/${UUID}/systems/${UUID}/assessment-plans$`),
+  new RegExp(`^tenants/${UUID}/systems/${UUID}/assessment-results$`),
   new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}$`),
   new RegExp(`^tenants/${UUID}/assessment-plans/${UUID}$`),
+  new RegExp(`^tenants/${UUID}/assessment-results/${UUID}$`),
   new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}/validation$`),
   new RegExp(`^tenants/${UUID}/assessment-plans/${UUID}/validation$`),
+  new RegExp(`^tenants/${UUID}/assessment-results/${UUID}/validation$`),
   new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}/implementations/${UUID}$`),
   new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}/versions$`),
   new RegExp(`^tenants/${UUID}/assessment-plans/${UUID}/versions$`),
+  new RegExp(`^tenants/${UUID}/assessment-results/${UUID}/versions$`),
   new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}/versions/${UUID}(/export)?$`),
   new RegExp(`^tenants/${UUID}/assessment-plans/${UUID}/versions/${UUID}(/export)?$`),
+  new RegExp(`^tenants/${UUID}/assessment-results/${UUID}/versions/${UUID}(/export)?$`),
   new RegExp(`^tenants/${UUID}/component-definition-snapshots/${UUID}/components/${UUID}/export$`),
 ];
 const CREATE_PROFILE = new RegExp(`^tenants/${UUID}/profiles$`);
@@ -59,11 +64,14 @@ const UPDATE_SYSTEM_COMPONENT = new RegExp(`^tenants/${UUID}/systems/${UUID}/com
 const ADOPT_SYSTEM_COMPONENT = new RegExp(`^tenants/${UUID}/systems/${UUID}/components/adopt$`);
 const CREATE_SYSTEM_PLAN = new RegExp(`^tenants/${UUID}/systems/${UUID}/system-security-plans$`);
 const CREATE_ASSESSMENT_PLAN = new RegExp(`^tenants/${UUID}/systems/${UUID}/assessment-plans$`);
+const CREATE_ASSESSMENT_RESULT = new RegExp(`^tenants/${UUID}/systems/${UUID}/assessment-results$`);
 const UPDATE_SYSTEM_PLAN = new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}$`);
 const UPDATE_ASSESSMENT_PLAN = new RegExp(`^tenants/${UUID}/assessment-plans/${UUID}$`);
+const UPDATE_ASSESSMENT_RESULT = new RegExp(`^tenants/${UUID}/assessment-results/${UUID}$`);
 const INCLUDE_SYSTEM_IMPLEMENTATION = new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}/implementations/${UUID}$`);
 const CREATE_SYSTEM_PLAN_VERSION = new RegExp(`^tenants/${UUID}/system-security-plans/${UUID}/versions$`);
 const CREATE_ASSESSMENT_PLAN_VERSION = new RegExp(`^tenants/${UUID}/assessment-plans/${UUID}/versions$`);
+const CREATE_ASSESSMENT_RESULT_VERSION = new RegExp(`^tenants/${UUID}/assessment-results/${UUID}/versions$`);
 const IMPORT_CATALOG = new RegExp(`^tenants/${UUID}/catalogs(?:/${UUID})?/import$`);
 
 export function isCatalogImportPath(segments: string[]): boolean {
@@ -82,8 +90,8 @@ export function isAllowedBffRequest(segments: string[], method: string): boolean
   if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return false;
   const path = segments.join("/");
   if (method === "GET") return isAllowedBffPath(segments);
-  if (method === "POST") return CREATE_MAPPING_COLLECTION.test(path) || CREATE_PROFILE.test(path) || CREATE_COMPONENT_DEFINITION.test(path) || CREATE_IMPLEMENTATION.test(path) || CREATE_SYSTEM.test(path) || CREATE_SYSTEM_COMPONENT.test(path) || ADOPT_SYSTEM_COMPONENT.test(path) || CREATE_SYSTEM_PLAN.test(path) || CREATE_ASSESSMENT_PLAN.test(path) || INCLUDE_SYSTEM_IMPLEMENTATION.test(path) || CREATE_SYSTEM_PLAN_VERSION.test(path) || CREATE_ASSESSMENT_PLAN_VERSION.test(path) || IMPORT_CATALOG.test(path);
-  if (method === "PUT") return UPDATE_PROFILE.test(path) || UPDATE_COMPONENT_DEFINITION.test(path) || UPDATE_IMPLEMENTATION.test(path) || UPDATE_SYSTEM.test(path) || UPDATE_SYSTEM_COMPONENT.test(path) || UPDATE_SYSTEM_PLAN.test(path) || UPDATE_ASSESSMENT_PLAN.test(path) || UPDATE_MAPPING_COLLECTION.test(path);
+  if (method === "POST") return CREATE_MAPPING_COLLECTION.test(path) || CREATE_PROFILE.test(path) || CREATE_COMPONENT_DEFINITION.test(path) || CREATE_IMPLEMENTATION.test(path) || CREATE_SYSTEM.test(path) || CREATE_SYSTEM_COMPONENT.test(path) || ADOPT_SYSTEM_COMPONENT.test(path) || CREATE_SYSTEM_PLAN.test(path) || CREATE_ASSESSMENT_PLAN.test(path) || CREATE_ASSESSMENT_RESULT.test(path) || INCLUDE_SYSTEM_IMPLEMENTATION.test(path) || CREATE_SYSTEM_PLAN_VERSION.test(path) || CREATE_ASSESSMENT_PLAN_VERSION.test(path) || CREATE_ASSESSMENT_RESULT_VERSION.test(path) || IMPORT_CATALOG.test(path);
+  if (method === "PUT") return UPDATE_PROFILE.test(path) || UPDATE_COMPONENT_DEFINITION.test(path) || UPDATE_IMPLEMENTATION.test(path) || UPDATE_SYSTEM.test(path) || UPDATE_SYSTEM_COMPONENT.test(path) || UPDATE_SYSTEM_PLAN.test(path) || UPDATE_ASSESSMENT_PLAN.test(path) || UPDATE_ASSESSMENT_RESULT.test(path) || UPDATE_MAPPING_COLLECTION.test(path);
   if (method === "DELETE") return DELETE_MAPPING_COLLECTION.test(path) || DELETE_COMPONENT_DEFINITION.test(path) || DELETE_COMPONENT.test(path) || INCLUDE_SYSTEM_IMPLEMENTATION.test(path);
   return false;
 }

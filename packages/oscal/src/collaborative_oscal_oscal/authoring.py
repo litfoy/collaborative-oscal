@@ -12,6 +12,7 @@ from pydantic import ValidationError as PydanticValidationError
 from collaborative_oscal_oscal.catalog_import import _OSCAL_DRAFT7_VALIDATOR
 from collaborative_oscal_oscal.versions import (
     OscalDocumentModel,
+    document_root_key,
     is_supported_oscal_version,
     load_oscal_schema,
     uses_trestle_model,
@@ -47,11 +48,7 @@ def serialize_authored_document[TrestleModel: BaseModel](
             f"{document_model.value} {version}."
         )
     try:
-        root_key = (
-            "mapping-collection"
-            if document_model is OscalDocumentModel.MAPPING
-            else document_model.value
-        )
+        root_key = document_root_key(document_model)
         body = document[root_key]
         if body["metadata"]["oscal-version"] != version:
             raise OscalAuthoringError(

@@ -12,6 +12,7 @@ from typing import Any
 
 class OscalDocumentModel(StrEnum):
     ASSESSMENT_PLAN = "assessment-plan"
+    ASSESSMENT_RESULT = "assessment-result"
     CATALOG = "catalog"
     COMPONENT_DEFINITION = "component-definition"
     MAPPING = "mapping"
@@ -60,6 +61,7 @@ SUPPORTED_OSCAL_VERSIONS_BY_MODEL: Mapping[OscalDocumentModel, tuple[str, ...]] 
     MappingProxyType(
         {
             OscalDocumentModel.ASSESSMENT_PLAN: ("1.2.1",),
+            OscalDocumentModel.ASSESSMENT_RESULT: ("1.2.1",),
             OscalDocumentModel.CATALOG: OSCAL_VERSION_ORDER,
             OscalDocumentModel.COMPONENT_DEFINITION: ("1.2.1", "1.2.3"),
             OscalDocumentModel.MAPPING: ("1.2.0", "1.2.1", "1.2.2", "1.2.3"),
@@ -85,6 +87,7 @@ AUTHORING_OSCAL_VERSION_BY_MODEL: Mapping[OscalDocumentModel, str] = (
     MappingProxyType(
         {
             OscalDocumentModel.ASSESSMENT_PLAN: DEFAULT_AUTHORING_OSCAL_VERSION,
+            OscalDocumentModel.ASSESSMENT_RESULT: DEFAULT_AUTHORING_OSCAL_VERSION,
             OscalDocumentModel.PROFILE: DEFAULT_AUTHORING_OSCAL_VERSION,
             OscalDocumentModel.MAPPING: DEFAULT_AUTHORING_OSCAL_VERSION,
             OscalDocumentModel.COMPONENT_DEFINITION: DEFAULT_AUTHORING_OSCAL_VERSION,
@@ -169,3 +172,11 @@ def uses_trestle_model(model: OscalDocumentModel, version: str) -> bool:
     return (
         is_supported_oscal_version(model, version) and version in TRESTLE_OSCAL_VERSIONS
     )
+
+
+def document_root_key(model: OscalDocumentModel) -> str:
+    if model is OscalDocumentModel.MAPPING:
+        return "mapping-collection"
+    if model is OscalDocumentModel.ASSESSMENT_RESULT:
+        return "assessment-results"
+    return model.value

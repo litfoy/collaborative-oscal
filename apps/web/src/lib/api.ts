@@ -4,6 +4,9 @@ import { getConfig } from "./config";
 import { ApiError, ERROR_MESSAGES, kindForStatus } from "./errors";
 import { isDemoPrincipal, requireSession, type WebPrincipal } from "./auth";
 import type {
+  AssessmentResult,
+  AssessmentResultValidation,
+  AssessmentResultVersion,
   AssessmentPlan,
   AssessmentPlanValidation,
   AssessmentPlanVersion,
@@ -294,6 +297,38 @@ export function listAssessmentPlanVersions(
   returnTo: string,
 ): Promise<AssessmentPlanVersion[]> {
   return getJson(`/api/v1/tenants/${tenantId}/assessment-plans/${planId}/versions`, returnTo);
+}
+
+export function listAssessmentResults(
+  tenantId: string,
+  systemId: string,
+  returnTo: string,
+): Promise<AssessmentResult[]> {
+  return getJson(`/api/v1/tenants/${tenantId}/systems/${systemId}/assessment-results`, returnTo);
+}
+
+export function getAssessmentResult(
+  tenantId: string,
+  resultId: string,
+  returnTo: string,
+): Promise<AssessmentResult> {
+  return getJson(`/api/v1/tenants/${tenantId}/assessment-results/${resultId}`, returnTo);
+}
+
+export function validateAssessmentResult(
+  tenantId: string,
+  resultId: string,
+  returnTo: string,
+): Promise<AssessmentResultValidation> {
+  return getJson(`/api/v1/tenants/${tenantId}/assessment-results/${resultId}/validation`, returnTo);
+}
+
+export function listAssessmentResultVersions(
+  tenantId: string,
+  resultId: string,
+  returnTo: string,
+): Promise<AssessmentResultVersion[]> {
+  return getJson(`/api/v1/tenants/${tenantId}/assessment-results/${resultId}/versions`, returnTo);
 }
 
 export function listImplementations(

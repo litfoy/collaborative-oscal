@@ -237,12 +237,17 @@ PostgreSQL integration tests run only on pull requests, against a dedicated Post
 service. Changes pushed directly to a branch without a pull request do not run the
 integration tests.
 
-### Verified integration baseline (2026-11-16)
+### Verified integration baseline (2026-11-17)
 
 The complete API suite with a fresh, dedicated PostgreSQL 17 database passes:
-**262 passed, 0 failed, 0 errors, 0 skipped**. There are no remaining integration
+**289 passed, 0 failed, 0 errors, 0 skipped**. There are no remaining integration
 blockers or compatibility-policy exceptions. Frontend regression checks also pass:
-143 tests, ESLint, and TypeScript; API Ruff checks pass.
+154 tests, ESLint, and TypeScript; API Ruff checks pass.
+
+Downgrading a populated database can intentionally stop before `base` to prevent
+data loss. In particular, migration `71bc92de4a10` raises a protective runtime
+error when Profile-import provenance rows exist, so full downgrade/re-upgrade
+verification should run against a fresh disposable database.
 
 The unmodified authoring-consolidation commit `ae57eb4` reproduced 228 passed,
 7 failed, and 25 setup errors. Its predecessor `7f2598f`, run in a separate Git

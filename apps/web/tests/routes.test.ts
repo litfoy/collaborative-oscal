@@ -319,4 +319,40 @@ describe("BFF proxy", () => {
     expect((await bffPost(request(" ".repeat(3 * 1024 * 1024 + 1)), ctx(path))).status).toBe(413);
     expect(mocks.backendFetch).not.toHaveBeenCalled();
   });
+
+  it("allow-lists Assessment Results reads and writes", async () => {
+    mocks.readSession.mockResolvedValue(session);
+    mocks.backendFetch.mockImplementation(
+      async () => new Response("{}", { headers: { "content-type": "application/json" } }),
+    );
+
+    const readPath = ["tenants", U, "assessment-results", U, "validation"];
+    const readResponse = await bff(
+      new NextRequest(`http://localhost:3000/bff/${readPath.join("/")}`),
+      ctx(readPath),
+    );
+    expect(readResponse.status).toBe(200);
+
+    const createPath = ["tenants", U, "systems", U, "assessment-results"];
+    const createResponse = await bffPost(
+      new NextRequest(`http://localhost:3000/bff/${createPath.join("/")}`, {
+        method: "POST",
+        headers: { origin: "http://localhost:3000", "content-type": "application/json" },
+        body: JSON.stringify({ title: "AR" }),
+      }),
+      ctx(createPath),
+    );
+    expect(createResponse.status).toBe(200);
+
+    const updatePath = ["tenants", U, "assessment-results", U];
+    const updateResponse = await bffPut(
+      new NextRequest(`http://localhost:3000/bff/${updatePath.join("/")}`, {
+        method: "PUT",
+        headers: { origin: "http://localhost:3000", "content-type": "application/json" },
+        body: JSON.stringify({ title: "AR" }),
+      }),
+      ctx(updatePath),
+    );
+    expect(updateResponse.status).toBe(200);
+  });
 });

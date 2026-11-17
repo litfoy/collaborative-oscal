@@ -58,6 +58,7 @@ function renderSystem(locale: "en" | "de" = "en") {
   return render(<LocaleProvider locale={locale}><SystemWorkspace tenantId={TENANT} initialSystem={system} initialComponents={[component]}
     initialPlans={[plan]} initialVersions={{ [plan.id]: [version] }} catalogs={[catalog()]}
     initialAssessmentPlans={assessmentPlans}
+    initialAssessmentResults={[]}
     planRevisions={{ [plan.id]: revision() }}
     revisions={[{ catalog: catalog(), revision: revision() }]} definitions={[definition]} canWrite /></LocaleProvider>);
 }

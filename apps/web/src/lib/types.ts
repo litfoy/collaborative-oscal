@@ -443,6 +443,96 @@ export interface AssessmentPlanVersion {
   created?: boolean;
 }
 
+export type AssessmentResultTargetType = "statement-id" | "objective-id";
+
+export interface AssessmentResultEvidence {
+  id: string;
+  title: string;
+  description: string;
+  href: string | null;
+}
+
+export interface AssessmentResultObservation {
+  id: string;
+  title: string;
+  description: string;
+  methods: AssessmentMethod[];
+  collected_at: string;
+  subject_uuids: string[];
+  evidence: AssessmentResultEvidence[];
+}
+
+export interface AssessmentResultFinding {
+  id: string;
+  title: string;
+  description: string;
+  target_type: AssessmentResultTargetType;
+  target_id: string;
+  status: "satisfied" | "other" | "not-satisfied";
+  related_observation_ids: string[];
+}
+
+export interface AssessmentResultSubjectOption {
+  uuid: string;
+  title: string;
+  type: string;
+}
+
+export interface AssessmentResultStatementOption {
+  statement_id: string;
+  control_id: string;
+  title: string;
+}
+
+export interface AssessmentResultObjectiveOption {
+  objective_id: string;
+  control_id: string;
+  title: string;
+}
+
+export interface AssessmentResult {
+  id: string;
+  tenant_id: string;
+  system_id: string;
+  assessment_plan_id: string;
+  assessment_plan_version_id: string;
+  title: string;
+  description: string | null;
+  reviewed_control_ids: string[];
+  observations: AssessmentResultObservation[];
+  findings: AssessmentResultFinding[];
+  subject_options: AssessmentResultSubjectOption[];
+  statement_options: AssessmentResultStatementOption[];
+  objective_options: AssessmentResultObjectiveOption[];
+  start: string | null;
+  end: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssessmentResultValidation {
+  valid: boolean;
+  diagnostics: SystemSecurityPlanDiagnostic[];
+  subject_options: AssessmentResultSubjectOption[];
+  statement_options: AssessmentResultStatementOption[];
+  objective_options: AssessmentResultObjectiveOption[];
+  oscal_candidate?: Record<string, unknown> | null;
+}
+
+export interface AssessmentResultVersion {
+  id: string;
+  assessment_result_id: string;
+  assessment_plan_version_id: string;
+  oscal_document_uuid: string;
+  oscal_version: string;
+  document_version: string;
+  last_modified: string;
+  content_sha256: string;
+  diagnostics: SystemSecurityPlanDiagnostic[];
+  created_at: string;
+  created?: boolean;
+}
+
 export interface ProfileBrowserNode {
   key: string;
   parent_key: string | null;
