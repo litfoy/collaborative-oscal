@@ -233,6 +233,76 @@ describe("AssessmentResultWorkspace", () => {
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("preserves explicit nested ids in save payload when editing existing entries", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async () => jsonResponse(result));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const editableResult: AssessmentResult = {
+      ...result,
+      observations: [
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          title: "Observed",
+          description: "desc",
+          methods: ["EXAMINE"],
+          collected_at: "2026-01-01T00:00:00Z",
+          subject_uuids: [],
+          evidence: [
+            {
+              id: "22222222-2222-4222-8222-222222222222",
+              title: "Evidence",
+              description: "desc",
+              href: "https://example.test/evidence",
+            },
+          ],
+        },
+      ],
+      findings: [
+        {
+          id: "33333333-3333-4333-8333-333333333333",
+          title: "Finding",
+          description: "desc",
+          target_type: "statement-id",
+          target_id: "ac-1_smt",
+          status: "satisfied",
+          related_observation_ids: ["11111111-1111-4111-8111-111111111111"],
+        },
+      ],
+    };
+
+    render(
+      <LocaleProvider locale="en">
+        <AssessmentResultWorkspace
+          tenantId={TENANT}
+          system={system}
+          plan={plan}
+          initialResult={editableResult}
+          initialValidation={validation}
+          initialVersions={versions}
+          canWrite
+        />
+      </LocaleProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Observations" }));
+    await user.clear(screen.getByRole("textbox", { name: "Observation title" }));
+    await user.type(screen.getByRole("textbox", { name: "Observation title" }), "Observed updated");
+
+    await user.click(screen.getByRole("button", { name: "Save working state" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const firstCall = (fetchMock.mock.calls as unknown[][])[0];
+    const init = (firstCall?.[1] ?? undefined) as RequestInit | undefined;
+    const body = JSON.parse(String(init?.body ?? "{}"));
+
+    expect(body.observations[0].id).toBe("11111111-1111-4111-8111-111111111111");
+    expect(body.observations[0].evidence[0].id).toBe(
+      "22222222-2222-4222-8222-222222222222",
+    );
+    expect(body.findings[0].id).toBe("33333333-3333-4333-8333-333333333333");
+  });
 });
 
 

@@ -69,6 +69,16 @@ export function AssessmentResultWorkspace({
     [result.objective_options, result.reviewed_control_ids],
   );
 
+  function diagnosticMessage(item: { code: string; message: string }): string {
+    if (item.code === "duplicate_evidence_ids_document") {
+      return t("assessmentResults.diagnostic.duplicateEvidenceIdsDocument");
+    }
+    if (item.code === "invalid_evidence_href") {
+      return t("assessmentResults.diagnostic.invalidEvidenceHref");
+    }
+    return item.message;
+  }
+
   function updateResult(next: AssessmentResult) {
     setResult(next);
     setValidationStale(true);
@@ -616,7 +626,7 @@ export function AssessmentResultWorkspace({
                     {enumLabel(item.severity)}: {item.code}
                   </strong>
                   {" - "}
-                  {item.message}
+                  {diagnosticMessage(item)}
                   {item.path ? (
                     <p className="muted">
                       {t("assessmentResults.validationPath")}: <span className="mono">{item.path}</span>

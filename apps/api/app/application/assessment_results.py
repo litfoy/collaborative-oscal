@@ -5,6 +5,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from collaborative_oscal_oscal.assessment_result import (
@@ -529,6 +530,7 @@ class AssessmentResultService:
             )
 
         observation_ids: list[UUID] = []
+        document_evidence_ids: list[UUID] = []
         for observation in working_data.get("observations", []):
             observation_id = UUID(str(observation["id"]))
             observation_ids.append(observation_id)
@@ -562,7 +564,20 @@ class AssessmentResultService:
                     }
                 )
 
-            evidence_ids = [UUID(str(item["id"])) for item in observation.get("evidence", [])]
+            evidence_ids: list[UUID] = []
+            for evidence in observation.get("evidence", []):
+                evidence_id = UUID(str(evidence["id"]))
+                evidence_ids.append(evidence_id)
+                document_evidence_ids.append(evidence_id)
+                href_error = self._validate_authored_evidence_href(evidence.get("href"))
+                if href_error is not None:
+                    diagnostics.append(
+                        {
+                            "category": "application_integrity",
+                            "code": "invalid_evidence_href",
+                            "message": href_error,
+                        }
+                    )
             if len(evidence_ids) != len(set(evidence_ids)):
                 diagnostics.append(
                     {
@@ -571,6 +586,20 @@ class AssessmentResultService:
                         "message": "Evidence UUIDs must be unique per observation.",
                     }
                 )
+
+        duplicate_document_evidence_ids = self._duplicate_uuids(document_evidence_ids)
+        if duplicate_document_evidence_ids:
+            diagnostics.append(
+                {
+                    "category": "application_integrity",
+                    "code": "duplicate_evidence_ids_document",
+                    "message": (
+                        "Evidence UUIDs must be unique across the entire Assessment Results "
+                        "document: "
+                        + ", ".join(duplicate_document_evidence_ids)
+                    ),
+                }
+            )
 
         if len(observation_ids) != len(set(observation_ids)):
             diagnostics.append(
@@ -758,43 +787,64 @@ class AssessmentResultService:
     def _normalize_working_data(
         working_data: dict[str, Any], *, previous: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        previous = previous or {}
+        del previous
         normalized = copy.deepcopy(working_data)
 
-        previous_observations = previous.get("observations", [])
-        for index, observation in enumerate(normalized.get("observations", [])):
+        for observation in normalized.get("observations", []):
             if not observation.get("id"):
-                preserved = (
-                    previous_observations[index].get("id")
-                    if index < len(previous_observations)
-                    else None
-                )
-                observation["id"] = preserved or str(uuid4())
-            previous_evidence = (
-                previous_observations[index].get("evidence", [])
-                if index < len(previous_observations)
-                else []
-            )
-            for evidence_index, evidence in enumerate(observation.get("evidence", [])):
+                observation["id"] = str(uuid4())
+            for evidence in observation.get("evidence", []):
                 if evidence.get("id"):
                     continue
-                preserved = (
-                    previous_evidence[evidence_index].get("id")
-                    if evidence_index < len(previous_evidence)
-                    else None
-                )
-                evidence["id"] = preserved or str(uuid4())
+                evidence["id"] = str(uuid4())
 
-        previous_findings = previous.get("findings", [])
-        for index, finding in enumerate(normalized.get("findings", [])):
+        for finding in normalized.get("findings", []):
             if finding.get("id"):
                 continue
-            preserved = (
-                previous_findings[index].get("id") if index < len(previous_findings) else None
-            )
-            finding["id"] = preserved or str(uuid4())
+            finding["id"] = str(uuid4())
 
         return normalized
+
+    @staticmethod
+    def _duplicate_uuids(values: list[UUID]) -> list[str]:
+        seen: set[UUID] = set()
+        duplicates: list[str] = []
+        for value in values:
+            if value in seen and str(value) not in duplicates:
+                duplicates.append(str(value))
+            seen.add(value)
+        return duplicates
+
+    @staticmethod
+    def _validate_authored_evidence_href(value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return "Evidence href must be a string when provided."
+        if not value:
+            return "Evidence href cannot be an empty string."
+        if value != value.strip():
+            return "Evidence href cannot contain leading or trailing whitespace."
+        if value.startswith("#"):
+            return (
+                "Evidence href must be an absolute HTTP(S) URL; fragment-only references "
+                "are not allowed."
+            )
+        if any(char.isspace() for char in value):
+            return "Evidence href cannot contain whitespace characters."
+        if "\\" in value:
+            return "Evidence href cannot contain backslashes."
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            return "Evidence href cannot contain control characters."
+
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"}:
+            return "Evidence href must use http or https."
+        if not parsed.netloc or parsed.hostname is None:
+            return "Evidence href must include a valid hostname."
+        if parsed.username is not None or parsed.password is not None:
+            return "Evidence href cannot include embedded credentials."
+        return None
 
     @staticmethod
     def _default_working_data(*, reviewed_control_ids: list[str]) -> dict[str, Any]:

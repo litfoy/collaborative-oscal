@@ -327,6 +327,23 @@ def _prepare_plan_scope_context(
     }
 
 
+def _working_payload(
+    *,
+    control_id: str,
+    observations: list[dict],
+    findings: list[dict],
+    start: str | None = "2026-11-20T00:00:00+00:00",
+    end: str | None = "2026-11-20T01:00:00+00:00",
+) -> dict[str, object]:
+    return {
+        "reviewed_control_ids": [control_id],
+        "start": start,
+        "end": end,
+        "observations": observations,
+        "findings": findings,
+    }
+
+
 def test_assessment_result_lifecycle_uses_pinned_assessment_plan_context(
     grc_service, session_factory
 ) -> None:
@@ -1222,6 +1239,693 @@ def test_assessment_result_exported_versions_remain_stable_after_hardening_check
 
     exported_after = service.export_version(tenant_id, result["id"], version["id"])
     assert exported_before == exported_after
+
+
+def test_assessment_result_reorder_preserves_explicit_observation_ids(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    result = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="Reorder IDs AR",
+        description=None,
+    )
+    updated = service.update_result(
+        tenant_id,
+        actor,
+        result["id"],
+        title="Reorder IDs AR",
+        description=None,
+        working_data=_working_payload(
+            control_id=control_id,
+            observations=[
+                {
+                    "title": "Observation A",
+                    "description": "desc",
+                    "methods": ["EXAMINE"],
+                    "collected_at": "2026-11-20T00:30:00+00:00",
+                    "subject_uuids": [str(subject_uuid)],
+                    "evidence": [],
+                },
+                {
+                    "title": "Observation B",
+                    "description": "desc",
+                    "methods": ["EXAMINE"],
+                    "collected_at": "2026-11-20T00:40:00+00:00",
+                    "subject_uuids": [str(subject_uuid)],
+                    "evidence": [],
+                },
+            ],
+            findings=[],
+        ),
+    )
+    first_id = str(updated["observations"][0]["id"])
+    second_id = str(updated["observations"][1]["id"])
+
+    reordered = service.update_result(
+        tenant_id,
+        actor,
+        result["id"],
+        title="Reorder IDs AR",
+        description=None,
+        working_data=_working_payload(
+            control_id=control_id,
+            observations=[updated["observations"][1], updated["observations"][0]],
+            findings=[],
+        ),
+    )
+    assert str(reordered["observations"][0]["id"]) == second_id
+    assert str(reordered["observations"][1]["id"]) == first_id
+
+
+def test_assessment_result_replacement_without_ids_generates_new_nested_ids(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    result = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="Replacement IDs AR",
+        description=None,
+    )
+
+    updated = service.update_result(
+        tenant_id,
+        actor,
+        result["id"],
+        title="Replacement IDs AR",
+        description=None,
+        working_data=_working_payload(
+            control_id=control_id,
+            observations=[
+                {
+                    "title": "Observation",
+                    "description": "desc",
+                    "methods": ["EXAMINE"],
+                    "collected_at": "2026-11-20T00:30:00+00:00",
+                    "subject_uuids": [str(subject_uuid)],
+                    "evidence": [
+                        {
+                            "title": "Evidence",
+                            "description": "desc",
+                            "href": "https://example.test/evidence/1",
+                        }
+                    ],
+                }
+            ],
+            findings=[
+                {
+                    "title": "Finding",
+                    "description": "desc",
+                    "target_type": "objective-id",
+                    "target_id": "local-mfa-objective",
+                    "status": "satisfied",
+                    "related_observation_ids": [],
+                }
+            ],
+        ),
+    )
+
+    old_observation_id = str(updated["observations"][0]["id"])
+    old_evidence_id = str(updated["observations"][0]["evidence"][0]["id"])
+    old_finding_id = str(updated["findings"][0]["id"])
+
+    replaced = service.update_result(
+        tenant_id,
+        actor,
+        result["id"],
+        title="Replacement IDs AR",
+        description=None,
+        working_data=_working_payload(
+            control_id=control_id,
+            observations=[
+                {
+                    "title": "Replacement observation",
+                    "description": "desc",
+                    "methods": ["EXAMINE"],
+                    "collected_at": "2026-11-20T00:35:00+00:00",
+                    "subject_uuids": [str(subject_uuid)],
+                    "evidence": [
+                        {
+                            "title": "Replacement evidence",
+                            "description": "desc",
+                            "href": "https://example.test/evidence/2",
+                        }
+                    ],
+                }
+            ],
+            findings=[
+                {
+                    "title": "Replacement finding",
+                    "description": "desc",
+                    "target_type": "objective-id",
+                    "target_id": "local-mfa-objective",
+                    "status": "satisfied",
+                    "related_observation_ids": [],
+                }
+            ],
+        ),
+    )
+
+    assert str(replaced["observations"][0]["id"]) != old_observation_id
+    assert str(replaced["observations"][0]["evidence"][0]["id"]) != old_evidence_id
+    assert str(replaced["findings"][0]["id"]) != old_finding_id
+
+
+def test_assessment_result_replacement_observation_does_not_retarget_existing_finding(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    result = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="No retarget AR",
+        description=None,
+    )
+    updated = service.update_result(
+        tenant_id,
+        actor,
+        result["id"],
+        title="No retarget AR",
+        description=None,
+        working_data=_working_payload(
+            control_id=control_id,
+            observations=[
+                {
+                    "title": "Observation",
+                    "description": "desc",
+                    "methods": ["EXAMINE"],
+                    "collected_at": "2026-11-20T00:30:00+00:00",
+                    "subject_uuids": [str(subject_uuid)],
+                    "evidence": [],
+                }
+            ],
+            findings=[
+                {
+                    "title": "Finding",
+                    "description": "desc",
+                    "target_type": "objective-id",
+                    "target_id": "local-mfa-objective",
+                    "status": "satisfied",
+                    "related_observation_ids": [],
+                }
+            ],
+        ),
+    )
+    observation_id = str(updated["observations"][0]["id"])
+    finding_id = str(updated["findings"][0]["id"])
+
+    linked = service.update_result(
+        tenant_id,
+        actor,
+        result["id"],
+        title="No retarget AR",
+        description=None,
+        working_data=_working_payload(
+            control_id=control_id,
+            observations=updated["observations"],
+            findings=[
+                {
+                    "id": finding_id,
+                    "title": "Finding",
+                    "description": "desc",
+                    "target_type": "objective-id",
+                    "target_id": "local-mfa-objective",
+                    "status": "satisfied",
+                    "related_observation_ids": [observation_id],
+                }
+            ],
+        ),
+    )
+
+    with pytest.raises(InvalidAssessmentResult) as error:
+        service.update_result(
+            tenant_id,
+            actor,
+            result["id"],
+            title="No retarget AR",
+            description=None,
+            working_data=_working_payload(
+                control_id=control_id,
+                observations=[
+                    {
+                        "title": "Replacement",
+                        "description": "desc",
+                        "methods": ["EXAMINE"],
+                        "collected_at": "2026-11-20T00:45:00+00:00",
+                        "subject_uuids": [str(subject_uuid)],
+                        "evidence": [],
+                    }
+                ],
+                findings=linked["findings"],
+            ),
+        )
+    assert any(item["code"] == "unknown_related_observation" for item in error.value.diagnostics)
+
+
+def test_assessment_result_rejects_duplicate_evidence_uuid_across_document(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    result = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="Duplicate evidence AR",
+        description=None,
+    )
+    shared = str(uuid4())
+    with pytest.raises(InvalidAssessmentResult) as error:
+        service.update_result(
+            tenant_id,
+            actor,
+            result["id"],
+            title="Duplicate evidence AR",
+            description=None,
+            working_data=_working_payload(
+                control_id=control_id,
+                observations=[
+                    {
+                        "title": "Observation 1",
+                        "description": "desc",
+                        "methods": ["EXAMINE"],
+                        "collected_at": "2026-11-20T00:30:00+00:00",
+                        "subject_uuids": [str(subject_uuid)],
+                        "evidence": [
+                            {
+                                "id": shared,
+                                "title": "Evidence 1",
+                                "description": "desc",
+                                "href": "https://example.test/evidence/1",
+                            }
+                        ],
+                    },
+                    {
+                        "title": "Observation 2",
+                        "description": "desc",
+                        "methods": ["EXAMINE"],
+                        "collected_at": "2026-11-20T00:40:00+00:00",
+                        "subject_uuids": [str(subject_uuid)],
+                        "evidence": [
+                            {
+                                "id": shared,
+                                "title": "Evidence 2",
+                                "description": "desc",
+                                "href": "https://example.test/evidence/2",
+                            }
+                        ],
+                    },
+                ],
+                findings=[],
+            ),
+        )
+    assert any(
+        item["code"] == "duplicate_evidence_ids_document" for item in error.value.diagnostics
+    )
+
+
+def test_assessment_result_rejects_duplicate_observation_and_finding_ids(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    result = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="Duplicate IDs AR",
+        description=None,
+    )
+    duplicate_observation_id = str(uuid4())
+    duplicate_finding_id = str(uuid4())
+
+    with pytest.raises(InvalidAssessmentResult) as error:
+        service.update_result(
+            tenant_id,
+            actor,
+            result["id"],
+            title="Duplicate IDs AR",
+            description=None,
+            working_data=_working_payload(
+                control_id=control_id,
+                observations=[
+                    {
+                        "id": duplicate_observation_id,
+                        "title": "Observation 1",
+                        "description": "desc",
+                        "methods": ["EXAMINE"],
+                        "collected_at": "2026-11-20T00:30:00+00:00",
+                        "subject_uuids": [str(subject_uuid)],
+                        "evidence": [],
+                    },
+                    {
+                        "id": duplicate_observation_id,
+                        "title": "Observation 2",
+                        "description": "desc",
+                        "methods": ["EXAMINE"],
+                        "collected_at": "2026-11-20T00:40:00+00:00",
+                        "subject_uuids": [str(subject_uuid)],
+                        "evidence": [],
+                    },
+                ],
+                findings=[
+                    {
+                        "id": duplicate_finding_id,
+                        "title": "Finding 1",
+                        "description": "desc",
+                        "target_type": "objective-id",
+                        "target_id": "local-mfa-objective",
+                        "status": "satisfied",
+                        "related_observation_ids": [],
+                    },
+                    {
+                        "id": duplicate_finding_id,
+                        "title": "Finding 2",
+                        "description": "desc",
+                        "target_type": "objective-id",
+                        "target_id": "local-mfa-objective",
+                        "status": "satisfied",
+                        "related_observation_ids": [],
+                    },
+                ],
+            ),
+        )
+
+    codes = {item["code"] for item in error.value.diagnostics}
+    assert "duplicate_observation_ids" in codes
+    assert "duplicate_finding_ids" in codes
+
+
+def test_assessment_result_export_resolves_relevant_evidence_to_back_matter_resource(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    result = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="Evidence reference AR",
+        description=None,
+    )
+    updated = service.update_result(
+        tenant_id,
+        actor,
+        result["id"],
+        title="Evidence reference AR",
+        description=None,
+        working_data=_working_payload(
+            control_id=control_id,
+            observations=[
+                {
+                    "title": "Observation",
+                    "description": "desc",
+                    "methods": ["EXAMINE"],
+                    "collected_at": "2026-11-20T00:30:00+00:00",
+                    "subject_uuids": [str(subject_uuid)],
+                    "evidence": [
+                        {
+                            "title": "Evidence",
+                            "description": "desc",
+                            "href": "https://example.test/evidence",
+                        }
+                    ],
+                }
+            ],
+            findings=[
+                {
+                    "title": "Finding",
+                    "description": "desc",
+                    "target_type": "objective-id",
+                    "target_id": "local-mfa-objective",
+                    "status": "satisfied",
+                    "related_observation_ids": [],
+                }
+            ],
+        ),
+    )
+    observation_id = str(updated["observations"][0]["id"])
+    finding_id = str(updated["findings"][0]["id"])
+    updated = service.update_result(
+        tenant_id,
+        actor,
+        result["id"],
+        title="Evidence reference AR",
+        description=None,
+        working_data=_working_payload(
+            control_id=control_id,
+            observations=updated["observations"],
+            findings=[
+                {
+                    "id": finding_id,
+                    "title": "Finding",
+                    "description": "desc",
+                    "target_type": "objective-id",
+                    "target_id": "local-mfa-objective",
+                    "status": "satisfied",
+                    "related_observation_ids": [observation_id],
+                }
+            ],
+        ),
+    )
+    evidence_id = str(updated["observations"][0]["evidence"][0]["id"])
+
+    version = service.create_version(tenant_id, actor, result["id"])
+    exported = service.export_version(tenant_id, result["id"], version["id"])
+    resource_uuid = exported["assessment-results"]["back-matter"]["resources"][0]["uuid"]
+    evidence_href = exported["assessment-results"]["results"][0]["observations"][0][
+        "relevant-evidence"
+    ][0]["href"]
+    assert resource_uuid == evidence_id
+    assert evidence_href == f"#{evidence_id}"
+
+
+@pytest.mark.parametrize(
+    "href",
+    [
+        "https://example.test/evidence",
+        "http://example.test/evidence",
+    ],
+)
+def test_assessment_result_accepts_http_and_https_evidence_urls(
+    grc_service, session_factory, href: str
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    result = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="Allowed URL AR",
+        description=None,
+    )
+    updated = service.update_result(
+        tenant_id,
+        actor,
+        result["id"],
+        title="Allowed URL AR",
+        description=None,
+        working_data=_working_payload(
+            control_id=control_id,
+            observations=[
+                {
+                    "title": "Observation",
+                    "description": "desc",
+                    "methods": ["EXAMINE"],
+                    "collected_at": "2026-11-20T00:30:00+00:00",
+                    "subject_uuids": [str(subject_uuid)],
+                    "evidence": [{"title": "Evidence", "description": "desc", "href": href}],
+                }
+            ],
+            findings=[
+                {
+                    "title": "Finding",
+                    "description": "desc",
+                    "target_type": "objective-id",
+                    "target_id": "local-mfa-objective",
+                    "status": "satisfied",
+                    "related_observation_ids": [],
+                }
+            ],
+        ),
+    )
+    observation_id = str(updated["observations"][0]["id"])
+    finding_id = str(updated["findings"][0]["id"])
+    service.update_result(
+        tenant_id,
+        actor,
+        result["id"],
+        title="Allowed URL AR",
+        description=None,
+        working_data=_working_payload(
+            control_id=control_id,
+            observations=updated["observations"],
+            findings=[
+                {
+                    "id": finding_id,
+                    "title": "Finding",
+                    "description": "desc",
+                    "target_type": "objective-id",
+                    "target_id": "local-mfa-objective",
+                    "status": "satisfied",
+                    "related_observation_ids": [observation_id],
+                }
+            ],
+        ),
+    )
+    validation = service.validate_result(tenant_id, result["id"])
+    assert validation["valid"] is True
+    version = service.create_version(tenant_id, actor, result["id"])
+    assert version["created"] is True
+
+
+@pytest.mark.parametrize(
+    "href",
+    [
+        "javascript:alert(1)",
+        "data:text/html,<b>x</b>",
+        "vbscript:msgbox(1)",
+        "file:///tmp/evidence.txt",
+        "#resource-local",
+        "/relative/path",
+        "relative/path",
+        "https://user:pass@example.test/evidence",
+        "https://",
+        " https://example.test/evidence",
+        "https://example.test/evidence ",
+        "https://example.test\\evidence",
+        "https://example.test/evi dence",
+    ],
+)
+def test_assessment_result_rejects_unsafe_or_ambiguous_evidence_urls(
+    grc_service, session_factory, href: str
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    result = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="Rejected URL AR",
+        description=None,
+    )
+    with pytest.raises(InvalidAssessmentResult) as error:
+        service.update_result(
+            tenant_id,
+            actor,
+            result["id"],
+            title="Rejected URL AR",
+            description=None,
+            working_data=_working_payload(
+                control_id=control_id,
+                observations=[
+                    {
+                        "title": "Observation",
+                        "description": "desc",
+                        "methods": ["EXAMINE"],
+                        "collected_at": "2026-11-20T00:30:00+00:00",
+                        "subject_uuids": [str(subject_uuid)],
+                        "evidence": [
+                            {
+                                "title": "Evidence",
+                                "description": "desc",
+                                "href": href,
+                            }
+                        ],
+                    }
+                ],
+                findings=[],
+            ),
+        )
+    assert any(item["code"] == "invalid_evidence_href" for item in error.value.diagnostics)
 
 
 
