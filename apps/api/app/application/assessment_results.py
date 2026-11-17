@@ -34,6 +34,7 @@ from app.persistence.models import (
 SessionScope = Callable[[], AbstractContextManager[Session]]
 _ALLOWED_METHODS = frozenset({"EXAMINE", "INTERVIEW", "TEST"})
 _HOST_LABEL_RE = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")
+_IPV4_DOTTED_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 
 
 class InvalidAssessmentResult(ValueError):
@@ -540,7 +541,7 @@ class AssessmentResultService:
         authored_entity_definitions: list[tuple[str, UUID]] = []
         if result_uuid is not None:
             authored_entity_definitions.append(("assessment-results", result_uuid))
-        for observation in working_data.get("observations", []):
+        for observation_index, observation in enumerate(working_data.get("observations", [])):
             observation_id = UUID(str(observation["id"]))
             observation_ids.append(observation_id)
             authored_entity_definitions.append(("observation", observation_id))
@@ -575,7 +576,7 @@ class AssessmentResultService:
                 )
 
             evidence_ids: list[UUID] = []
-            for evidence in observation.get("evidence", []):
+            for evidence_index, evidence in enumerate(observation.get("evidence", [])):
                 evidence_id = UUID(str(evidence["id"]))
                 evidence_ids.append(evidence_id)
                 document_evidence_ids.append(evidence_id)
@@ -587,6 +588,10 @@ class AssessmentResultService:
                             "category": "application_integrity",
                             "code": "invalid_evidence_href",
                             "message": href_error,
+                            "path": (
+                                f"$.observations[{observation_index}]"
+                                f".evidence[{evidence_index}].href"
+                            ),
                         }
                     )
             if len(evidence_ids) != len(set(evidence_ids)):
@@ -623,7 +628,7 @@ class AssessmentResultService:
 
         observation_set = set(observation_ids)
         finding_ids: list[UUID] = []
-        for finding in working_data.get("findings", []):
+        for finding_index, finding in enumerate(working_data.get("findings", [])):
             finding_id = UUID(str(finding["id"]))
             finding_ids.append(finding_id)
             authored_entity_definitions.append(("finding", finding_id))
@@ -643,6 +648,7 @@ class AssessmentResultService:
                                 "Finding target statement-id "
                                 f"{target_id!r} is outside the pinned historical baseline."
                             ),
+                            "path": f"$.findings[{finding_index}].target_id",
                         }
                     )
                 else:
@@ -658,6 +664,7 @@ class AssessmentResultService:
                                     "the pinned Assessment Plan context: "
                                     + ", ".join(statement_controls_in_scope)
                                 ),
+                                "path": f"$.findings[{finding_index}].target_id",
                             }
                         )
                     else:
@@ -675,6 +682,7 @@ class AssessmentResultService:
                                         f"{target_id!r} is outside the current "
                                         "reviewed control scope."
                                     ),
+                                    "path": f"$.findings[{finding_index}].target_id",
                                 }
                             )
             if target_type == "objective-id":
@@ -694,6 +702,7 @@ class AssessmentResultService:
                                 "Finding target objective-id "
                                 f"{target_id!r} is ambiguous between local and catalog objectives."
                             ),
+                            "path": f"$.findings[{finding_index}].target_id",
                         }
                     )
                 else:
@@ -714,6 +723,7 @@ class AssessmentResultService:
                                     "Finding target objective-id "
                                     f"{target_id!r} is outside the pinned Assessment Plan context."
                                 ),
+                                "path": f"$.findings[{finding_index}].target_id",
                             }
                         )
                     elif not self._is_unambiguous_target(objective_candidate_counts):
@@ -727,6 +737,7 @@ class AssessmentResultService:
                                     "the pinned Assessment Plan context: "
                                     + ", ".join(sorted(objective_candidate_counts))
                                 ),
+                                "path": f"$.findings[{finding_index}].target_id",
                             }
                         )
                     else:
@@ -744,6 +755,7 @@ class AssessmentResultService:
                                         f"{target_id!r} is outside the current "
                                         "reviewed control scope."
                                     ),
+                                    "path": f"$.findings[{finding_index}].target_id",
                                 }
                             )
             if target_type not in {"statement-id", "objective-id"}:
@@ -752,6 +764,7 @@ class AssessmentResultService:
                         "category": "application_integrity",
                         "code": "invalid_target_type",
                         "message": "Finding target type must be statement-id or objective-id.",
+                        "path": f"$.findings[{finding_index}].target_type",
                     }
                 )
 
@@ -814,6 +827,7 @@ class AssessmentResultService:
                         "category": item["category"],
                         "code": item["code"],
                         "message": item["message"],
+                        **({"path": item["path"]} if "path" in item else {}),
                     }
                     for item in diagnostics
                 ]
@@ -898,6 +912,8 @@ class AssessmentResultService:
             return "Evidence href cannot contain backslashes."
         if any(ord(char) < 32 or ord(char) == 127 for char in value):
             return "Evidence href cannot contain control characters."
+        if AssessmentResultService._has_malformed_percent_encoding(value):
+            return "Evidence href cannot contain malformed percent-encoding."
 
         try:
             parsed = urlsplit(value)
@@ -905,6 +921,11 @@ class AssessmentResultService:
             return "Evidence href must be a syntactically valid URL."
         if parsed.scheme not in {"http", "https"}:
             return "Evidence href must use http or https."
+        if parsed.fragment:
+            return (
+                "Evidence href must be an absolute HTTP(S) URL without a URL fragment. "
+                "Use the full document URL instead."
+            )
         if parsed.username is not None or parsed.password is not None:
             return "Evidence href cannot include embedded credentials."
         try:
@@ -914,9 +935,42 @@ class AssessmentResultService:
             return "Evidence href must include a valid hostname and optional port."
         if not parsed.netloc or hostname is None:
             return "Evidence href must include a valid hostname."
+        if AssessmentResultService._is_invalid_bracketed_host_literal(parsed.netloc):
+            return "Evidence href must include a valid hostname."
         if not AssessmentResultService._is_valid_http_host(hostname):
             return "Evidence href must include a valid hostname."
         return None
+
+    @staticmethod
+    def _has_malformed_percent_encoding(value: str) -> bool:
+        for index, char in enumerate(value):
+            if char != "%":
+                continue
+            if index + 2 >= len(value):
+                return True
+            if not all(
+                next_char in "0123456789ABCDEFabcdef"
+                for next_char in value[index + 1 : index + 3]
+            ):
+                return True
+        return False
+
+    @staticmethod
+    def _is_invalid_bracketed_host_literal(netloc: str) -> bool:
+        if not netloc.startswith("["):
+            return False
+        closing_index = netloc.find("]")
+        if closing_index == -1:
+            return True
+        host_literal = netloc[1:closing_index]
+        remainder = netloc[closing_index + 1 :]
+        if remainder and not remainder.startswith(":"):
+            return True
+        try:
+            parsed = ip_address(host_literal)
+        except ValueError:
+            return True
+        return parsed.version != 6
 
     @staticmethod
     def _is_valid_http_host(hostname: str) -> bool:
@@ -934,8 +988,17 @@ class AssessmentResultService:
             return True
         except ValueError:
             pass
-        ascii_host = hostname.rstrip(".")
+        if _IPV4_DOTTED_RE.fullmatch(hostname):
+            return False
+
+        ascii_host = hostname
+        if ascii_host.endswith("."):
+            ascii_host = ascii_host[:-1]
+            if not ascii_host or ascii_host.endswith("."):
+                return False
         if not ascii_host or len(ascii_host) > 253:
+            return False
+        if _IPV4_DOTTED_RE.fullmatch(ascii_host):
             return False
         return all(_HOST_LABEL_RE.fullmatch(label) for label in ascii_host.split("."))
 

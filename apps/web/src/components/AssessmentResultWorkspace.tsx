@@ -59,14 +59,19 @@ export function AssessmentResultWorkspace({
     [result, savedResult],
   );
 
+  const reviewedControlSet = useMemo(
+    () => new Set(result.reviewed_control_ids),
+    [result.reviewed_control_ids],
+  );
+
   const statementTargetOptions = useMemo(
-    () => result.statement_options,
-    [result.statement_options],
+    () => result.statement_options.filter((item) => reviewedControlSet.has(item.control_id)),
+    [result.statement_options, reviewedControlSet],
   );
 
   const objectiveTargetOptions = useMemo(
-    () => result.objective_options,
-    [result.objective_options],
+    () => result.objective_options.filter((item) => reviewedControlSet.has(item.control_id)),
+    [result.objective_options, reviewedControlSet],
   );
 
   function diagnosticMessage(item: { code: string; message: string }): string {
@@ -74,7 +79,7 @@ export function AssessmentResultWorkspace({
       return t("assessmentResults.diagnostic.duplicateEvidenceIdsDocument");
     }
     if (item.code === "invalid_evidence_href") {
-      return t("assessmentResults.diagnostic.invalidEvidenceHref");
+      return item.message;
     }
     if (item.code === "duplicate_authored_entity_ids") {
       return t("assessmentResults.diagnostic.duplicateAuthoredEntityIds");

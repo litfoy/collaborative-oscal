@@ -818,6 +818,11 @@ def test_assessment_result_rejects_statement_target_outside_actual_reviewed_scop
         item["code"] == "statement_target_outside_actual_scope"
         for item in error.value.diagnostics
     )
+    assert any(
+        item.get("path") == "$.findings[0].target_id"
+        for item in error.value.diagnostics
+        if item["code"] == "statement_target_outside_actual_scope"
+    )
 
 
 def test_assessment_result_rejects_local_objective_target_outside_actual_scope(
@@ -875,6 +880,11 @@ def test_assessment_result_rejects_local_objective_target_outside_actual_scope(
     assert any(
         item["code"] == "objective_target_outside_actual_scope"
         for item in error.value.diagnostics
+    )
+    assert any(
+        item.get("path") == "$.findings[0].target_id"
+        for item in error.value.diagnostics
+        if item["code"] == "objective_target_outside_actual_scope"
     )
 
 
@@ -2055,6 +2065,7 @@ def test_assessment_result_export_resolves_relevant_evidence_to_back_matter_reso
     [
         "https://example.test/evidence",
         "http://example.test/evidence",
+        "https://example.test./evidence",
     ],
 )
 def test_assessment_result_accepts_http_and_https_evidence_urls(
@@ -2160,6 +2171,11 @@ def test_assessment_result_accepts_http_and_https_evidence_urls(
         "https://%/",
         "https://exa|mple.test/path",
         "https://[bad",
+        "https://example.test../path",
+        "https://127.0.0.999/path",
+        "https://example.test/%zz",
+        "https://[v1.foo]/path",
+        "https://example.test/path#fragment",
     ],
 )
 def test_assessment_result_rejects_unsafe_or_ambiguous_evidence_urls(
@@ -2213,6 +2229,28 @@ def test_assessment_result_rejects_unsafe_or_ambiguous_evidence_urls(
             ),
         )
     assert any(item["code"] == "invalid_evidence_href" for item in error.value.diagnostics)
+    assert any(
+        item.get("path") == "$.observations[0].evidence[0].href"
+        for item in error.value.diagnostics
+        if item["code"] == "invalid_evidence_href"
+    )
+
+
+def test_assessment_result_distinguishes_fragment_only_from_fragmented_absolute_href() -> None:
+    fragment_only_error = AssessmentResultService._validate_authored_evidence_href(
+        "#resource-local"
+    )
+    absolute_fragment_error = AssessmentResultService._validate_authored_evidence_href(
+        "https://example.test/path#fragment"
+    )
+
+    assert fragment_only_error is not None
+    assert "fragment-only references" in fragment_only_error
+    assert absolute_fragment_error is not None
+    assert "without a URL fragment" in absolute_fragment_error
+
+
+
 
 
 

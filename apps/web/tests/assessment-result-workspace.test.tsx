@@ -150,17 +150,43 @@ describe("AssessmentResultWorkspace", () => {
     expect(body.findings[0].id).toBeTruthy();
   });
 
-  it("keeps finding target options stable when reviewed controls change", async () => {
+  it("filters statement target options to the current reviewed scope while preserving existing out-of-scope selections", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async () => jsonResponse(result));
     vi.stubGlobal("fetch", fetchMock);
 
-    renderWorkspace();
+    const scopedResult: AssessmentResult = {
+      ...result,
+      reviewed_control_ids: ["ac-1", "ac-2"],
+      findings: [
+        {
+          id: "finding-1",
+          title: "Existing finding",
+          description: "desc",
+          target_type: "statement-id",
+          target_id: "ac-1_smt",
+          status: "satisfied",
+          related_observation_ids: [],
+        },
+      ],
+    };
+
+    render(
+      <LocaleProvider locale="en">
+        <AssessmentResultWorkspace
+          tenantId={TENANT}
+          system={system}
+          plan={plan}
+          initialResult={scopedResult}
+          initialValidation={validation}
+          initialVersions={versions}
+          canWrite
+        />
+      </LocaleProvider>,
+    );
 
     await user.click(screen.getByRole("button", { name: "Findings" }));
-    await user.click(screen.getByRole("button", { name: "Add finding" }));
-
-    const targetSelect = screen.getByRole("combobox", { name: "Target" });
+    let targetSelect = screen.getByRole("combobox", { name: "Target" });
     expect(screen.getByRole("option", { name: /ac-1_smt/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /ac-2_smt/ })).toBeInTheDocument();
 
@@ -170,10 +196,74 @@ describe("AssessmentResultWorkspace", () => {
     await user.selectOptions(reviewedControls, ["ac-2"]);
 
     await user.click(screen.getByRole("button", { name: "Findings" }));
-    expect(screen.getByRole("option", { name: /ac-1_smt/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /ac-2_smt/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /ac-1_smt · ac-1 · Statement/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("option", {
+        name: "ac-1_smt · outside current reviewed control scope",
+      }),
+    ).toBeInTheDocument();
 
+    targetSelect = screen.getByRole("combobox", { name: "Target" });
+    expect(targetSelect).toHaveValue("ac-1_smt");
     expect(targetSelect).toBeInTheDocument();
+  });
+
+  it("filters objective target options to the current reviewed scope while preserving existing out-of-scope selections", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async () => jsonResponse(result));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const scopedResult: AssessmentResult = {
+      ...result,
+      reviewed_control_ids: ["ac-1", "ac-2"],
+      findings: [
+        {
+          id: "finding-1",
+          title: "Existing finding",
+          description: "desc",
+          target_type: "objective-id",
+          target_id: "local-1",
+          status: "satisfied",
+          related_observation_ids: [],
+        },
+      ],
+    };
+
+    render(
+      <LocaleProvider locale="en">
+        <AssessmentResultWorkspace
+          tenantId={TENANT}
+          system={system}
+          plan={plan}
+          initialResult={scopedResult}
+          initialValidation={validation}
+          initialVersions={versions}
+          canWrite
+        />
+      </LocaleProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Findings" }));
+    let targetSelect = screen.getByRole("combobox", { name: "Target" });
+    expect(screen.getByRole("option", { name: /local-1 · ac-1/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /local-2 · ac-2/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Overview" }));
+    const reviewedControls = screen.getByRole("listbox", { name: "Reviewed controls" });
+    await user.deselectOptions(reviewedControls, ["ac-1"]);
+    await user.selectOptions(reviewedControls, ["ac-2"]);
+
+    await user.click(screen.getByRole("button", { name: "Findings" }));
+    expect(screen.getByRole("option", { name: /local-2 · ac-2/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /local-1 · ac-1/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("option", {
+        name: /local-1 · outside current reviewed control scope/,
+      }),
+    ).toBeInTheDocument();
+    targetSelect = screen.getByRole("combobox", { name: "Target" });
+    expect(targetSelect).toHaveValue("local-1");
   });
 
   it("prevents deleting an observation that is still referenced by a finding", async () => {
@@ -310,7 +400,7 @@ describe("AssessmentResultWorkspace", () => {
               {
                 severity: "error",
                 code: "invalid_evidence_href",
-                message: "Evidence href must include a valid hostname and optional port.",
+                message: "Evidence href cannot contain malformed percent-encoding.",
                 path: "$.observations[0].evidence[0].href",
               },
             ],
@@ -334,7 +424,7 @@ describe("AssessmentResultWorkspace", () => {
       "Save rejected. Fix the listed diagnostics and try again.",
     );
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Evidence links must be absolute HTTP(S) URLs without fragments, credentials, malformed hosts or ports, whitespace, or backslashes.",
+      "Evidence href cannot contain malformed percent-encoding.",
     );
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Validation path: $.observations[0].evidence[0].href",
@@ -353,7 +443,7 @@ describe("AssessmentResultWorkspace", () => {
                 severity: "error",
                 code: "ambiguous_statement_target",
                 message: "Finding target statement-id 'shared-statement' is ambiguous.",
-                path: "$.findings[0].target",
+                path: "$.findings[0].target_id",
               },
             ],
           },
@@ -376,7 +466,7 @@ describe("AssessmentResultWorkspace", () => {
       "This statement target is ambiguous in the pinned Assessment Plan context. Choose an unambiguous statement identifier.",
     );
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Validation path: $.findings[0].target",
+      "Validation path: $.findings[0].target_id",
     );
   });
 });
