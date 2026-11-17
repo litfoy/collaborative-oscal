@@ -8,7 +8,11 @@ Collaborative OSCAL ist ein selbst hostbarer Proof of Concept für die Zusammena
 
 Das Projekt untersucht, wie Organisationen Sicherheitsmaßnahmen, Systeminformationen und künftig geeignete Prüfnachweise über unterschiedliche regulatorische Rahmenwerke hinweg wiederverwenden können, ohne deren Anforderungen gleichzusetzen oder Compliance-Bewertungen automatisch zu übertragen.
 
+![Collaborative OSCAL](./assets/collaborative-oscal.svg)
+
 > **Projektstatus:** Experimenteller Proof of Concept in aktiver Entwicklung. Nicht für den Produktivbetrieb oder die Verarbeitung vertraulicher Daten vorgesehen.
+
+*Produktvision: Gemeinsame Maßnahmen und Systeminformationen werden bereits unterstützt. Gemeinsame Prüfnachweise und unabhängige Feststellungen sind geplant. Das Diagramm veranschaulicht Zusammenarbeit, keine automatischen Compliance-Bewertungen.*
 
 ## Schnellstart
 
@@ -44,24 +48,7 @@ Ein Informationssicherheitsbeauftragter (ISB) bewertet eine Anforderung zum Schu
 
 Beide können dieselbe Maßnahme zur Multifaktor-Authentifizierung (MFA) und denselben Identity Provider referenzieren. Die jeweiligen Beiträge zur Erfüllung ihrer Anforderungen werden separat dokumentiert. In der geplanten Assessment-Schicht könnten beide einen geeigneten Konfigurationsexport oder ein Testprotokoll ausdrücklich wiederverwenden und dennoch unabhängige Feststellungen treffen.
 
-```mermaid
-flowchart TD
-    BSI[BSI-Anforderung] --> BI[Umsetzungsbeitrag Informationssicherheit]
-    GDPR[DSGVO-Anforderung] --> GI[Umsetzungsbeitrag Datenschutz]
-    BI --> MFA[Gemeinsame MFA-Maßnahme und Systemkomponente]
-    GI --> MFA
-    BI --> SSP1[SSP Informationssicherheit]
-    GI --> SSP2[SSP Datenschutz]
-    SSP1 --> AP1[Prüfplan Informationssicherheit]
-    SSP2 --> AP2[Prüfplan Datenschutz]
-    MFA -.-> E[Gemeinsame Prüfnachweise - geplant]
-    AP1 -.-> AR1[Prüfergebnisse Informationssicherheit - geplant]
-    AP2 -.-> AR2[Prüfergebnisse Datenschutz - geplant]
-    E -.-> AR1
-    E -.-> AR2
-```
-
-Durchgezogene Linien veranschaulichen bereits unterstützte Konzepte; gestrichelte Linien stehen für geplante Funktionalität. MFA kann einen Beitrag zu Art. 32 DSGVO leisten, begründet aber allein keine Konformität mit diesem Artikel.
+MFA kann einen Beitrag zu Art. 32 DSGVO leisten, begründet aber allein keine Konformität mit diesem Artikel.
 
 ## Aktueller Funktionsumfang
 

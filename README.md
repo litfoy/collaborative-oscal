@@ -8,7 +8,11 @@ Collaborative OSCAL is a self-hosted proof of concept for collaboration across i
 
 The project explores how organizations can reuse security measures, system information and, in the future, suitable assessment evidence across different regulatory frameworks without merging their requirements or transferring compliance judgments automatically.
 
+![Collaborative OSCAL](./assets/collaborative-oscal.svg)
+
 > **Project status:** Experimental proof of concept under active development. Not intended for production use or processing confidential data.
+
+*Product vision: shared measures and system information are supported today. Shared assessment evidence and independent findings are planned. The diagram illustrates collaboration, not automatic compliance decisions.*
 
 ## Quick start
 
@@ -44,24 +48,7 @@ An information security officer assesses a requirement concerning privileged acc
 
 Both can refer to the same multi-factor authentication (MFA) measure and the same identity provider. Each documents the contribution to their own requirements. In the planned assessment layer, they could explicitly reuse a suitable configuration export or test record while reaching independent findings.
 
-```mermaid
-flowchart TD
-    BSI[BSI requirement] --> BI[Security implementation record]
-    GDPR[GDPR requirement] --> GI[Privacy implementation record]
-    BI --> MFA[Shared MFA measure and system component]
-    GI --> MFA
-    BI --> SSP1[Security SSP]
-    GI --> SSP2[Privacy SSP]
-    SSP1 --> AP1[Security assessment plan]
-    SSP2 --> AP2[Privacy assessment plan]
-    MFA -.-> E[Shared evidence - planned]
-    AP1 -.-> AR1[Security assessment results - planned]
-    AP2 -.-> AR2[Privacy assessment results - planned]
-    E -.-> AR1
-    E -.-> AR2
-```
-
-Solid lines illustrate currently supported concepts; dashed lines represent planned functionality. MFA can contribute to Article 32 GDPR but does not by itself establish compliance with that article.
+MFA can contribute to Article 32 GDPR but does not by itself establish compliance with that article.
 
 ## Current capabilities
 

@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="864" viewBox="0 0 1200 864" role="img" aria-labelledby="title desc">
+  <title id="title">Collaborative OSCAL</title>
+  <desc id="desc">Shared compliance data, independent assessments. Information Security (BSI IT-Grundschutz++) and Data Protection (GDPR) share measures and systems through Collaborative OSCAL, with independent security and privacy findings. Proof of Concept, OSCAL, Self-hosted, EN / DE. Quick start: docker compose up.</desc>
+  <defs>
+    <style>
+      text { font-family: Inter, 'Segoe UI', Arial, Helvetica, sans-serif; fill: #f1f5f9; }
+      .heading { font-size: 42px; font-weight: 700; letter-spacing: -1.1px; }
+      .subtitle { font-size: 22px; fill: #b8c4d4; }
+      .pill { font-size: 15px; font-weight: 600; fill: #cbd5e1; letter-spacing: .2px; }
+      .node-title { font-size: 30px; font-weight: 700; letter-spacing: -.5px; }
+      .node-detail { font-size: 24px; fill: #cbd5e1; }
+      .core-title { font-size: 35px; font-weight: 700; letter-spacing: -.7px; }
+      .core-detail { font-size: 24px; fill: #cbd5e1; }
+      .footer-title { font-size: 18px; font-weight: 600; fill: #e2e8f0; }
+      .command { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; font-size: 20px; fill: #d8b4fe; }
+      .terminal-sign { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 20px; fill: #94a3b8; }
+      .connector { fill: none; stroke: #8294ad; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="1200" height="864" rx="24" fill="#0b1018"/>
+  <rect x="1" y="1" width="1198" height="862" rx="23" fill="none" stroke="#263344" stroke-width="2"/>
+
+  <!-- Header and project metadata -->
+  <g id="header" text-anchor="middle">
+    <text x="600" y="65" class="heading">Collaborative OSCAL</text>
+    <text x="600" y="104" class="subtitle">Shared compliance data. Independent assessments.</text>
+    <g id="metadata">
+      <rect x="351" y="126" width="152" height="32" rx="16" fill="#182230" stroke="#334155"/>
+      <text x="427" y="147" class="pill">Proof of Concept</text>
+      <rect x="513" y="126" width="75" height="32" rx="16" fill="#182230" stroke="#334155"/>
+      <text x="550.5" y="147" class="pill">OSCAL</text>
+      <rect x="598" y="126" width="119" height="32" rx="16" fill="#182230" stroke="#334155"/>
+      <text x="657.5" y="147" class="pill">Self-hosted</text>
+      <rect x="727" y="126" width="122" height="32" rx="16" fill="#182230" stroke="#334155"/>
+      <text x="788" y="147" class="pill">EN / DE</text>
+    </g>
+  </g>
+  <path d="M56 183H1144" stroke="#263344" stroke-width="1.5"/>
+
+  <!-- Architecture: solid connections to shared data; dashed independent assessment paths -->
+  <g id="architecture">
+    <g id="connectors" class="connector">
+      <path d="M310 337V366H890V337 M600 366V396"/>
+      <path d="M600 532V561 M310 592V561H890V592" stroke-dasharray="7 8"/>
+      <circle cx="600" cy="366" r="4" fill="#8294ad" stroke="none"/>
+      <circle cx="600" cy="561" r="4" fill="#8294ad" stroke="none"/>
+    </g>
+    <g id="information-security" text-anchor="middle">
+      <rect x="64" y="219" width="492" height="118" rx="18" fill="#101c32" stroke="#528bff" stroke-width="2.5"/>
+      <text x="310" y="267" class="node-title">Information Security</text>
+      <text x="310" y="305" class="node-detail" style="fill:#a9c7ff">BSI IT-Grundschutz++</text>
+    </g>
+    <g id="data-protection" text-anchor="middle">
+      <rect x="644" y="219" width="492" height="118" rx="18" fill="#0c2527" stroke="#2dd4bf" stroke-width="2.5"/>
+      <text x="890" y="267" class="node-title">Data Protection</text>
+      <text x="890" y="305" class="node-detail" style="fill:#a1e6db">GDPR</text>
+    </g>
+    <g id="shared-compliance" text-anchor="middle">
+      <rect x="230" y="396" width="740" height="136" rx="20" fill="#17212f" stroke="#8294ad" stroke-width="2.5"/>
+      <text x="600" y="451" class="core-title">Collaborative OSCAL</text>
+      <text x="600" y="493" class="core-detail">Shared measures · Shared systems</text>
+    </g>
+    <g id="security-findings" text-anchor="middle">
+      <rect x="64" y="592" width="492" height="118" rx="18" fill="#101c32" stroke="#528bff" stroke-width="2.5"/>
+      <text x="310" y="640" class="node-title">Independent</text>
+      <text x="310" y="678" class="node-detail" style="fill:#a9c7ff">Security findings</text>
+    </g>
+    <g id="privacy-findings" text-anchor="middle">
+      <rect x="644" y="592" width="492" height="118" rx="18" fill="#0c2527" stroke="#2dd4bf" stroke-width="2.5"/>
+      <text x="890" y="640" class="node-title">Independent</text>
+      <text x="890" y="678" class="node-detail" style="fill:#a1e6db">Privacy findings</text>
+    </g>
+  </g>
+
+  <!-- Quick start -->
+  <path d="M56 745H1144" stroke="#263344" stroke-width="1.5"/>
+  <g id="quick-start">
+    <text x="64" y="795" class="footer-title">Quick start</text>
+    <rect x="229" y="763" width="907" height="58" rx="12" fill="#111a27" stroke="#334155" stroke-width="1.5"/>
+    <text x="254" y="799" class="terminal-sign" aria-hidden="true">$</text>
+    <text x="282" y="799" class="command">docker compose up</text>
+    <text x="1113" y="798" class="pill" text-anchor="end">Bash</text>
+  </g>
+</svg>
