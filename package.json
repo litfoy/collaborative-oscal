@@ -8,10 +8,10 @@
     "npm": ">=10 <11"
   },
   "devDependencies": {
-    "jsdom": "27.0.1"
+    "jsdom": "31.0.1"
   },
   "overrides": {
-    "jsdom": "27.0.1",
+    "jsdom": "31.0.1",
     "@typescript-eslint/eslint-plugin": "8.73.0",
     "@typescript-eslint/parser": "8.73.0",
     "@typescript-eslint/type-utils": "8.73.0",
