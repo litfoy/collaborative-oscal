@@ -8,9 +8,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-from sqlalchemy.orm.exc import StaleDataError
+from sqlalchemy import select, text, update
 
 from app.application.assessment_plans import AssessmentPlanService
 from app.application.assessment_results import (
@@ -99,6 +97,36 @@ def _publish_result(
             if expected_version is not None
             else _result_expected_version(ar_service, tenant_id, result_id)
         ),
+    )
+
+
+@contextmanager
+def _bound_scope(session):
+    yield session
+
+
+def _backend_pid(session) -> int:
+    return int(session.execute(text("select pg_backend_pid()")).scalar_one())
+
+
+def _assert_blocked_by(
+    session_factory,
+    *,
+    blocked_pid: int,
+    blocker_pid: int,
+    attempts: int = 200,
+) -> None:
+    with session_factory.begin() as observer:
+        for _ in range(attempts):
+            blockers = observer.execute(
+                text("select pg_blocking_pids(:blocked_pid)"),
+                {"blocked_pid": blocked_pid},
+            ).scalar_one()
+            blocking_pids = {int(item) for item in (blockers or [])}
+            if blocker_pid in blocking_pids:
+                return
+    pytest.fail(
+        f"Backend {blocked_pid} was not observed blocked by backend {blocker_pid}."
     )
 
 
@@ -704,73 +732,58 @@ def test_assessment_result_version_creation_is_stable_under_concurrency(
 
     token = _result_expected_version(service, tenant_id, result["id"])
     release = threading.Barrier(3)
-    both_started = threading.Event()
-    gate_entered = threading.Event()
+    winner_holding_lock = threading.Event()
     gate_release = threading.Event()
-    attempt_count = 0
-    gate_count = 0
     state_lock = threading.Lock()
-    original_validate = AssessmentResultService._validate_working_integrity
+    backend_pids: dict[str, int] = {}
+    winner_pid: dict[str, int | None] = {"value": None}
+    original_get_result = AssessmentResultService._get_result
 
-    def _gated_validate(
-        self,
-        working_data,
-        *,
-        result_uuid,
-        planned_control_ids,
-        allowed_subject_uuids,
-        statement_controls,
-        catalog_objective_controls,
-        selected_catalog_objective_ids,
-        local_objective_controls,
-        require_related_observations,
-    ):
-        nonlocal gate_count
-        with state_lock:
-            gate_count += 1
-            first = gate_count == 1
-        if first:
-            gate_entered.set()
-            assert gate_release.wait(timeout=5)
-        return original_validate(
-            self,
-            working_data,
-            result_uuid=result_uuid,
-            planned_control_ids=planned_control_ids,
-            allowed_subject_uuids=allowed_subject_uuids,
-            statement_controls=statement_controls,
-            catalog_objective_controls=catalog_objective_controls,
-            selected_catalog_objective_ids=selected_catalog_objective_ids,
-            local_objective_controls=local_objective_controls,
-            require_related_observations=require_related_observations,
-        )
+    def _gated_get_result(session, tenant_id, result_id, *, lock=False):
+        loaded = original_get_result(session, tenant_id, result_id, lock=lock)
+        if lock:
+            pid = _backend_pid(session)
+            with state_lock:
+                if winner_pid["value"] is None:
+                    winner_pid["value"] = pid
+                    is_winner = True
+                else:
+                    is_winner = False
+            if is_winner:
+                winner_holding_lock.set()
+                assert gate_release.wait(timeout=5)
+        return loaded
 
-    monkeypatch.setattr(AssessmentResultService, "_validate_working_integrity", _gated_validate)
+    monkeypatch.setattr(AssessmentResultService, "_get_result", staticmethod(_gated_get_result))
 
-    def create_version_once() -> dict[str, object]:
-        nonlocal attempt_count
-        concurrent_service = AssessmentResultService(lambda: session_factory.begin())
-        release.wait(timeout=5)
-        with state_lock:
-            attempt_count += 1
-            if attempt_count == 2:
-                both_started.set()
-        return _publish_result(
-            concurrent_service,
-            tenant_id,
-            actor,
-            result["id"],
-            expected_version=token,
-        )
+    def create_version_once(worker: str) -> dict[str, object]:
+        with session_factory.begin() as thread_session:
+            with state_lock:
+                backend_pids[worker] = _backend_pid(thread_session)
+            concurrent_service = AssessmentResultService(lambda: _bound_scope(thread_session))
+            release.wait(timeout=5)
+            return _publish_result(
+                concurrent_service,
+                tenant_id,
+                actor,
+                result["id"],
+                expected_version=token,
+            )
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        first = executor.submit(create_version_once)
-        second = executor.submit(create_version_once)
+        first = executor.submit(create_version_once, "a")
+        second = executor.submit(create_version_once, "b")
+        release.wait(timeout=5)
         try:
-            release.wait(timeout=5)
-            assert both_started.wait(timeout=5)
-            assert gate_entered.wait(timeout=5)
-            assert all(not future.done() for future in (first, second))
+            assert winner_holding_lock.wait(timeout=5)
+            winner = winner_pid["value"]
+            assert winner is not None
+            blocked = next(pid for pid in backend_pids.values() if pid != winner)
+            _assert_blocked_by(
+                session_factory,
+                blocked_pid=blocked,
+                blocker_pid=winner,
+            )
         finally:
             gate_release.set()
 
@@ -817,84 +830,69 @@ def test_assessment_result_update_rejects_stale_token_under_concurrent_transacti
     )
     token = _result_expected_version(service, tenant_id, result["id"])
     release = threading.Barrier(3)
-    both_started = threading.Event()
-    gate_entered = threading.Event()
+    winner_holding_lock = threading.Event()
     gate_release = threading.Event()
-    attempt_count = 0
-    gate_count = 0
     state_lock = threading.Lock()
-    original_validate = AssessmentResultService._validate_working_integrity
+    backend_pids: dict[str, int] = {}
+    winner_pid: dict[str, int | None] = {"value": None}
+    original_get_result = AssessmentResultService._get_result
 
-    def _gated_validate(
-        self,
-        working_data,
-        *,
-        result_uuid,
-        planned_control_ids,
-        allowed_subject_uuids,
-        statement_controls,
-        catalog_objective_controls,
-        selected_catalog_objective_ids,
-        local_objective_controls,
-        require_related_observations,
-    ):
-        nonlocal gate_count
-        with state_lock:
-            gate_count += 1
-            first = gate_count == 1
-        if first:
-            gate_entered.set()
-            assert gate_release.wait(timeout=5)
-        return original_validate(
-            self,
-            working_data,
-            result_uuid=result_uuid,
-            planned_control_ids=planned_control_ids,
-            allowed_subject_uuids=allowed_subject_uuids,
-            statement_controls=statement_controls,
-            catalog_objective_controls=catalog_objective_controls,
-            selected_catalog_objective_ids=selected_catalog_objective_ids,
-            local_objective_controls=local_objective_controls,
-            require_related_observations=require_related_observations,
-        )
+    def _gated_get_result(session, tenant_id, result_id, *, lock=False):
+        loaded = original_get_result(session, tenant_id, result_id, lock=lock)
+        if lock:
+            pid = _backend_pid(session)
+            with state_lock:
+                if winner_pid["value"] is None:
+                    winner_pid["value"] = pid
+                    is_winner = True
+                else:
+                    is_winner = False
+            if is_winner:
+                winner_holding_lock.set()
+                assert gate_release.wait(timeout=5)
+        return loaded
 
-    monkeypatch.setattr(AssessmentResultService, "_validate_working_integrity", _gated_validate)
+    monkeypatch.setattr(AssessmentResultService, "_get_result", staticmethod(_gated_get_result))
 
-    def _attempt_update(title: str) -> str:
-        nonlocal attempt_count
-        concurrent_service = AssessmentResultService(lambda: session_factory.begin())
-        release.wait(timeout=5)
-        with state_lock:
-            attempt_count += 1
-            if attempt_count == 2:
-                both_started.set()
-        concurrent_service.update_result(
-            tenant_id,
-            actor,
-            result["id"],
-            expected_version=token,
-            title=title,
-            description="Concurrency check",
-            working_data={
-                "reviewed_control_ids": [control_id],
-                "start": None,
-                "end": None,
-                "observations": [],
-                "findings": [],
-            },
-        )
-        return title
+    def _attempt_update(title: str, worker: str) -> str:
+        with session_factory.begin() as thread_session:
+            with state_lock:
+                backend_pids[worker] = _backend_pid(thread_session)
+            concurrent_service = AssessmentResultService(lambda: _bound_scope(thread_session))
+            release.wait(timeout=5)
+            concurrent_service.update_result(
+                tenant_id,
+                actor,
+                result["id"],
+                expected_version=token,
+                title=title,
+                description="Concurrency check",
+                working_data={
+                    "reviewed_control_ids": [control_id],
+                    "start": None,
+                    "end": None,
+                    "observations": [],
+                    "findings": [],
+                },
+            )
+            return title
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = [
-            executor.submit(_attempt_update, "Concurrent AR A"),
-            executor.submit(_attempt_update, "Concurrent AR B"),
+            executor.submit(_attempt_update, "Concurrent AR A", "a"),
+            executor.submit(_attempt_update, "Concurrent AR B", "b"),
         ]
+        release.wait(timeout=5)
         try:
-            release.wait(timeout=5)
-            assert both_started.wait(timeout=5)
-            assert gate_entered.wait(timeout=5)
-            assert all(not future.done() for future in futures)
+            assert winner_holding_lock.wait(timeout=5)
+            winner = winner_pid["value"]
+            assert winner is not None
+            blocked = next(pid for pid in backend_pids.values() if pid != winner)
+            _assert_blocked_by(
+                session_factory,
+                blocked_pid=blocked,
+                blocker_pid=winner,
+            )
         finally:
             gate_release.set()
 
@@ -997,71 +995,56 @@ def test_assessment_result_publish_rejects_stale_token_under_concurrent_transact
     )
     token = _result_expected_version(service, tenant_id, result["id"])
     release = threading.Barrier(3)
-    both_started = threading.Event()
-    gate_entered = threading.Event()
+    winner_holding_lock = threading.Event()
     gate_release = threading.Event()
-    attempt_count = 0
-    gate_count = 0
     state_lock = threading.Lock()
-    original_validate = AssessmentResultService._validate_working_integrity
+    backend_pids: dict[str, int] = {}
+    winner_pid: dict[str, int | None] = {"value": None}
+    original_get_result = AssessmentResultService._get_result
 
-    def _gated_validate(
-        self,
-        working_data,
-        *,
-        result_uuid,
-        planned_control_ids,
-        allowed_subject_uuids,
-        statement_controls,
-        catalog_objective_controls,
-        selected_catalog_objective_ids,
-        local_objective_controls,
-        require_related_observations,
-    ):
-        nonlocal gate_count
-        with state_lock:
-            gate_count += 1
-            first = gate_count == 1
-        if first:
-            gate_entered.set()
-            assert gate_release.wait(timeout=5)
-        return original_validate(
-            self,
-            working_data,
-            result_uuid=result_uuid,
-            planned_control_ids=planned_control_ids,
-            allowed_subject_uuids=allowed_subject_uuids,
-            statement_controls=statement_controls,
-            catalog_objective_controls=catalog_objective_controls,
-            selected_catalog_objective_ids=selected_catalog_objective_ids,
-            local_objective_controls=local_objective_controls,
-            require_related_observations=require_related_observations,
-        )
+    def _gated_get_result(session, tenant_id, result_id, *, lock=False):
+        loaded = original_get_result(session, tenant_id, result_id, lock=lock)
+        if lock:
+            pid = _backend_pid(session)
+            with state_lock:
+                if winner_pid["value"] is None:
+                    winner_pid["value"] = pid
+                    is_winner = True
+                else:
+                    is_winner = False
+            if is_winner:
+                winner_holding_lock.set()
+                assert gate_release.wait(timeout=5)
+        return loaded
 
-    monkeypatch.setattr(AssessmentResultService, "_validate_working_integrity", _gated_validate)
+    monkeypatch.setattr(AssessmentResultService, "_get_result", staticmethod(_gated_get_result))
 
-    def _attempt_publish() -> dict[str, object]:
-        nonlocal attempt_count
-        concurrent_service = AssessmentResultService(lambda: session_factory.begin())
-        release.wait(timeout=5)
-        with state_lock:
-            attempt_count += 1
-            if attempt_count == 2:
-                both_started.set()
-        return concurrent_service.create_version(
-            tenant_id,
-            actor,
-            result["id"],
-            expected_version=token,
-        )
+    def _attempt_publish(worker: str) -> dict[str, object]:
+        with session_factory.begin() as thread_session:
+            with state_lock:
+                backend_pids[worker] = _backend_pid(thread_session)
+            concurrent_service = AssessmentResultService(lambda: _bound_scope(thread_session))
+            release.wait(timeout=5)
+            return concurrent_service.create_version(
+                tenant_id,
+                actor,
+                result["id"],
+                expected_version=token,
+            )
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [executor.submit(_attempt_publish), executor.submit(_attempt_publish)]
+        futures = [executor.submit(_attempt_publish, "a"), executor.submit(_attempt_publish, "b")]
+        release.wait(timeout=5)
         try:
-            release.wait(timeout=5)
-            assert both_started.wait(timeout=5)
-            assert gate_entered.wait(timeout=5)
-            assert all(not future.done() for future in futures)
+            assert winner_holding_lock.wait(timeout=5)
+            winner = winner_pid["value"]
+            assert winner is not None
+            blocked = next(pid for pid in backend_pids.values() if pid != winner)
+            _assert_blocked_by(
+                session_factory,
+                blocked_pid=blocked,
+                blocker_pid=winner,
+            )
         finally:
             gate_release.set()
 
@@ -1111,22 +1094,30 @@ def test_assessment_result_update_translates_mapper_stale_error(
     )
     token = created["concurrency_version"]
 
-    original_flush = Session.flush
+    original_get_result = AssessmentResultService._get_result
 
-    def _stale_flush(self, *args, **kwargs):
-        if self.info.get("force_stale_flush") and (self.new or self.dirty or self.deleted):
-            raise StaleDataError("forced stale update")
-        return original_flush(self, *args, **kwargs)
+    def _stale_mapper_version_get_result(session, tenant_id, result_id, *, lock=False):
+        loaded = original_get_result(session, tenant_id, result_id, lock=lock)
+        if lock:
+            session.execute(
+                update(AssessmentResultRecord)
+                .where(
+                    AssessmentResultRecord.tenant_id == tenant_id,
+                    AssessmentResultRecord.id == result_id,
+                )
+                .values(
+                    concurrency_version=AssessmentResultRecord.concurrency_version + 1,
+                )
+            )
+        return loaded
 
-    monkeypatch.setattr(Session, "flush", _stale_flush)
+    monkeypatch.setattr(
+        AssessmentResultService,
+        "_get_result",
+        staticmethod(_stale_mapper_version_get_result),
+    )
 
-    @contextmanager
-    def stale_scope():
-        with session_factory.begin() as session:
-            session.info["force_stale_flush"] = True
-            yield session
-
-    stale_service = AssessmentResultService(stale_scope)
+    stale_service = AssessmentResultService(lambda: session_factory.begin())
     with pytest.raises(StaleAssessmentResultUpdate) as error:
         stale_service.update_result(
             tenant_id,
@@ -1143,8 +1134,11 @@ def test_assessment_result_update_translates_mapper_stale_error(
                 "findings": [],
             },
         )
+    persisted = service.get_result(tenant_id, created["id"])
     assert error.value.expected_version == token
-    assert error.value.current_version == token
+    assert error.value.current_version == token + 1
+    assert persisted["concurrency_version"] == token
+    assert persisted["title"] == created["title"]
 
 
 def test_assessment_result_publish_translates_mapper_stale_error(
@@ -1229,23 +1223,32 @@ def test_assessment_result_publish_translates_mapper_stale_error(
         },
     )
     token = _result_expected_version(service, tenant_id, created["id"])
+    assert service.list_versions(tenant_id, created["id"]) == []
 
-    original_flush = Session.flush
+    original_get_result = AssessmentResultService._get_result
 
-    def _stale_flush(self, *args, **kwargs):
-        if self.info.get("force_stale_flush") and (self.new or self.dirty or self.deleted):
-            raise StaleDataError("forced stale update")
-        return original_flush(self, *args, **kwargs)
+    def _stale_mapper_version_get_result(session, tenant_id, result_id, *, lock=False):
+        loaded = original_get_result(session, tenant_id, result_id, lock=lock)
+        if lock:
+            session.execute(
+                update(AssessmentResultRecord)
+                .where(
+                    AssessmentResultRecord.tenant_id == tenant_id,
+                    AssessmentResultRecord.id == result_id,
+                )
+                .values(
+                    concurrency_version=AssessmentResultRecord.concurrency_version + 1,
+                )
+            )
+        return loaded
 
-    monkeypatch.setattr(Session, "flush", _stale_flush)
+    monkeypatch.setattr(
+        AssessmentResultService,
+        "_get_result",
+        staticmethod(_stale_mapper_version_get_result),
+    )
 
-    @contextmanager
-    def stale_scope():
-        with session_factory.begin() as session:
-            session.info["force_stale_flush"] = True
-            yield session
-
-    stale_service = AssessmentResultService(stale_scope)
+    stale_service = AssessmentResultService(lambda: session_factory.begin())
     with pytest.raises(StaleAssessmentResultUpdate) as error:
         stale_service.create_version(
             tenant_id,
@@ -1254,7 +1257,9 @@ def test_assessment_result_publish_translates_mapper_stale_error(
             expected_version=token,
         )
     assert error.value.expected_version == token
-    assert error.value.current_version == token
+    assert error.value.current_version == token + 1
+    assert service.list_versions(tenant_id, created["id"]) == []
+    assert service.get_result(tenant_id, created["id"])["concurrency_version"] == token
 
 
 def test_assessment_result_nested_only_update_advances_concurrency_version(

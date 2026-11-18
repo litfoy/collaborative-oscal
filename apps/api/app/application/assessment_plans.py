@@ -51,6 +51,13 @@ class StaleAssessmentPlanUpdate(ValueError):
         super().__init__("The Assessment Plan changed after it was loaded.")
 
 
+class _StaleAssessmentPlanFlush(RuntimeError):
+    def __init__(self, plan_id: UUID, expected_version: int) -> None:
+        self.plan_id = plan_id
+        self.expected_version = expected_version
+        super().__init__("Assessment Plan flush detected stale mapper version.")
+
+
 class AssessmentPlanService:
     def __init__(self, session_scope: SessionScope) -> None:
         self._session_scope = session_scope
@@ -126,38 +133,45 @@ class AssessmentPlanService:
         description: str | None,
         working_data: dict[str, Any],
     ) -> dict[str, Any]:
-        with self._session_scope() as session:
-            plan = self._get_plan(session, tenant_id, plan_id, lock=True)
-            if plan.concurrency_version != expected_version:
-                raise StaleAssessmentPlanUpdate(plan.id, expected_version, plan.concurrency_version)
+        try:
+            with self._session_scope() as session:
+                plan = self._get_plan(session, tenant_id, plan_id, lock=True)
+                if plan.concurrency_version != expected_version:
+                    raise StaleAssessmentPlanUpdate(
+                        plan.id, expected_version, plan.concurrency_version
+                    )
 
-            normalized_working_data = self._normalize_working_data(
-                working_data, previous=plan.working_data
-            )
-            self._validate_working_integrity(
-                normalized_working_data,
-                baseline_control_ids=self._baseline_control_ids(
-                    session, tenant_id, plan.system_security_plan_version_id
-                ),
-                allowed_subject_uuids=self._ssp_subject_uuids(
-                    self._get_ssp_version(session, tenant_id, plan.system_security_plan_version_id)
-                ),
-            )
-            plan.title = title.strip()
-            plan.description = description
-            plan.working_data = copy.deepcopy(normalized_working_data)
-            plan.updated_by = actor
-            plan.updated_at = datetime.now(UTC)
-            try:
-                session.flush()
-            except StaleDataError as error:
-                current = self._current_plan_version(tenant_id, plan_id)
-                raise StaleAssessmentPlanUpdate(
-                    plan_id,
-                    expected_version,
-                    current,
-                ) from error
-            return self._plan_payload(session, plan)
+                normalized_working_data = self._normalize_working_data(
+                    working_data, previous=plan.working_data
+                )
+                self._validate_working_integrity(
+                    normalized_working_data,
+                    baseline_control_ids=self._baseline_control_ids(
+                        session, tenant_id, plan.system_security_plan_version_id
+                    ),
+                    allowed_subject_uuids=self._ssp_subject_uuids(
+                        self._get_ssp_version(
+                            session, tenant_id, plan.system_security_plan_version_id
+                        )
+                    ),
+                )
+                plan.title = title.strip()
+                plan.description = description
+                plan.working_data = copy.deepcopy(normalized_working_data)
+                plan.updated_by = actor
+                plan.updated_at = datetime.now(UTC)
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleAssessmentPlanFlush(plan_id, expected_version) from error
+                return self._plan_payload(session, plan)
+        except _StaleAssessmentPlanFlush as stale:
+            current = self._current_plan_version(tenant_id, stale.plan_id)
+            raise StaleAssessmentPlanUpdate(
+                stale.plan_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
 
     def validate_plan(self, tenant_id: UUID, plan_id: UUID) -> dict[str, Any]:
         with self._session_scope() as session:
@@ -175,100 +189,109 @@ class AssessmentPlanService:
     def create_version(
         self, tenant_id: UUID, actor: UUID, plan_id: UUID, *, expected_version: int
     ) -> dict[str, Any]:
-        with self._session_scope() as session:
-            plan = self._get_plan(session, tenant_id, plan_id, lock=True)
-            if plan.concurrency_version != expected_version:
-                raise StaleAssessmentPlanUpdate(plan.id, expected_version, plan.concurrency_version)
+        try:
+            with self._session_scope() as session:
+                plan = self._get_plan(session, tenant_id, plan_id, lock=True)
+                if plan.concurrency_version != expected_version:
+                    raise StaleAssessmentPlanUpdate(
+                        plan.id, expected_version, plan.concurrency_version
+                    )
 
-            draft, diagnostics = self._build_draft(session, plan)
-            errors = [item for item in diagnostics if item["severity"] == "error"]
-            if errors:
-                raise InvalidAssessmentPlan(diagnostics)
+                draft, diagnostics = self._build_draft(session, plan)
+                errors = [item for item in diagnostics if item["severity"] == "error"]
+                if errors:
+                    raise InvalidAssessmentPlan(diagnostics)
 
-            previous = session.scalars(
-                select(AssessmentPlanVersionRecord)
-                .where(
-                    AssessmentPlanVersionRecord.tenant_id == tenant_id,
-                    AssessmentPlanVersionRecord.assessment_plan_id == plan.id,
+                previous = session.scalars(
+                    select(AssessmentPlanVersionRecord)
+                    .where(
+                        AssessmentPlanVersionRecord.tenant_id == tenant_id,
+                        AssessmentPlanVersionRecord.assessment_plan_id == plan.id,
+                    )
+                    .order_by(AssessmentPlanVersionRecord.created_at.desc())
+                    .limit(1)
+                ).first()
+                version = self._next_document_version(
+                    previous.document_version if previous else None
                 )
-                .order_by(AssessmentPlanVersionRecord.created_at.desc())
-                .limit(1)
-            ).first()
-            version = self._next_document_version(previous.document_version if previous else None)
-            now = datetime.now(UTC).replace(microsecond=0)
-            body = draft["assessment-plan"]
-            body["uuid"] = str(uuid4())
-            body["metadata"]["last-modified"] = now.isoformat()
-            body["metadata"]["version"] = version
-            try:
-                final_document = serialize_authored_assessment_plan(draft)
-                validate_assessment_plan_document(
-                    final_document,
-                    expected_ssp_href=self._ssp_href(plan),
-                    baseline_control_ids=self._baseline_control_ids(
-                        session, tenant_id, plan.system_security_plan_version_id
-                    ),
-                    allowed_subject_uuids=self._ssp_subject_uuids(
-                        self._get_ssp_version(
+                now = datetime.now(UTC).replace(microsecond=0)
+                body = draft["assessment-plan"]
+                body["uuid"] = str(uuid4())
+                body["metadata"]["last-modified"] = now.isoformat()
+                body["metadata"]["version"] = version
+                try:
+                    final_document = serialize_authored_assessment_plan(draft)
+                    validate_assessment_plan_document(
+                        final_document,
+                        expected_ssp_href=self._ssp_href(plan),
+                        baseline_control_ids=self._baseline_control_ids(
                             session, tenant_id, plan.system_security_plan_version_id
-                        )
-                    ),
-                )
-            except AssessmentPlanValidationError as error:
-                diagnostics.append(self._oscal_diagnostic(error))
-                raise InvalidAssessmentPlan(diagnostics) from error
+                        ),
+                        allowed_subject_uuids=self._ssp_subject_uuids(
+                            self._get_ssp_version(
+                                session, tenant_id, plan.system_security_plan_version_id
+                            )
+                        ),
+                    )
+                except AssessmentPlanValidationError as error:
+                    diagnostics.append(self._oscal_diagnostic(error))
+                    raise InvalidAssessmentPlan(diagnostics) from error
 
-            stable_document = copy.deepcopy(final_document)
-            stable_body = stable_document["assessment-plan"]
-            stable_body["uuid"] = ""
-            stable_body["metadata"]["last-modified"] = ""
-            stable_body["metadata"]["version"] = ""
-            digest = canonical_json_sha256(stable_document)
-            existing = session.scalar(
-                select(AssessmentPlanVersionRecord).where(
-                    AssessmentPlanVersionRecord.tenant_id == tenant_id,
-                    AssessmentPlanVersionRecord.assessment_plan_id == plan.id,
-                    AssessmentPlanVersionRecord.content_sha256 == digest,
+                stable_document = copy.deepcopy(final_document)
+                stable_body = stable_document["assessment-plan"]
+                stable_body["uuid"] = ""
+                stable_body["metadata"]["last-modified"] = ""
+                stable_body["metadata"]["version"] = ""
+                digest = canonical_json_sha256(stable_document)
+                existing = session.scalar(
+                    select(AssessmentPlanVersionRecord).where(
+                        AssessmentPlanVersionRecord.tenant_id == tenant_id,
+                        AssessmentPlanVersionRecord.assessment_plan_id == plan.id,
+                        AssessmentPlanVersionRecord.content_sha256 == digest,
+                    )
                 )
-            )
-            if existing is not None:
+                if existing is not None:
+                    return self._version_payload(
+                        existing,
+                        created=False,
+                        concurrency_version=plan.concurrency_version,
+                    )
+
+                record = AssessmentPlanVersionRecord(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    assessment_plan_id=plan.id,
+                    system_security_plan_version_id=plan.system_security_plan_version_id,
+                    oscal_document_uuid=UUID(final_document["assessment-plan"]["uuid"]),
+                    oscal_version=final_document["assessment-plan"]["metadata"][
+                        "oscal-version"
+                    ],
+                    document_version=version,
+                    last_modified=now,
+                    content_sha256=digest,
+                    document=final_document,
+                    diagnostics=diagnostics,
+                    created_at=now,
+                )
+                session.add(record)
+                plan.updated_by = actor
+                plan.updated_at = now
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleAssessmentPlanFlush(plan_id, expected_version) from error
                 return self._version_payload(
-                    existing,
-                    created=False,
+                    record,
+                    created=True,
                     concurrency_version=plan.concurrency_version,
                 )
-
-            record = AssessmentPlanVersionRecord(
-                id=uuid4(),
-                tenant_id=tenant_id,
-                assessment_plan_id=plan.id,
-                system_security_plan_version_id=plan.system_security_plan_version_id,
-                oscal_document_uuid=UUID(final_document["assessment-plan"]["uuid"]),
-                oscal_version=final_document["assessment-plan"]["metadata"]["oscal-version"],
-                document_version=version,
-                last_modified=now,
-                content_sha256=digest,
-                document=final_document,
-                diagnostics=diagnostics,
-                created_at=now,
-            )
-            session.add(record)
-            plan.updated_by = actor
-            plan.updated_at = now
-            try:
-                session.flush()
-            except StaleDataError as error:
-                current = self._current_plan_version(tenant_id, plan_id)
-                raise StaleAssessmentPlanUpdate(
-                    plan_id,
-                    expected_version,
-                    current,
-                ) from error
-            return self._version_payload(
-                record,
-                created=True,
-                concurrency_version=plan.concurrency_version,
-            )
+        except _StaleAssessmentPlanFlush as stale:
+            current = self._current_plan_version(tenant_id, stale.plan_id)
+            raise StaleAssessmentPlanUpdate(
+                stale.plan_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
 
     def _current_plan_version(self, tenant_id: UUID, plan_id: UUID) -> int:
         with self._session_scope() as session:

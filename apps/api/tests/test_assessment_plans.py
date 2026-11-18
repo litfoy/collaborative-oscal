@@ -8,9 +8,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-from sqlalchemy.orm.exc import StaleDataError
+from sqlalchemy import select, text, update
 
 from app.application.assessment_plans import (
     AssessmentPlanService,
@@ -26,7 +24,10 @@ from app.domain.implementations import (
     OscalImplementationStatus,
 )
 from app.persistence.identity import SQLIdentityRepository, SQLMembershipRepository
-from app.persistence.models import CatalogControlIndexRecord
+from app.persistence.models import (
+    AssessmentPlanRecord,
+    CatalogControlIndexRecord,
+)
 
 pytestmark = pytest.mark.integration
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "oscal_catalog.json"
@@ -155,6 +156,36 @@ def _prepare_ssp_version(
 
 def _expected_version(service: AssessmentPlanService, tenant_id: UUID, plan_id: UUID) -> int:
     return int(service.get_plan(tenant_id, plan_id)["concurrency_version"])
+
+
+@contextmanager
+def _bound_scope(session):
+    yield session
+
+
+def _backend_pid(session) -> int:
+    return int(session.execute(text("select pg_backend_pid()")).scalar_one())
+
+
+def _assert_blocked_by(
+    session_factory,
+    *,
+    blocked_pid: int,
+    blocker_pid: int,
+    attempts: int = 200,
+) -> None:
+    with session_factory.begin() as observer:
+        for _ in range(attempts):
+            blockers = observer.execute(
+                text("select pg_blocking_pids(:blocked_pid)"),
+                {"blocked_pid": blocked_pid},
+            ).scalar_one()
+            blocking_pids = {int(item) for item in (blockers or [])}
+            if blocker_pid in blocking_pids:
+                return
+    pytest.fail(
+        f"Backend {blocked_pid} was not observed blocked by backend {blocker_pid}."
+    )
 
 
 def test_assessment_plan_lifecycle_uses_pinned_ssp_snapshot(grc_service, session_factory) -> None:
@@ -591,62 +622,76 @@ def test_assessment_plan_update_rejects_stale_token_under_concurrent_transaction
     )
     token = _expected_version(service, tenant_id, plan["id"])
     release = threading.Barrier(3)
-    gate_entered = threading.Event()
+    winner_holding_lock = threading.Event()
     gate_release = threading.Event()
-    gate_count = 0
-    gate_lock = threading.Lock()
-    original_validate = AssessmentPlanService._validate_working_integrity
+    state_lock = threading.Lock()
+    backend_pids: dict[str, int] = {}
+    winner_pid: dict[str, int | None] = {"value": None}
+    original_get_plan = AssessmentPlanService._get_plan
 
-    def _gated_validate(self, working_data, *, baseline_control_ids, allowed_subject_uuids):
-        nonlocal gate_count
-        with gate_lock:
-            gate_count += 1
-            first = gate_count == 1
-        if first:
-            gate_entered.set()
-            assert gate_release.wait(timeout=5)
-        return original_validate(
-            self,
-            working_data,
-            baseline_control_ids=baseline_control_ids,
-            allowed_subject_uuids=allowed_subject_uuids,
-        )
+    def _gated_get_plan(session, tenant_id, plan_id, *, lock=False):
+        loaded = original_get_plan(session, tenant_id, plan_id, lock=lock)
+        if lock:
+            pid = _backend_pid(session)
+            with state_lock:
+                if winner_pid["value"] is None:
+                    winner_pid["value"] = pid
+                    is_winner = True
+                else:
+                    is_winner = False
+            if is_winner:
+                winner_holding_lock.set()
+                assert gate_release.wait(timeout=5)
+        return loaded
 
-    monkeypatch.setattr(AssessmentPlanService, "_validate_working_integrity", _gated_validate)
+    monkeypatch.setattr(AssessmentPlanService, "_get_plan", staticmethod(_gated_get_plan))
 
-    def _attempt_update(title: str) -> str:
-        concurrent_service = AssessmentPlanService(lambda: session_factory.begin())
-        release.wait(timeout=5)
-        concurrent_service.update_plan(
-            tenant_id,
-            actor,
-            plan["id"],
-            expected_version=token,
-            title=title,
-            description="Concurrency check",
-            working_data={
-                "control_ids": ["ac-1"],
-                "source_objectives": [],
-                "local_objectives": [],
-                "subject_uuids": [str(subject_uuid)],
-                "activities": [],
-                "tasks": [],
-                "roles": [],
-                "parties": [],
-                "terms": None,
-            },
-        )
-        return title
+    def _attempt_update(title: str, worker: str) -> str:
+        with session_factory.begin() as thread_session:
+            with state_lock:
+                backend_pids[worker] = _backend_pid(thread_session)
+            concurrent_service = AssessmentPlanService(lambda: _bound_scope(thread_session))
+            release.wait(timeout=5)
+            concurrent_service.update_plan(
+                tenant_id,
+                actor,
+                plan["id"],
+                expected_version=token,
+                title=title,
+                description="Concurrency check",
+                working_data={
+                    "control_ids": ["ac-1"],
+                    "source_objectives": [],
+                    "local_objectives": [],
+                    "subject_uuids": [str(subject_uuid)],
+                    "activities": [],
+                    "tasks": [],
+                    "roles": [],
+                    "parties": [],
+                    "terms": None,
+                },
+            )
+            return title
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = [
-            executor.submit(_attempt_update, "Concurrent AP A"),
-            executor.submit(_attempt_update, "Concurrent AP B"),
+            executor.submit(_attempt_update, "Concurrent AP A", "a"),
+            executor.submit(_attempt_update, "Concurrent AP B", "b"),
         ]
         release.wait(timeout=5)
-        assert gate_entered.wait(timeout=5)
-        assert all(not future.done() for future in futures)
-        gate_release.set()
+        try:
+            assert winner_holding_lock.wait(timeout=5)
+            winner = winner_pid["value"]
+            assert winner is not None
+            blocked = next(pid for pid in backend_pids.values() if pid != winner)
+            _assert_blocked_by(
+                session_factory,
+                blocked_pid=blocked,
+                blocker_pid=winner,
+            )
+        finally:
+            gate_release.set()
+
     results = []
     stale = []
     for future in futures:
@@ -701,45 +746,62 @@ def test_assessment_plan_publish_rejects_stale_token_under_concurrent_transactio
     )
     token = updated["concurrency_version"]
     release = threading.Barrier(3)
-    gate_entered = threading.Event()
+    winner_holding_lock = threading.Event()
     gate_release = threading.Event()
-    gate_count = 0
-    gate_lock = threading.Lock()
-    original_validate = AssessmentPlanService._validate_working_integrity
+    state_lock = threading.Lock()
+    backend_pids: dict[str, int] = {}
+    winner_pid: dict[str, int | None] = {"value": None}
+    original_get_plan = AssessmentPlanService._get_plan
 
-    def _gated_validate(self, working_data, *, baseline_control_ids, allowed_subject_uuids):
-        nonlocal gate_count
-        with gate_lock:
-            gate_count += 1
-            first = gate_count == 1
-        if first:
-            gate_entered.set()
-            assert gate_release.wait(timeout=5)
-        return original_validate(
-            self,
-            working_data,
-            baseline_control_ids=baseline_control_ids,
-            allowed_subject_uuids=allowed_subject_uuids,
-        )
+    def _gated_get_plan(session, tenant_id, plan_id, *, lock=False):
+        loaded = original_get_plan(session, tenant_id, plan_id, lock=lock)
+        if lock:
+            pid = _backend_pid(session)
+            with state_lock:
+                if winner_pid["value"] is None:
+                    winner_pid["value"] = pid
+                    is_winner = True
+                else:
+                    is_winner = False
+            if is_winner:
+                winner_holding_lock.set()
+                assert gate_release.wait(timeout=5)
+        return loaded
 
-    monkeypatch.setattr(AssessmentPlanService, "_validate_working_integrity", _gated_validate)
+    monkeypatch.setattr(AssessmentPlanService, "_get_plan", staticmethod(_gated_get_plan))
 
-    def _attempt_publish() -> dict[str, object]:
-        concurrent_service = AssessmentPlanService(lambda: session_factory.begin())
-        release.wait(timeout=5)
-        return concurrent_service.create_version(
-            tenant_id,
-            actor,
-            plan["id"],
-            expected_version=token,
-        )
+    def _attempt_publish(worker: str) -> dict[str, object]:
+        with session_factory.begin() as thread_session:
+            with state_lock:
+                backend_pids[worker] = _backend_pid(thread_session)
+            concurrent_service = AssessmentPlanService(lambda: _bound_scope(thread_session))
+            release.wait(timeout=5)
+            return concurrent_service.create_version(
+                tenant_id,
+                actor,
+                plan["id"],
+                expected_version=token,
+            )
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [executor.submit(_attempt_publish), executor.submit(_attempt_publish)]
+        futures = [
+            executor.submit(_attempt_publish, "a"),
+            executor.submit(_attempt_publish, "b"),
+        ]
         release.wait(timeout=5)
-        assert gate_entered.wait(timeout=5)
-        assert all(not future.done() for future in futures)
-        gate_release.set()
+        try:
+            assert winner_holding_lock.wait(timeout=5)
+            winner = winner_pid["value"]
+            assert winner is not None
+            blocked = next(pid for pid in backend_pids.values() if pid != winner)
+            _assert_blocked_by(
+                session_factory,
+                blocked_pid=blocked,
+                blocker_pid=winner,
+            )
+        finally:
+            gate_release.set()
+
     published = []
     stale = []
     for future in futures:
@@ -779,24 +841,31 @@ def test_assessment_plan_update_translates_mapper_stale_error(
     )
     token = created["concurrency_version"]
 
-    original_flush = Session.flush
+    original_get_plan = AssessmentPlanService._get_plan
 
-    def _stale_flush(self, *args, **kwargs):
-        if self.info.get("force_stale_flush") and (self.new or self.dirty or self.deleted):
-            raise StaleDataError("forced stale update")
-        return original_flush(self, *args, **kwargs)
+    def _stale_mapper_version_get_plan(session, tenant_id, plan_id, *, lock=False):
+        loaded = original_get_plan(session, tenant_id, plan_id, lock=lock)
+        if lock:
+            session.execute(
+                update(AssessmentPlanRecord)
+                .where(
+                    AssessmentPlanRecord.tenant_id == tenant_id,
+                    AssessmentPlanRecord.id == plan_id,
+                )
+                .values(
+                    concurrency_version=AssessmentPlanRecord.concurrency_version + 1,
+                )
+            )
+        return loaded
 
-    monkeypatch.setattr(Session, "flush", _stale_flush)
+    monkeypatch.setattr(
+        AssessmentPlanService,
+        "_get_plan",
+        staticmethod(_stale_mapper_version_get_plan),
+    )
 
-    @contextmanager
-    def stale_scope():
-        with session_factory.begin() as session:
-            session.info["force_stale_flush"] = True
-            yield session
-
-    stale_service = AssessmentPlanService(stale_scope)
     with pytest.raises(StaleAssessmentPlanUpdate) as error:
-        stale_service.update_plan(
+        service.update_plan(
             tenant_id,
             actor,
             created["id"],
@@ -815,8 +884,12 @@ def test_assessment_plan_update_translates_mapper_stale_error(
                 "terms": None,
             },
         )
+
+    persisted = service.get_plan(tenant_id, created["id"])
     assert error.value.expected_version == token
-    assert error.value.current_version == token
+    assert error.value.current_version == token + 1
+    assert persisted["concurrency_version"] == token
+    assert persisted["title"] == created["title"]
 
 
 def test_assessment_plan_publish_translates_mapper_stale_error(
@@ -854,32 +927,43 @@ def test_assessment_plan_publish_translates_mapper_stale_error(
         },
     )
     token = updated["concurrency_version"]
+    assert service.list_versions(tenant_id, plan["id"]) == []
 
-    original_flush = Session.flush
+    original_get_plan = AssessmentPlanService._get_plan
 
-    def _stale_flush(self, *args, **kwargs):
-        if self.info.get("force_stale_flush") and (self.new or self.dirty or self.deleted):
-            raise StaleDataError("forced stale update")
-        return original_flush(self, *args, **kwargs)
+    def _stale_mapper_version_get_plan(session, tenant_id, plan_id, *, lock=False):
+        loaded = original_get_plan(session, tenant_id, plan_id, lock=lock)
+        if lock:
+            session.execute(
+                update(AssessmentPlanRecord)
+                .where(
+                    AssessmentPlanRecord.tenant_id == tenant_id,
+                    AssessmentPlanRecord.id == plan_id,
+                )
+                .values(
+                    concurrency_version=AssessmentPlanRecord.concurrency_version + 1,
+                )
+            )
+        return loaded
 
-    monkeypatch.setattr(Session, "flush", _stale_flush)
+    monkeypatch.setattr(
+        AssessmentPlanService,
+        "_get_plan",
+        staticmethod(_stale_mapper_version_get_plan),
+    )
 
-    @contextmanager
-    def stale_scope():
-        with session_factory.begin() as session:
-            session.info["force_stale_flush"] = True
-            yield session
-
-    stale_service = AssessmentPlanService(stale_scope)
     with pytest.raises(StaleAssessmentPlanUpdate) as error:
-        stale_service.create_version(
+        service.create_version(
             tenant_id,
             actor,
             plan["id"],
             expected_version=token,
         )
+
     assert error.value.expected_version == token
-    assert error.value.current_version == token
+    assert error.value.current_version == token + 1
+    assert service.list_versions(tenant_id, plan["id"]) == []
+    assert service.get_plan(tenant_id, plan["id"])["concurrency_version"] == token
 
 
 

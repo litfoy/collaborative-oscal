@@ -54,6 +54,13 @@ class StaleAssessmentResultUpdate(ValueError):
         super().__init__("The Assessment Results record changed after it was loaded.")
 
 
+class _StaleAssessmentResultFlush(RuntimeError):
+    def __init__(self, result_id: UUID, expected_version: int) -> None:
+        self.result_id = result_id
+        self.expected_version = expected_version
+        super().__init__("Assessment Results flush detected stale mapper version.")
+
+
 class AssessmentResultService:
     def __init__(self, session_scope: SessionScope) -> None:
         self._session_scope = session_scope
@@ -151,40 +158,45 @@ class AssessmentResultService:
         description: str | None,
         working_data: dict[str, Any],
     ) -> dict[str, Any]:
-        with self._session_scope() as session:
-            record = self._get_result(session, tenant_id, result_id, lock=True)
-            if record.concurrency_version != expected_version:
-                raise StaleAssessmentResultUpdate(
-                    record.id, expected_version, record.concurrency_version
+        try:
+            with self._session_scope() as session:
+                record = self._get_result(session, tenant_id, result_id, lock=True)
+                if record.concurrency_version != expected_version:
+                    raise StaleAssessmentResultUpdate(
+                        record.id, expected_version, record.concurrency_version
+                    )
+                context = self._context_for_result(session, record)
+                normalized = self._normalize_working_data(
+                    working_data, previous=record.working_data
                 )
-            context = self._context_for_result(session, record)
-            normalized = self._normalize_working_data(working_data, previous=record.working_data)
-            self._validate_working_integrity(
-                normalized,
-                result_uuid=record.id,
-                planned_control_ids=context["planned_control_set"],
-                allowed_subject_uuids=context["subject_uuid_set"],
-                statement_controls=context["statement_controls"],
-                catalog_objective_controls=context["catalog_objective_controls"],
-                selected_catalog_objective_ids=context["selected_catalog_objective_ids"],
-                local_objective_controls=context["local_objective_controls"],
-                require_related_observations=False,
-            )
-            record.title = title.strip()
-            record.description = description
-            record.working_data = copy.deepcopy(normalized)
-            record.updated_by = actor
-            record.updated_at = datetime.now(UTC)
-            try:
-                session.flush()
-            except StaleDataError as error:
-                current = self._current_result_version(tenant_id, result_id)
-                raise StaleAssessmentResultUpdate(
-                    result_id,
-                    expected_version,
-                    current,
-                ) from error
-            return self._result_payload(session, record)
+                self._validate_working_integrity(
+                    normalized,
+                    result_uuid=record.id,
+                    planned_control_ids=context["planned_control_set"],
+                    allowed_subject_uuids=context["subject_uuid_set"],
+                    statement_controls=context["statement_controls"],
+                    catalog_objective_controls=context["catalog_objective_controls"],
+                    selected_catalog_objective_ids=context["selected_catalog_objective_ids"],
+                    local_objective_controls=context["local_objective_controls"],
+                    require_related_observations=False,
+                )
+                record.title = title.strip()
+                record.description = description
+                record.working_data = copy.deepcopy(normalized)
+                record.updated_by = actor
+                record.updated_at = datetime.now(UTC)
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleAssessmentResultFlush(result_id, expected_version) from error
+                return self._result_payload(session, record)
+        except _StaleAssessmentResultFlush as stale:
+            current = self._current_result_version(tenant_id, stale.result_id)
+            raise StaleAssessmentResultUpdate(
+                stale.result_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
 
     def validate_result(self, tenant_id: UUID, result_id: UUID) -> dict[str, Any]:
         with self._session_scope() as session:
@@ -209,102 +221,105 @@ class AssessmentResultService:
         *,
         expected_version: int,
     ) -> dict[str, Any]:
-        with self._session_scope() as session:
-            record = self._get_result(session, tenant_id, result_id, lock=True)
-            if record.concurrency_version != expected_version:
-                raise StaleAssessmentResultUpdate(
-                    record.id, expected_version, record.concurrency_version
-                )
-            draft, diagnostics, context = self._build_draft(session, record)
-            errors = [item for item in diagnostics if item["severity"] == "error"]
-            if errors:
-                raise InvalidAssessmentResult(diagnostics)
+        try:
+            with self._session_scope() as session:
+                record = self._get_result(session, tenant_id, result_id, lock=True)
+                if record.concurrency_version != expected_version:
+                    raise StaleAssessmentResultUpdate(
+                        record.id, expected_version, record.concurrency_version
+                    )
+                draft, diagnostics, context = self._build_draft(session, record)
+                errors = [item for item in diagnostics if item["severity"] == "error"]
+                if errors:
+                    raise InvalidAssessmentResult(diagnostics)
 
-            previous = session.scalars(
-                select(AssessmentResultVersionRecord)
-                .where(
-                    AssessmentResultVersionRecord.tenant_id == tenant_id,
-                    AssessmentResultVersionRecord.assessment_result_id == record.id,
+                previous = session.scalars(
+                    select(AssessmentResultVersionRecord)
+                    .where(
+                        AssessmentResultVersionRecord.tenant_id == tenant_id,
+                        AssessmentResultVersionRecord.assessment_result_id == record.id,
+                    )
+                    .order_by(AssessmentResultVersionRecord.created_at.desc())
+                    .limit(1)
+                ).first()
+                version = self._next_document_version(
+                    previous.document_version if previous else None
                 )
-                .order_by(AssessmentResultVersionRecord.created_at.desc())
-                .limit(1)
-            ).first()
-            version = self._next_document_version(
-                previous.document_version if previous else None
-            )
-            now = datetime.now(UTC).replace(microsecond=0)
-            body = draft["assessment-results"]
-            body["uuid"] = str(uuid4())
-            body["metadata"]["last-modified"] = now.isoformat()
-            body["metadata"]["version"] = version
+                now = datetime.now(UTC).replace(microsecond=0)
+                body = draft["assessment-results"]
+                body["uuid"] = str(uuid4())
+                body["metadata"]["last-modified"] = now.isoformat()
+                body["metadata"]["version"] = version
 
-            try:
-                final_document = serialize_authored_assessment_result(draft)
-                validate_assessment_result_document(
-                    final_document,
-                    expected_assessment_plan_href=self._plan_href(record),
-                    allowed_statement_ids=context["statement_id_set"],
-                    allowed_objective_ids=context["objective_id_set"],
-                    allowed_observation_methods=_ALLOWED_METHODS,
+                try:
+                    final_document = serialize_authored_assessment_result(draft)
+                    validate_assessment_result_document(
+                        final_document,
+                        expected_assessment_plan_href=self._plan_href(record),
+                        allowed_statement_ids=context["statement_id_set"],
+                        allowed_objective_ids=context["objective_id_set"],
+                        allowed_observation_methods=_ALLOWED_METHODS,
+                    )
+                except AssessmentResultValidationError as error:
+                    diagnostics.append(self._oscal_diagnostic(error))
+                    raise InvalidAssessmentResult(diagnostics) from error
+
+                stable_document = copy.deepcopy(final_document)
+                stable_body = stable_document["assessment-results"]
+                stable_body["uuid"] = ""
+                stable_body["metadata"]["last-modified"] = ""
+                stable_body["metadata"]["version"] = ""
+                digest = canonical_json_sha256(stable_document)
+
+                existing = session.scalar(
+                    select(AssessmentResultVersionRecord).where(
+                        AssessmentResultVersionRecord.tenant_id == tenant_id,
+                        AssessmentResultVersionRecord.assessment_result_id == record.id,
+                        AssessmentResultVersionRecord.content_sha256 == digest,
+                    )
                 )
-            except AssessmentResultValidationError as error:
-                diagnostics.append(self._oscal_diagnostic(error))
-                raise InvalidAssessmentResult(diagnostics) from error
+                if existing is not None:
+                    return self._version_payload(
+                        existing,
+                        created=False,
+                        concurrency_version=record.concurrency_version,
+                    )
 
-            stable_document = copy.deepcopy(final_document)
-            stable_body = stable_document["assessment-results"]
-            stable_body["uuid"] = ""
-            stable_body["metadata"]["last-modified"] = ""
-            stable_body["metadata"]["version"] = ""
-            digest = canonical_json_sha256(stable_document)
-
-            existing = session.scalar(
-                select(AssessmentResultVersionRecord).where(
-                    AssessmentResultVersionRecord.tenant_id == tenant_id,
-                    AssessmentResultVersionRecord.assessment_result_id == record.id,
-                    AssessmentResultVersionRecord.content_sha256 == digest,
+                snapshot = AssessmentResultVersionRecord(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    assessment_result_id=record.id,
+                    assessment_plan_version_id=record.assessment_plan_version_id,
+                    oscal_document_uuid=UUID(final_document["assessment-results"]["uuid"]),
+                    oscal_version=final_document["assessment-results"]["metadata"][
+                        "oscal-version"
+                    ],
+                    document_version=version,
+                    last_modified=now,
+                    content_sha256=digest,
+                    document=final_document,
+                    diagnostics=diagnostics,
+                    created_at=now,
                 )
-            )
-            if existing is not None:
+                session.add(snapshot)
+                record.updated_by = actor
+                record.updated_at = now
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleAssessmentResultFlush(result_id, expected_version) from error
                 return self._version_payload(
-                    existing,
-                    created=False,
+                    snapshot,
+                    created=True,
                     concurrency_version=record.concurrency_version,
                 )
-
-            snapshot = AssessmentResultVersionRecord(
-                id=uuid4(),
-                tenant_id=tenant_id,
-                assessment_result_id=record.id,
-                assessment_plan_version_id=record.assessment_plan_version_id,
-                oscal_document_uuid=UUID(final_document["assessment-results"]["uuid"]),
-                oscal_version=final_document["assessment-results"]["metadata"][
-                    "oscal-version"
-                ],
-                document_version=version,
-                last_modified=now,
-                content_sha256=digest,
-                document=final_document,
-                diagnostics=diagnostics,
-                created_at=now,
-            )
-            session.add(snapshot)
-            record.updated_by = actor
-            record.updated_at = now
-            try:
-                session.flush()
-            except StaleDataError as error:
-                current = self._current_result_version(tenant_id, result_id)
-                raise StaleAssessmentResultUpdate(
-                    result_id,
-                    expected_version,
-                    current,
-                ) from error
-            return self._version_payload(
-                snapshot,
-                created=True,
-                concurrency_version=record.concurrency_version,
-            )
+        except _StaleAssessmentResultFlush as stale:
+            current = self._current_result_version(tenant_id, stale.result_id)
+            raise StaleAssessmentResultUpdate(
+                stale.result_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
 
     def _current_result_version(self, tenant_id: UUID, result_id: UUID) -> int:
         with self._session_scope() as session:
