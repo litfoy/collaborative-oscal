@@ -391,6 +391,7 @@ describe("Systems workspaces", () => {
               end: null,
               created_at: "",
               updated_at: "",
+              concurrency_version: 1,
             },
           ]}
           initialVersions={{ [plan.id]: [version] }}

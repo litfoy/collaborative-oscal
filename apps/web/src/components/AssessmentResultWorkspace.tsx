@@ -53,6 +53,7 @@ export function AssessmentResultWorkspace({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [conflict, setConflict] = useState<{ currentVersion: number } | null>(null);
 
   const dirty = useMemo(
     () => JSON.stringify(snapshot(result)) !== JSON.stringify(snapshot(savedResult)),
@@ -128,11 +129,13 @@ export function AssessmentResultWorkspace({
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (busy) return;
     await run(async () => {
       const updated = await bffWrite<AssessmentResult>(
         "PUT",
         `tenants/${tenantId}/assessment-results/${result.id}`,
         {
+          expected_version: result.concurrency_version,
           title: result.title,
           description: result.description,
           reviewed_control_ids: result.reviewed_control_ids,
@@ -145,11 +148,13 @@ export function AssessmentResultWorkspace({
       setResult(updated);
       setSavedResult(updated);
       setValidationStale(true);
+      setConflict(null);
       return t("assessmentResults.saved");
     }, "assessmentResults.saveRejected");
   }
 
   async function validateResult() {
+    if (busy) return;
     if (dirty) {
       setNotice(t("assessmentResults.validationSaveFirst"));
       return;
@@ -167,13 +172,20 @@ export function AssessmentResultWorkspace({
   }
 
   async function createVersion() {
+    if (busy) return;
     await run(async () => {
       const version = await bffWrite<AssessmentResultVersion>(
         "POST",
         `tenants/${tenantId}/assessment-results/${result.id}/versions`,
-        {},
+        { expected_version: result.concurrency_version },
       );
+      if (typeof version.concurrency_version === "number") {
+        const nextVersion = version.concurrency_version;
+        setResult((current) => ({ ...current, concurrency_version: nextVersion }));
+        setSavedResult((current) => ({ ...current, concurrency_version: nextVersion }));
+      }
       setVersions((current) => [version, ...current.filter((item) => item.id !== version.id)]);
+      setConflict(null);
       return version.created
         ? t("assessmentResults.versionCreated", { version: version.document_version })
         : t("assessmentResults.versionUnchanged");
@@ -184,17 +196,54 @@ export function AssessmentResultWorkspace({
     action: () => Promise<string>,
     invalidContext: InvalidContext = "errors.invalid",
   ) {
+    if (busy) return;
     setBusy(true);
     setError("");
     setNotice("");
     try {
       setNotice(await action());
     } catch (cause) {
+      if (cause instanceof ApiError && cause.kind === "stale_update") {
+        const detail = cause.detail as { current_version?: number } | undefined;
+        setConflict({
+          currentVersion: detail?.current_version ?? result.concurrency_version,
+        });
+        setError("");
+        return;
+      }
       const diagnostics = diagnosticsFromCause(cause);
       if (diagnostics.length) {
         setError(formatDiagnosticsMessage(invalidContext, diagnostics));
         return;
       }
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reloadAfterConflict() {
+    if (!conflict) return;
+    if (busy) return;
+    if (!window.confirm(t("assessmentResults.confirmConflictReload"))) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const [refreshed, refreshedVersions, refreshedValidation] = await Promise.all([
+        bffGet<AssessmentResult>(`tenants/${tenantId}/assessment-results/${result.id}`),
+        bffGet<AssessmentResultVersion[]>(`tenants/${tenantId}/assessment-results/${result.id}/versions`),
+        bffGet<AssessmentResultValidation>(
+          `tenants/${tenantId}/assessment-results/${result.id}/validation`,
+        ),
+      ]);
+      setResult(refreshed);
+      setSavedResult(refreshed);
+      setVersions(refreshedVersions);
+      setValidation(refreshedValidation);
+      setValidationStale(false);
+      setConflict(null);
+    } catch (cause) {
       setError(errorMessage(cause));
     } finally {
       setBusy(false);
@@ -714,6 +763,21 @@ export function AssessmentResultWorkspace({
             <p className="muted">{t("systems.noImmutableVersions")}</p>
           )}
         </section>
+
+        {conflict ? (
+          <div role="alert" className="panel">
+            <p>{t("assessmentResults.conflictDetected", { version: conflict.currentVersion })}</p>
+            <p className="muted">{t("assessmentResults.conflictPreserved")}</p>
+            <button
+              type="button"
+              className="danger-action"
+              disabled={busy}
+              onClick={() => void reloadAfterConflict()}
+            >
+              {t("assessmentResults.reloadConfirmedState")}
+            </button>
+          </div>
+        ) : null}
 
         {canWrite ? <button disabled={busy}>{t("assessmentResults.save")}</button> : null}
       </form>

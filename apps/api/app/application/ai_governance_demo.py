@@ -779,10 +779,11 @@ def seed_ai_governance_demo(
             ),
         )
         observation_id = str(uuid4())
-        assessment_results.update_result(
+        assessment_result = assessment_results.update_result(
             tenant_id,
             actor_id,
             assessment_result["id"],
+            expected_version=assessment_result["concurrency_version"],
             title=assessment_result["title"],
             description=assessment_result["description"],
             working_data={
@@ -864,6 +865,7 @@ def seed_ai_governance_demo(
             tenant_id,
             actor_id,
             assessment_result["id"],
+            expected_version=assessment_result["concurrency_version"],
         )
 
         _validate_historical_chain(

@@ -511,6 +511,7 @@ export interface AssessmentResult {
   end: string | null;
   created_at: string;
   updated_at: string;
+  concurrency_version: number;
 }
 
 export interface AssessmentResultValidation {
@@ -535,6 +536,7 @@ export interface AssessmentResultVersion {
   diagnostics: SystemSecurityPlanDiagnostic[];
   created_at: string;
   created?: boolean;
+  concurrency_version?: number | null;
 }
 
 export interface ProfileBrowserNode {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -12,6 +13,7 @@ from app.application.assessment_plans import AssessmentPlanService
 from app.application.assessment_results import (
     AssessmentResultService,
     InvalidAssessmentResult,
+    StaleAssessmentResultUpdate,
 )
 from app.application.implementations import ImplementationService
 from app.application.system_security_plans import SystemSecurityPlanService
@@ -48,6 +50,53 @@ def _actor(session_factory, tenant_id: UUID) -> UUID:
 
 def _expected_version(ap_service: AssessmentPlanService, tenant_id: UUID, plan_id: UUID) -> int:
     return int(ap_service.get_plan(tenant_id, plan_id)["concurrency_version"])
+
+
+def _result_expected_version(
+    ar_service: AssessmentResultService, tenant_id: UUID, result_id: UUID
+) -> int:
+    return int(ar_service.get_result(tenant_id, result_id)["concurrency_version"])
+
+
+def _update_result(
+    ar_service: AssessmentResultService,
+    tenant_id: UUID,
+    actor: UUID,
+    result_id: UUID,
+    *,
+    title: str,
+    description: str | None,
+    working_data: dict[str, object],
+) -> dict[str, object]:
+    return ar_service.update_result(
+        tenant_id,
+        actor,
+        result_id,
+        expected_version=_result_expected_version(ar_service, tenant_id, result_id),
+        title=title,
+        description=description,
+        working_data=working_data,
+    )
+
+
+def _publish_result(
+    ar_service: AssessmentResultService,
+    tenant_id: UUID,
+    actor: UUID,
+    result_id: UUID,
+    *,
+    expected_version: int | None = None,
+) -> dict[str, object]:
+    return ar_service.create_version(
+        tenant_id,
+        actor,
+        result_id,
+        expected_version=(
+            expected_version
+            if expected_version is not None
+            else _result_expected_version(ar_service, tenant_id, result_id)
+        ),
+    )
 
 
 def _prepare_plan_version(grc_service, session_factory):
@@ -390,7 +439,7 @@ def test_assessment_result_lifecycle_uses_pinned_assessment_plan_context(
         description="Execution outcome.",
     )
 
-    updated = service.update_result(
+    updated = _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -430,7 +479,7 @@ def test_assessment_result_lifecycle_uses_pinned_assessment_plan_context(
     )
     observation_id = updated["observations"][0]["id"]
 
-    updated = service.update_result(
+    updated = _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -457,7 +506,7 @@ def test_assessment_result_lifecycle_uses_pinned_assessment_plan_context(
     validation = service.validate_result(tenant_id, result["id"])
     assert validation["valid"]
 
-    version = service.create_version(tenant_id, actor, result["id"])
+    version = _publish_result(service, tenant_id, actor, result["id"])
     assert version["created"] is True
     assert version["oscal_version"] == "1.2.1"
     exported = service.export_version(tenant_id, result["id"], version["id"])
@@ -465,7 +514,7 @@ def test_assessment_result_lifecycle_uses_pinned_assessment_plan_context(
         f"/{plan_version['id']}/export"
     )
 
-    unchanged = service.create_version(tenant_id, actor, result["id"])
+    unchanged = _publish_result(service, tenant_id, actor, result["id"])
     assert unchanged["created"] is False
     assert unchanged["id"] == version["id"]
 
@@ -495,7 +544,7 @@ def test_assessment_result_rejects_unknown_statement_and_subject(
     )
 
     with pytest.raises(InvalidAssessmentResult):
-        service.update_result(
+        _update_result(service,
             tenant_id,
             actor,
             result["id"],
@@ -586,7 +635,7 @@ def test_assessment_result_version_creation_is_stable_under_concurrency(
         title="Concurrent version AR",
         description=None,
     )
-    updated = service.update_result(
+    updated = _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -625,7 +674,7 @@ def test_assessment_result_version_creation_is_stable_under_concurrency(
         },
     )
     observation_id = updated["observations"][0]["id"]
-    service.update_result(
+    _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -650,17 +699,230 @@ def test_assessment_result_version_creation_is_stable_under_concurrency(
         },
     )
 
-    def create_version_once() -> dict:
+    token = _result_expected_version(service, tenant_id, result["id"])
+    release = threading.Barrier(3)
+
+    def create_version_once() -> dict[str, object]:
         concurrent_service = AssessmentResultService(lambda: session_factory.begin())
-        return concurrent_service.create_version(tenant_id, actor, result["id"])
+        release.wait(timeout=5)
+        return _publish_result(
+            concurrent_service,
+            tenant_id,
+            actor,
+            result["id"],
+            expected_version=token,
+        )
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         first = executor.submit(create_version_once)
         second = executor.submit(create_version_once)
-        outcomes = [first.result(), second.result()]
+        release.wait(timeout=5)
 
-    assert sorted(item["created"] for item in outcomes) == [False, True]
-    assert len({item["id"] for item in outcomes}) == 1
+    published = []
+    stale = []
+    for future in [first, second]:
+        try:
+            published.append(future.result())
+        except StaleAssessmentResultUpdate as error:
+            stale.append(error)
+
+    assert len(published) == 1
+    assert published[0]["created"] is True
+    assert len(stale) == 1
+    assert stale[0].expected_version == token
+    assert stale[0].current_version == token + 1
+
+    versions = service.list_versions(tenant_id, result["id"])
+    assert len(versions) == 1
+    assert versions[0]["id"] == published[0]["id"]
+
+
+def test_assessment_result_update_rejects_stale_token_under_concurrent_transactions(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        _subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    result = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="Concurrent AR",
+        description="Concurrency check",
+    )
+    token = _result_expected_version(service, tenant_id, result["id"])
+    release = threading.Barrier(3)
+
+    def _attempt_update(title: str) -> str:
+        concurrent_service = AssessmentResultService(lambda: session_factory.begin())
+        release.wait(timeout=5)
+        concurrent_service.update_result(
+            tenant_id,
+            actor,
+            result["id"],
+            expected_version=token,
+            title=title,
+            description="Concurrency check",
+            working_data={
+                "reviewed_control_ids": [control_id],
+                "start": None,
+                "end": None,
+                "observations": [],
+                "findings": [],
+            },
+        )
+        return title
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(_attempt_update, "Concurrent AR A"),
+            executor.submit(_attempt_update, "Concurrent AR B"),
+        ]
+        release.wait(timeout=5)
+
+    winners = []
+    stale = []
+    for future in futures:
+        try:
+            winners.append(future.result())
+        except StaleAssessmentResultUpdate as error:
+            stale.append(error)
+
+    assert len(winners) == 1
+    assert len(stale) == 1
+    assert stale[0].expected_version == token
+    assert stale[0].current_version == token + 1
+
+    persisted = service.get_result(tenant_id, result["id"])
+    assert persisted["concurrency_version"] == token + 1
+    assert persisted["title"] == winners[0]
+
+
+def test_assessment_result_publish_rejects_stale_token_under_concurrent_transactions(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    result = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="Concurrent AR publish",
+        description="Concurrency check",
+    )
+    updated = _update_result(service,
+        tenant_id,
+        actor,
+        result["id"],
+        title="Concurrent AR publish",
+        description="Concurrency check",
+        working_data={
+            "reviewed_control_ids": [control_id],
+            "start": "2026-11-20T00:00:00+00:00",
+            "end": "2026-11-20T01:00:00+00:00",
+            "observations": [
+                {
+                    "title": "Observation",
+                    "description": "desc",
+                    "methods": ["EXAMINE"],
+                    "collected_at": "2026-11-20T00:30:00+00:00",
+                    "subject_uuids": [str(subject_uuid)],
+                    "evidence": [],
+                }
+            ],
+            "findings": [
+                {
+                    "title": "Concurrent finding",
+                    "description": "desc",
+                    "target_type": "objective-id",
+                    "target_id": "local-mfa-objective",
+                    "status": "satisfied",
+                    "related_observation_ids": [],
+                }
+            ],
+        },
+    )
+    observation_id = updated["observations"][0]["id"]
+    _update_result(service,
+        tenant_id,
+        actor,
+        result["id"],
+        title="Concurrent AR publish",
+        description="Concurrency check",
+        working_data={
+            "reviewed_control_ids": [control_id],
+            "start": "2026-11-20T00:00:00+00:00",
+            "end": "2026-11-20T01:00:00+00:00",
+            "observations": updated["observations"],
+            "findings": [
+                {
+                    "id": updated["findings"][0]["id"],
+                    "title": "Concurrent finding",
+                    "description": "desc",
+                    "target_type": "objective-id",
+                    "target_id": "local-mfa-objective",
+                    "status": "satisfied",
+                    "related_observation_ids": [str(observation_id)],
+                }
+            ],
+        },
+    )
+    token = _result_expected_version(service, tenant_id, result["id"])
+    release = threading.Barrier(3)
+
+    def _attempt_publish() -> dict[str, object]:
+        concurrent_service = AssessmentResultService(lambda: session_factory.begin())
+        release.wait(timeout=5)
+        return concurrent_service.create_version(
+            tenant_id,
+            actor,
+            result["id"],
+            expected_version=token,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(_attempt_publish), executor.submit(_attempt_publish)]
+        release.wait(timeout=5)
+
+    published = []
+    stale = []
+    for future in futures:
+        try:
+            published.append(future.result())
+        except StaleAssessmentResultUpdate as error:
+            stale.append(error)
+
+    assert len(published) == 1
+    assert published[0]["created"] is True
+    assert len(stale) == 1
+    assert stale[0].expected_version == token
+    assert stale[0].current_version == token + 1
+
+    versions = service.list_versions(tenant_id, result["id"])
+    assert len(versions) == 1
+    assert versions[0]["id"] == published[0]["id"]
+
+    persisted = service.get_result(tenant_id, result["id"])
+    assert persisted["concurrency_version"] == token + 1
 
 
 def test_assessment_result_rejects_stale_related_observation_reference(
@@ -686,7 +948,7 @@ def test_assessment_result_rejects_stale_related_observation_reference(
         title="Stale reference AR",
         description=None,
     )
-    updated = service.update_result(
+    updated = _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -721,7 +983,7 @@ def test_assessment_result_rejects_stale_related_observation_reference(
     stale_observation_id = updated["observations"][0]["id"]
 
     with pytest.raises(InvalidAssessmentResult) as error:
-        service.update_result(
+        _update_result(service,
             tenant_id,
             actor,
             result["id"],
@@ -764,7 +1026,7 @@ def test_assessment_result_rejects_reviewed_controls_outside_pinned_plan_scope(
     )
 
     with pytest.raises(InvalidAssessmentResult) as error:
-        service.update_result(
+        _update_result(service,
             context["tenant_id"],
             context["actor"],
             result["id"],
@@ -806,7 +1068,7 @@ def test_assessment_result_rejects_statement_target_outside_actual_reviewed_scop
     )
 
     with pytest.raises(InvalidAssessmentResult) as error:
-        service.update_result(
+        _update_result(service,
             context["tenant_id"],
             context["actor"],
             result["id"],
@@ -869,7 +1131,7 @@ def test_assessment_result_rejects_local_objective_target_outside_actual_scope(
     )
 
     with pytest.raises(InvalidAssessmentResult) as error:
-        service.update_result(
+        _update_result(service,
             context["tenant_id"],
             context["actor"],
             result["id"],
@@ -925,7 +1187,7 @@ def test_assessment_result_rejects_subjects_outside_pinned_plan_selection(
     )
 
     with pytest.raises(InvalidAssessmentResult) as error:
-        service.update_result(
+        _update_result(service,
             context["tenant_id"],
             context["actor"],
             result["id"],
@@ -973,7 +1235,7 @@ def test_assessment_result_allows_empty_subjects_when_plan_has_no_subject_select
     )
     assert result["subject_options"] == []
 
-    updated = service.update_result(
+    updated = _update_result(service,
         context["tenant_id"],
         context["actor"],
         result["id"],
@@ -999,7 +1261,7 @@ def test_assessment_result_allows_empty_subjects_when_plan_has_no_subject_select
     assert updated["observations"][0]["subject_uuids"] == []
 
     with pytest.raises(InvalidAssessmentResult) as error:
-        service.update_result(
+        _update_result(service,
             context["tenant_id"],
             context["actor"],
             result["id"],
@@ -1052,7 +1314,7 @@ def test_assessment_result_requires_related_observations_for_validation_and_publ
         title="Finding support AR",
         description=None,
     )
-    service.update_result(
+    _update_result(service,
         context["tenant_id"],
         context["actor"],
         result["id"],
@@ -1093,7 +1355,7 @@ def test_assessment_result_requires_related_observations_for_validation_and_publ
     )
 
     with pytest.raises(InvalidAssessmentResult) as publish_error:
-        service.create_version(context["tenant_id"], context["actor"], result["id"])
+        _publish_result(service, context["tenant_id"], context["actor"], result["id"])
     assert any(
         item["code"] == "finding_missing_related_observations"
         for item in publish_error.value.diagnostics
@@ -1192,7 +1454,7 @@ def test_assessment_result_exported_versions_remain_stable_after_hardening_check
         title="Stable export AR",
         description=None,
     )
-    updated = service.update_result(
+    updated = _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -1225,7 +1487,7 @@ def test_assessment_result_exported_versions_remain_stable_after_hardening_check
         },
     )
     observation_id = updated["observations"][0]["id"]
-    service.update_result(
+    _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -1249,10 +1511,10 @@ def test_assessment_result_exported_versions_remain_stable_after_hardening_check
             ],
         },
     )
-    version = service.create_version(tenant_id, actor, result["id"])
+    version = _publish_result(service, tenant_id, actor, result["id"])
     exported_before = service.export_version(tenant_id, result["id"], version["id"])
 
-    service.update_result(
+    _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -1303,7 +1565,7 @@ def test_assessment_result_reorder_preserves_explicit_observation_ids(
         title="Reorder IDs AR",
         description=None,
     )
-    updated = service.update_result(
+    updated = _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -1335,7 +1597,7 @@ def test_assessment_result_reorder_preserves_explicit_observation_ids(
     first_id = str(updated["observations"][0]["id"])
     second_id = str(updated["observations"][1]["id"])
 
-    reordered = service.update_result(
+    reordered = _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -1374,7 +1636,7 @@ def test_assessment_result_replacement_without_ids_generates_new_nested_ids(
         description=None,
     )
 
-    updated = service.update_result(
+    updated = _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -1415,7 +1677,7 @@ def test_assessment_result_replacement_without_ids_generates_new_nested_ids(
     old_evidence_id = str(updated["observations"][0]["evidence"][0]["id"])
     old_finding_id = str(updated["findings"][0]["id"])
 
-    replaced = service.update_result(
+    replaced = _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -1479,7 +1741,7 @@ def test_assessment_result_replacement_observation_does_not_retarget_existing_fi
         title="No retarget AR",
         description=None,
     )
-    updated = service.update_result(
+    updated = _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -1512,7 +1774,7 @@ def test_assessment_result_replacement_observation_does_not_retarget_existing_fi
     observation_id = str(updated["observations"][0]["id"])
     finding_id = str(updated["findings"][0]["id"])
 
-    linked = service.update_result(
+    linked = _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -1536,7 +1798,7 @@ def test_assessment_result_replacement_observation_does_not_retarget_existing_fi
     )
 
     with pytest.raises(InvalidAssessmentResult) as error:
-        service.update_result(
+        _update_result(service,
             tenant_id,
             actor,
             result["id"],
@@ -1584,7 +1846,7 @@ def test_assessment_result_rejects_duplicate_evidence_uuid_across_document(
     )
     shared = str(uuid4())
     with pytest.raises(InvalidAssessmentResult) as error:
-        service.update_result(
+        _update_result(service,
             tenant_id,
             actor,
             result["id"],
@@ -1658,7 +1920,7 @@ def test_assessment_result_rejects_duplicate_observation_and_finding_ids(
     duplicate_finding_id = str(uuid4())
 
     with pytest.raises(InvalidAssessmentResult) as error:
-        service.update_result(
+        _update_result(service,
             tenant_id,
             actor,
             result["id"],
@@ -1739,7 +2001,7 @@ def test_assessment_result_rejects_cross_entity_uuid_collisions(
     shared_id = str(uuid4())
 
     with pytest.raises(InvalidAssessmentResult) as error:
-        service.update_result(
+        _update_result(service,
             tenant_id,
             actor,
             result["id"],
@@ -1835,7 +2097,7 @@ def test_assessment_result_rejects_entities_reusing_assessment_result_uuid_on_pu
         }
 
     with pytest.raises(InvalidAssessmentResult) as publish_error:
-        service.create_version(tenant_id, actor, result["id"])
+        _publish_result(service, tenant_id, actor, result["id"])
 
     assert any(
         item["code"] == "duplicate_authored_entity_ids"
@@ -1887,7 +2149,7 @@ def test_assessment_result_rejects_ambiguous_statement_targets_even_when_actual_
     )
 
     with pytest.raises(InvalidAssessmentResult) as error:
-        service.update_result(
+        _update_result(service,
             context["tenant_id"],
             context["actor"],
             result["id"],
@@ -1960,7 +2222,7 @@ def test_assessment_result_rejects_ambiguous_catalog_objective_targets(
     )
 
     with pytest.raises(InvalidAssessmentResult) as error:
-        service.update_result(
+        _update_result(service,
             context["tenant_id"],
             context["actor"],
             result["id"],
@@ -2012,7 +2274,7 @@ def test_assessment_result_export_resolves_relevant_evidence_to_back_matter_reso
         title="Evidence reference AR",
         description=None,
     )
-    updated = service.update_result(
+    updated = _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -2050,7 +2312,7 @@ def test_assessment_result_export_resolves_relevant_evidence_to_back_matter_reso
     )
     observation_id = str(updated["observations"][0]["id"])
     finding_id = str(updated["findings"][0]["id"])
-    updated = service.update_result(
+    updated = _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -2074,7 +2336,7 @@ def test_assessment_result_export_resolves_relevant_evidence_to_back_matter_reso
     )
     evidence_id = str(updated["observations"][0]["evidence"][0]["id"])
 
-    version = service.create_version(tenant_id, actor, result["id"])
+    version = _publish_result(service, tenant_id, actor, result["id"])
     exported = service.export_version(tenant_id, result["id"], version["id"])
     resource_uuid = exported["assessment-results"]["back-matter"]["resources"][0]["uuid"]
     evidence_href = exported["assessment-results"]["results"][0]["observations"][0][
@@ -2114,7 +2376,7 @@ def test_assessment_result_accepts_http_and_https_evidence_urls(
         title="Allowed URL AR",
         description=None,
     )
-    updated = service.update_result(
+    updated = _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -2146,7 +2408,7 @@ def test_assessment_result_accepts_http_and_https_evidence_urls(
     )
     observation_id = str(updated["observations"][0]["id"])
     finding_id = str(updated["findings"][0]["id"])
-    service.update_result(
+    _update_result(service,
         tenant_id,
         actor,
         result["id"],
@@ -2170,7 +2432,7 @@ def test_assessment_result_accepts_http_and_https_evidence_urls(
     )
     validation = service.validate_result(tenant_id, result["id"])
     assert validation["valid"] is True
-    version = service.create_version(tenant_id, actor, result["id"])
+    version = _publish_result(service, tenant_id, actor, result["id"])
     assert version["created"] is True
 
 
@@ -2225,7 +2487,7 @@ def test_assessment_result_rejects_unsafe_or_ambiguous_evidence_urls(
         description=None,
     )
     with pytest.raises(InvalidAssessmentResult) as error:
-        service.update_result(
+        _update_result(service,
             tenant_id,
             actor,
             result["id"],

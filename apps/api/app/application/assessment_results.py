@@ -19,6 +19,7 @@ from collaborative_oscal_oscal.catalog_index import canonical_json_sha256
 from collaborative_oscal_oscal.versions import OscalDocumentModel, authoring_version_for
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.domain.errors import EntityNotFoundError
 from app.persistence.models import (
@@ -43,6 +44,14 @@ class InvalidAssessmentResult(ValueError):
         super().__init__(
             "The Assessment Results working state is not ready to create a valid OSCAL version."
         )
+
+
+class StaleAssessmentResultUpdate(ValueError):
+    def __init__(self, result_id: UUID, expected_version: int, current_version: int) -> None:
+        self.result_id = result_id
+        self.expected_version = expected_version
+        self.current_version = current_version
+        super().__init__("The Assessment Results record changed after it was loaded.")
 
 
 class AssessmentResultService:
@@ -120,6 +129,7 @@ class AssessmentResultService:
                 updated_by=actor,
                 created_at=now,
                 updated_at=now,
+                concurrency_version=1,
             )
             session.add(record)
             session.flush()
@@ -136,12 +146,17 @@ class AssessmentResultService:
         actor: UUID,
         result_id: UUID,
         *,
+        expected_version: int,
         title: str,
         description: str | None,
         working_data: dict[str, Any],
     ) -> dict[str, Any]:
         with self._session_scope() as session:
             record = self._get_result(session, tenant_id, result_id, lock=True)
+            if record.concurrency_version != expected_version:
+                raise StaleAssessmentResultUpdate(
+                    record.id, expected_version, record.concurrency_version
+                )
             context = self._context_for_result(session, record)
             normalized = self._normalize_working_data(working_data, previous=record.working_data)
             self._validate_working_integrity(
@@ -160,7 +175,21 @@ class AssessmentResultService:
             record.working_data = copy.deepcopy(normalized)
             record.updated_by = actor
             record.updated_at = datetime.now(UTC)
-            session.flush()
+            try:
+                session.flush()
+            except StaleDataError as error:
+                session.rollback()
+                current = session.scalar(
+                    select(AssessmentResultRecord.concurrency_version).where(
+                        AssessmentResultRecord.tenant_id == tenant_id,
+                        AssessmentResultRecord.id == result_id,
+                    )
+                )
+                raise StaleAssessmentResultUpdate(
+                    record.id,
+                    expected_version,
+                    current if current is not None else record.concurrency_version,
+                ) from error
             return self._result_payload(session, record)
 
     def validate_result(self, tenant_id: UUID, result_id: UUID) -> dict[str, Any]:
@@ -179,10 +208,19 @@ class AssessmentResultService:
             }
 
     def create_version(
-        self, tenant_id: UUID, actor: UUID, result_id: UUID
+        self,
+        tenant_id: UUID,
+        actor: UUID,
+        result_id: UUID,
+        *,
+        expected_version: int,
     ) -> dict[str, Any]:
         with self._session_scope() as session:
             record = self._get_result(session, tenant_id, result_id, lock=True)
+            if record.concurrency_version != expected_version:
+                raise StaleAssessmentResultUpdate(
+                    record.id, expected_version, record.concurrency_version
+                )
             draft, diagnostics, context = self._build_draft(session, record)
             errors = [item for item in diagnostics if item["severity"] == "error"]
             if errors:
@@ -234,7 +272,11 @@ class AssessmentResultService:
                 )
             )
             if existing is not None:
-                return self._version_payload(existing, created=False)
+                return self._version_payload(
+                    existing,
+                    created=False,
+                    concurrency_version=record.concurrency_version,
+                )
 
             snapshot = AssessmentResultVersionRecord(
                 id=uuid4(),
@@ -255,8 +297,26 @@ class AssessmentResultService:
             session.add(snapshot)
             record.updated_by = actor
             record.updated_at = now
-            session.flush()
-            return self._version_payload(snapshot, created=True)
+            try:
+                session.flush()
+            except StaleDataError as error:
+                session.rollback()
+                current = session.scalar(
+                    select(AssessmentResultRecord.concurrency_version).where(
+                        AssessmentResultRecord.tenant_id == tenant_id,
+                        AssessmentResultRecord.id == result_id,
+                    )
+                )
+                raise StaleAssessmentResultUpdate(
+                    record.id,
+                    expected_version,
+                    current if current is not None else record.concurrency_version,
+                ) from error
+            return self._version_payload(
+                snapshot,
+                created=True,
+                concurrency_version=record.concurrency_version,
+            )
 
     def list_versions(self, tenant_id: UUID, result_id: UUID) -> list[dict[str, Any]]:
         with self._session_scope() as session:
@@ -1058,11 +1118,15 @@ class AssessmentResultService:
             "end": working.get("end"),
             "created_at": record.created_at,
             "updated_at": record.updated_at,
+            "concurrency_version": record.concurrency_version,
         }
 
     @staticmethod
     def _version_payload(
-        record: AssessmentResultVersionRecord, *, created: bool
+        record: AssessmentResultVersionRecord,
+        *,
+        created: bool,
+        concurrency_version: int | None = None,
     ) -> dict[str, Any]:
         return {
             "id": record.id,
@@ -1076,6 +1140,7 @@ class AssessmentResultService:
             "diagnostics": record.diagnostics,
             "created_at": record.created_at,
             "created": created,
+            "concurrency_version": concurrency_version,
         }
 
     @staticmethod

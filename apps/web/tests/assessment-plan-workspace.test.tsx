@@ -676,6 +676,104 @@ describe("AssessmentPlanWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "Validation & Versions" }));
     expect(screen.getByText(/Version 2\.0/)).toBeVisible();
   });
+
+  it("disables nested editors and mutation actions while save is in progress", async () => {
+    const user = userEvent.setup();
+    let resolveSave!: (value: Response) => void;
+    const savePending = new Promise<Response>((resolve) => {
+      resolveSave = resolve;
+    });
+    const fetchMock = vi.fn().mockReturnValueOnce(savePending);
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWorkspace({ plan: { ...basePlan, control_ids: ["ac-1"] } });
+    await user.clear(screen.getByRole("textbox", { name: "Assessment Plan title" }));
+    await user.type(screen.getByRole("textbox", { name: "Assessment Plan title" }), "Busy state test");
+
+    await user.click(screen.getByRole("button", { name: "Scope" }));
+    await user.click(screen.getByRole("button", { name: "Add local objective" }));
+    await user.click(screen.getByRole("button", { name: "Activities" }));
+    await user.click(screen.getByRole("button", { name: "Add activity" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(screen.getByRole("button", { name: "Add task" }));
+    await user.click(screen.getByRole("button", { name: "Add role" }));
+    await user.click(screen.getByRole("button", { name: "Add party" }));
+
+    await user.click(screen.getAllByRole("button", { name: "Save working state" }).at(-1)!);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    expect(screen.getByRole("textbox", { name: "Task title" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Role identifier" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Party name" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add task" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add role" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add party" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Activities" }));
+    expect(screen.getByRole("textbox", { name: "Activity title" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add activity" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Scope" }));
+    expect(screen.getByRole("textbox", { name: "Identifier" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add local objective" })).toBeDisabled();
+
+    resolveSave(jsonResponse({ ...basePlan, title: "Busy state test", concurrency_version: 2 }));
+    expect(await screen.findByText("Assessment Plan working state saved.")).toBeVisible();
+  });
+
+  it("disables nested editors and reload action while conflict reload is in progress", async () => {
+    const user = userEvent.setup();
+    let resolvePlan!: (value: Response) => void;
+    let resolveVersions!: (value: Response) => void;
+    let resolveValidation!: (value: Response) => void;
+    const planPending = new Promise<Response>((resolve) => {
+      resolvePlan = resolve;
+    });
+    const versionsPending = new Promise<Response>((resolve) => {
+      resolveVersions = resolve;
+    });
+    const validationPending = new Promise<Response>((resolve) => {
+      resolveValidation = resolve;
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            detail: {
+              code: "stale_update",
+              plan_id: basePlan.id,
+              expected_version: 1,
+              current_version: 2,
+            },
+          },
+          409,
+        ),
+      )
+      .mockReturnValueOnce(planPending)
+      .mockReturnValueOnce(versionsPending)
+      .mockReturnValueOnce(validationPending);
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderWorkspace({ plan: { ...basePlan, control_ids: ["ac-1"] } });
+    await user.clear(screen.getByRole("textbox", { name: "Assessment Plan title" }));
+    await user.type(screen.getByRole("textbox", { name: "Assessment Plan title" }), "Conflict busy test");
+    await user.click(screen.getByRole("button", { name: "Scope" }));
+    await user.click(screen.getByRole("button", { name: "Add local objective" }));
+    await user.click(screen.getAllByRole("button", { name: "Save working state" }).at(-1)!);
+    expect(await screen.findByText(/Current server version: 2\./)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Discard edits and reload" }));
+    expect(screen.getByRole("button", { name: "Discard edits and reload" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Identifier" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add local objective" })).toBeDisabled();
+
+    resolvePlan(jsonResponse({ ...basePlan, title: "Server state", concurrency_version: 2, control_ids: ["ac-1"] }));
+    resolveVersions(jsonResponse([baseVersion]));
+    resolveValidation(jsonResponse(validation));
+    await waitFor(() => expect(screen.queryByText(/Current server version: 2\./)).not.toBeInTheDocument());
+  });
 });
 
 

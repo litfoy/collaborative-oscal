@@ -572,7 +572,7 @@ def test_assessment_plan_rejects_invalid_objective_references_and_conflicts(
 
 
 def test_assessment_plan_update_rejects_stale_token_under_concurrent_transactions(
-    grc_service, session_factory
+    grc_service, session_factory, monkeypatch
 ) -> None:
     tenant_id, actor, system_id, ssp_version_id, subject_uuid, _ = _prepare_ssp_version(
         grc_service, session_factory
@@ -588,6 +588,28 @@ def test_assessment_plan_update_rejects_stale_token_under_concurrent_transaction
     )
     token = _expected_version(service, tenant_id, plan["id"])
     release = threading.Barrier(3)
+    gate_entered = threading.Event()
+    gate_release = threading.Event()
+    gate_count = 0
+    gate_lock = threading.Lock()
+    original_validate = AssessmentPlanService._validate_working_integrity
+
+    def _gated_validate(self, working_data, *, baseline_control_ids, allowed_subject_uuids):
+        nonlocal gate_count
+        with gate_lock:
+            gate_count += 1
+            first = gate_count == 1
+        if first:
+            gate_entered.set()
+            assert gate_release.wait(timeout=5)
+        return original_validate(
+            self,
+            working_data,
+            baseline_control_ids=baseline_control_ids,
+            allowed_subject_uuids=allowed_subject_uuids,
+        )
+
+    monkeypatch.setattr(AssessmentPlanService, "_validate_working_integrity", _gated_validate)
 
     def _attempt_update(title: str) -> str:
         concurrent_service = AssessmentPlanService(lambda: session_factory.begin())
@@ -619,6 +641,9 @@ def test_assessment_plan_update_rejects_stale_token_under_concurrent_transaction
             executor.submit(_attempt_update, "Concurrent AP B"),
         ]
         release.wait(timeout=5)
+        assert gate_entered.wait(timeout=5)
+        assert all(not future.done() for future in futures)
+        gate_release.set()
     results = []
     stale = []
     for future in futures:
@@ -634,11 +659,11 @@ def test_assessment_plan_update_rejects_stale_token_under_concurrent_transaction
 
     persisted = service.get_plan(tenant_id, plan["id"])
     assert persisted["concurrency_version"] == token + 1
-    assert persisted["title"] in {"Concurrent AP A", "Concurrent AP B"}
+    assert persisted["title"] == results[0]
 
 
 def test_assessment_plan_publish_rejects_stale_token_under_concurrent_transactions(
-    grc_service, session_factory
+    grc_service, session_factory, monkeypatch
 ) -> None:
     tenant_id, actor, system_id, ssp_version_id, subject_uuid, _ = _prepare_ssp_version(
         grc_service, session_factory
@@ -673,6 +698,28 @@ def test_assessment_plan_publish_rejects_stale_token_under_concurrent_transactio
     )
     token = updated["concurrency_version"]
     release = threading.Barrier(3)
+    gate_entered = threading.Event()
+    gate_release = threading.Event()
+    gate_count = 0
+    gate_lock = threading.Lock()
+    original_validate = AssessmentPlanService._validate_working_integrity
+
+    def _gated_validate(self, working_data, *, baseline_control_ids, allowed_subject_uuids):
+        nonlocal gate_count
+        with gate_lock:
+            gate_count += 1
+            first = gate_count == 1
+        if first:
+            gate_entered.set()
+            assert gate_release.wait(timeout=5)
+        return original_validate(
+            self,
+            working_data,
+            baseline_control_ids=baseline_control_ids,
+            allowed_subject_uuids=allowed_subject_uuids,
+        )
+
+    monkeypatch.setattr(AssessmentPlanService, "_validate_working_integrity", _gated_validate)
 
     def _attempt_publish() -> dict[str, object]:
         concurrent_service = AssessmentPlanService(lambda: session_factory.begin())
@@ -687,6 +734,9 @@ def test_assessment_plan_publish_rejects_stale_token_under_concurrent_transactio
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = [executor.submit(_attempt_publish), executor.submit(_attempt_publish)]
         release.wait(timeout=5)
+        assert gate_entered.wait(timeout=5)
+        assert all(not future.done() for future in futures)
+        gate_release.set()
     published = []
     stale = []
     for future in futures:
