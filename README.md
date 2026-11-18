@@ -2,141 +2,148 @@
 
 **Shared compliance data. Independent assessments.**
 
-[Deutsch](README.de.md)
+[Deutsch](README.de.md) · [Architecture](docs/architecture/overview.md) · [AI Governance demo](docs/architecture/ai-governance-demo-seed.md)
 
-Collaborative OSCAL is a self-hosted proof of concept for collaboration across information security, data protection and compliance management, built on the open [OSCAL (Open Security Controls Assessment Language)](https://pages.nist.gov/OSCAL/) standard developed by NIST.
+Collaborative OSCAL is an open-source, self-hosted proof of concept for collaborative governance, risk and compliance (GRC), built on [NIST OSCAL (Open Security Controls Assessment Language)](https://pages.nist.gov/OSCAL/).
 
-The project explores how organizations can reuse security measures, system information and, in the future, suitable assessment evidence across different regulatory frameworks without merging their requirements or transferring compliance judgments automatically.
+It explores how information security, data protection, AI governance, risk management, compliance, system owners and auditors can work with shared information while retaining their distinct requirements, responsibilities and assessment judgments.
+
+The central idea is to **document implementation once where appropriate, reuse information across frameworks, and assess it independently in each relevant context**. OSCAL provides the common machine-readable data foundation rather than merely an export format.
 
 ![Collaborative OSCAL](./assets/collaborative-oscal.svg)
 
-> **Project status:** Experimental proof of concept under active development. Not intended for production use or processing confidential data.
+*Conceptual overview: shared measures and system information, separate assessments. Independent findings are supported at the data-model level; a shared evidence library and fine-grained stakeholder authorization remain future work.*
 
-*Product vision: shared measures and system information are supported today. Shared assessment evidence and independent findings are planned. The diagram illustrates collaboration, not automatic compliance decisions.*
+> **Status: Experimental proof of concept.** Not intended for production use, confidential data or authoritative compliance decisions. The implementation demonstrates the approach but does not yet enforce full separation of stakeholder duties.
+
+## Why Collaborative OSCAL?
+
+Organizations often face overlapping requirements from several standards, regulations and internal policies. Different stakeholders may examine the same system, technical configuration or organizational measure, yet pursue different objectives and reach different conclusions.
+
+Collaborative OSCAL separates three concerns:
+
+- **Requirements:** Each normative or organizational catalog retains its identity, content and revision history. Explicit mappings describe relationships without equating compliance outcomes.
+- **Implementation:** Reusable measures, concrete system components and requirement-specific implementation contributions are distinct. An implementation can contribute to several requirements without automatically satisfying them.
+- **Assessment:** Assessment plans, observations and findings retain their own scope and historical context. A documented implementation is not evidence of its effectiveness; one finding does not automatically determine another assessment's outcome.
+
+The longer-term vision is a shared information foundation with explicit reuse of suitable evidence, clear responsibilities and independent assessment authority. This is relevant to organizations with multiple governance and assurance functions, including regulated industries.
+
+Potential frameworks include BSI IT-Grundschutz++, GDPR, ISO/IEC 27001 and 27002, NIST SP 800-53, NIST AI RMF, ISO/IEC 42001, the EU AI Act and internal policies, provided suitable OSCAL content and usage rights are available. These are intended use cases, not a claim of complete framework coverage or regulatory conformity.
+
+### Example: multi-factor authentication
+
+An information security officer assesses privileged access. A data protection officer considers the security of personal data processing under Article 32 GDPR. Both can refer to the same MFA measure and identity provider, but document separate contributions to their respective requirements and conduct separate assessments.
+
+In the future, both could explicitly reuse the same suitable, versioned configuration export or test record while reaching different findings. MFA alone does not establish compliance with Article 32 GDPR.
 
 ## Quick start
 
-With Docker and Docker Compose installed, run one of the following from the repository root:
+With Docker and Docker Compose installed, run from the repository root:
 
 ```bash
 docker compose up --build -d credentials db db-init api web
 ```
 
-To include the optional AI Governance demo seed in the startup flow:
+Or start the stack with the optional AI Governance demo dataset:
 
 ```bash
 docker compose --profile ai-governance-demo up --build -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000). The standard demo includes a NIST SP 800-53 catalog. No external identity provider is required for local demo mode.
 
-The local demo starts without an external identity provider. It is intended for local development and demonstrations only. Anyone with access to the demo interface acts as the same demo user. Do not expose it publicly or use production or confidential data.
+**Local demo only:** anyone who can access the demo frontend acts as the same demo user. Do not expose it publicly or use production or confidential data. The UI is available in English and German; the language setting does not translate imported OSCAL content or user-authored text.
 
-The interface is available in English and German. Language selection affects the interface only, not imported OSCAL content or user-authored descriptions.
+See the [development guide](docs/development.md) for setup, configuration and testing. See the [AI Governance demo guide](docs/architecture/ai-governance-demo-seed.md) for seed status, troubleshooting and existing-installation behavior.
 
-See the [development guide](docs/development.md) for setup, testing and technical details.
+## AI Governance demo
 
-## Why Collaborative OSCAL?
+The optional demo illustrates a fictional internal AI-assisted software development platform using selected controls from an OSCAL catalog based on the [NIST AI RMF Generative AI Profile](https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence).
 
-Information security and data protection teams often work with the same systems and technical and organizational measures (TOMs), but use different regulatory requirements, documentation and assessment processes. This can lead to duplicated work and disconnected information.
+It connects model and dataset versioning, human oversight, acceptable use policies, risk measurement and AI red teaming to reusable safeguards, concrete components and requirement-specific implementation contributions. It includes a versioned System Security Plan (SSP), Assessment Plan (AP) and Assessment Results (AR).
 
-Collaborative OSCAL separates three concerns:
+One example finding concerns traceability of model versions: two of three sampled fictional release records meet a local assessment objective and one does not. The finding applies to that objective only; it does not establish the status of the entire control or the other planned controls.
 
-- **Requirements:** Each regulatory or organizational catalog retains its own identity, content and revision history.
-- **Implementation:** Reusable measures and concrete system components can contribute to requirements from different catalogs.
-- **Assessment:** Assessment scope, objectives and judgments remain specific to their context. Sharing suitable evidence is a planned extension, not a transfer of assessment results.
+This is a documentation and assessment scenario, not a running AI agent platform. All scenario data and evidence links are fictional. It does not demonstrate actual compliance, certification or automated AI safety evaluation.
 
-OSCAL provides a machine-readable foundation for this approach. Potential sources include BSI IT-Grundschutz++, GDPR, ISO/IEC 27001 and 27002, NIST SP 800-53 and internal policies, provided that an appropriate OSCAL catalog is available and the relevant content rights permit its use. These are target use cases, not a claim that every catalog is bundled or fully supported out of the box.
-
-### Example: multi-factor authentication
-
-An information security officer assesses a requirement concerning privileged access. A data protection officer assesses the security of personal data processing under Article 32 GDPR.
-
-Both can refer to the same multi-factor authentication (MFA) measure and the same identity provider. Each documents the contribution to their own requirements. In the planned assessment layer, they could explicitly reuse a suitable configuration export or test record while reaching independent findings.
-
-MFA can contribute to Article 32 GDPR but does not by itself establish compliance with that article.
+See the [scenario and seed documentation](docs/architecture/ai-governance-demo-seed.md) and [catalog provenance](examples/catalogs/nist-ai-rmf-gen-ai-1.0.0-catalog.provenance.json).
 
 ## Current capabilities
+
+All implemented features are experimental.
 
 | Area | Capabilities | Status |
 | --- | --- | --- |
 | Catalogs | Import, hierarchical browsing, immutable source revisions | Implemented |
-| Profiles | Explicit requirement selection across catalog revisions | Implemented; resolution deferred |
+| Profiles | Explicit control selection across catalog revisions | Implemented; full resolution deferred |
 | Control mappings | Explicit cross-catalog relationships; no automatic compliance inference | Implemented |
 | Component definitions | Reusable measures and controls | Implemented |
-| Implementation register | Requirement-specific implementation contributions and responsibilities | Implemented |
-| Systems | Shared concrete system components | Implemented |
-| System Security Plans (SSPs) | Catalog-based SSPs, validation and immutable document versions | Implemented |
-| Assessment plans (APs) | Scope, objectives, activities, tasks, roles, historical SSP references, validation and versioning | Implemented; final manual UI verification pending |
-| Assessment results (ARs) | Observations, evidence and findings | Planned |
-| Shared assessment evidence | Explicit reuse across independent assessments | Planned |
-| Plan of Action and Milestones (POA&M) | Remediation planning and tracking | Planned |
+| Implementation register | Requirement-specific contributions and responsibilities | Implemented |
+| Systems | Concrete system components | Implemented |
+| System Security Plans (SSPs) | Catalog-based SSPs, validation, immutable document versions | Implemented |
+| Assessment plans (APs) | Scope, objectives, subjects, activities, tasks, roles, pinned SSP versions | Implemented |
+| Assessment results (ARs) | Reviewed controls, observations, evidence references, findings, pinned AP versions | Implemented |
+| Independent assessments | Separate plans, results and findings in their respective contexts | Implemented at data-model level; fine-grained authorization pending |
+| Shared assessment evidence | Versioned evidence library and reuse across assessments | Planned |
+| Risks and POA&M | Risk treatment, remediation and tracking | Planned |
 
-Additional capabilities include OpenID Connect (OIDC) authentication, tenant-scoped authorization, English and German UI, and OSCAL JSON import and/or export as supported by each document model.
+Additional capabilities include OIDC authentication, tenant-scoped authorization, English and German UI, and OSCAL JSON import and/or export as supported by each document model. Assessment Results evidence currently consists of references, not managed evidence file storage.
 
-## Architecture and data integrity
+## Architecture
 
-The application uses Next.js and TypeScript, FastAPI and Python, PostgreSQL, [Compliance Trestle](https://github.com/oscal-compass/compliance-trestle), OpenID Connect and Docker Compose.
+The application is a modular monolith with a Next.js / TypeScript web frontend, FastAPI / Python backend and PostgreSQL persistence. It uses [Compliance Trestle](https://github.com/oscal-compass/compliance-trestle), OpenID Connect and Docker Compose.
 
-Core design decisions:
+Key design decisions:
 
-- Imported catalog revisions and published SSP/AP document versions are immutable. Historical references remain pinned to the original document state.
-- Reusable measures are separate from concrete system components and requirement-specific implementation contributions.
-- A documented implementation is not proof of its effectiveness. Control mappings do not imply equivalent compliance status or assessment outcomes.
-- OSCAL document processing follows a Trestle-first approach, supplemented by version-specific official NIST JSON Schemas and application-level reference and integrity checks.
-- New documents use OSCAL 1.2.1 where supported by the approved authoring policy. Imported and historical documents retain their declared versions; they are not silently converted.
-- A PostgreSQL-backed data model combines document content with relational identities, tenant boundaries and explicit references.
+- Imported catalog revisions and published SSP, AP and AR document versions are immutable. Historical references remain pinned to the original document state.
+- Reusable measures, concrete components and requirement-specific implementation contributions remain separate. Control mappings do not transfer implementation or assessment status automatically.
+- PostgreSQL combines authoritative OSCAL JSONB snapshots with relational identities, tenant boundaries and explicit references. Working records support editing before document version creation.
+- OSCAL processing follows a Trestle-first approach, supplemented by official version-specific NIST JSON Schemas and application-level reference and integrity checks. This is not exhaustive OSCAL semantic validation.
+- New documents use OSCAL 1.2.1 where supported by the authoring policy; imported and historical documents retain their declared versions and are not silently converted.
 
-Architecture decisions and trade-offs are documented in the repository's Architecture Decision Records (ADRs).
+See the [architecture overview](docs/architecture/overview.md), [domain model](docs/architecture/domain-model.md) and [Architecture Decision Records](docs/adr/), including [SSPs](docs/adr/0017-system-security-plans.md), [Assessment Plans](docs/adr/0019-assessment-plans.md) and [Assessment Results](docs/adr/0020-assessment-results.md).
 
-### Known limitations
+### OSCAL Compass and Compliance Trestle
 
-Full profile resolution is intentionally deferred following compatibility testing. Profiles can be authored, but the application does not claim to produce a correctly resolved catalog from them. SSPs currently use a directly referenced catalog revision.
+[OSCAL Compass](https://oscal-compass.dev/) is an open-source project hosted by the Cloud Native Computing Foundation (CNCF). Its tools support OSCAL-based compliance authoring, validation and automation. In particular, [Compliance Trestle](https://github.com/oscal-compass/compliance-trestle) provides a CLI and SDK for working with OSCAL artifacts, while [Agile Authoring](https://github.com/oscal-compass/compliance-trestle-agile-authoring) supports GitOps-based collaborative authoring.
 
-Assessment results, shared assessment evidence, POA&M and PDF reporting are not yet available. Technically valid OSCAL documents do not establish regulatory compliance or guarantee interoperability with every external OSCAL tool.
+One of the original design goals of Collaborative OSCAL was to build on the OSCAL Compass ecosystem and reuse its tooling wherever practical, rather than reinvent OSCAL processing. Trestle's generated models and validation capabilities are integrated behind a dedicated adapter boundary ([ADR 0002](docs/adr/0002-oscal-adapter-boundary.md)). Official schemas and application checks complement them where needed.
 
-## Agentic software engineering and AI governance
+Collaborative OSCAL explores a complementary approach: a browser-based, database-backed service for stakeholders who may not work with Git. The operational source of truth for compliance documents is the application database, not a Git repository; a GitOps workflow is deliberately not required for everyday use. This is a design choice for this use case, not a rejection of GitOps or compliance-as-code. Git-based workflows and further integration with OSCAL Compass tools may be valuable in the future. [Compliance to Policy (C2P)](https://github.com/oscal-compass/compliance-to-policy) is not yet integrated.
 
-Collaborative OSCAL is also an experiment in human-governed, LLM-assisted software engineering. A substantial part of the code has been produced with AI assistance, primarily through GitHub Copilot, with ChatGPT supporting design, task specification and critical review.
+## Known limitations and roadmap
 
-The development process includes human decisions and approval gates, architecture reviews instructed to remain read-only before major changes, ADRs, focused regression tests, automated integration tests and manual application testing. AI-generated explanations are treated as hypotheses until supported by evidence.
+The POC demonstrates a catalog-to-assessment workflow, not a complete compliance management lifecycle. In particular:
 
-For example, an assessment-plan validation failure was initially attributed to malformed local objectives, although the failing plan contained none. The implementation was not approved until an isolated reproduction identified an empty `metadata.version` as the actual cause. A separate objective-mapping defect was then verified and corrected independently.
+- Semantic validation needs improvement: recursive recognition of normative assessment objectives and statements, local assessment method representation, stable assessment-step identities and reviewed objective scope are areas for correction or extension.
+- Fine-grained stakeholder authorization, separation of duties, formal approvals and robust concurrent editing are not yet implemented. Existing tenant-level access controls must not be mistaken for independent assessment authority.
+- Shared, versioned evidence management, structured evidence provenance and risk/POA&M workflows remain future work.
+- Full profile resolution was intentionally deferred following compatibility testing. SSPs currently reference a catalog revision directly. Parameter authoring and resolution need further work.
+- Structured custom catalog authoring, portable document bundles, human-readable reporting and broader interoperability testing are planned or require further development.
 
-This process illustrates why plausible AI output is not a substitute for reproducible evidence or human accountability. It is an engineering approach, not a certification of AI safety or software quality.
+Schema-valid OSCAL documents do not establish regulatory compliance or guarantee interoperability with every OSCAL tool. See the [catalog import guide](docs/catalog-import.md), [profile resolution decision](docs/adr/0016-defer-profile-resolution.md) and [AI Governance interoperability findings](docs/architecture/ai-governance-demo-interoperability-findings-2026-11-17.md).
 
-## Verification
+## Development and verification
 
-The reported integration baseline on **16 November 2026**, following the assessment-plan validation fixes, is:
+Very large parts of the software were created through agentic coding, primarily with GitHub Copilot, using iterative prompt refinement and increasingly precise task specifications. ChatGPT supported design, specification and critical review. Human decisions, review and approval, documented architecture decisions and reproducible tests remain essential parts of the development process. AI-generated explanations and code are not treated as verified merely because they appear plausible.
 
-| Check | Result |
-| --- | --- |
-| Backend suite with PostgreSQL | 276 tests passed |
-| Frontend suite | 152 tests passed |
-| Frontend lint and TypeScript type checking | Passed |
+The repository includes backend and frontend tests, PostgreSQL integration coverage, CI configuration, and compatibility and regression probes. The [Assessment Results compatibility notes](docs/architecture/assessment-results-compatibility-probes-2026-11-17.md) document additional checks performed during development. Test results from earlier development snapshots are not a release certification; run the current test suites and manual workflows as described in the [development guide](docs/development.md).
 
-The focused assessment-plan regression coverage includes minimal scope, historical OSCAL 1.2.3 SSP references, OSCAL 1.2.1 AP version creation, repeated validation and objective reference integrity. The final manual browser workflow remains a separate acceptance check. These results are a dated development snapshot, not a security audit.
+## Acknowledgments and community
 
-## Roadmap
+The project owes a great deal to the open work of the NIST OSCAL and OSCAL Compass communities. I am particularly grateful for the opportunity to work alongside Anca Sailer and Vikas Agarwal in a working group at [LF AI & Data](https://lfaidata.foundation/). Their work and the OSCAL Compass ecosystem are important inspirations for this project.
 
-- [ ] Complete manual acceptance testing of assessment plans.
-- [ ] Implement assessment results and independent findings.
-- [ ] Enable explicit reuse of suitable assessment evidence.
-- [ ] Implement POA&M and remediation tracking.
-- [ ] Add structured authoring of custom catalogs with immutable published revisions.
-- [ ] Add human-readable PDF reporting.
-- [ ] Provide realistic BSI IT-Grundschutz++ and GDPR demonstration scenarios.
-- [ ] Further evaluate interoperability and profile resolution.
+Collaborative OSCAL is an independent personal open-source project. It is not an official OSCAL Compass, CNCF, LF AI & Data or NIST project, and no endorsement or involvement of these organizations or individuals in its development is implied.
 
-## Contributing and project status
+## License
 
-Feedback and contributions from information security, privacy, GRC, OSCAL, software engineering and AI governance practitioners are welcome.
+The project's own software is licensed under [Apache License 2.0](LICENSE). Third-party catalogs and other external content remain subject to their respective licenses and attribution requirements; the software license does not relicense those materials.
 
-This is an experimental proof of concept, not a production-ready GRC platform. Independent code and security reviews, hardening, broader interoperability testing and operational concepts are still required before production use. The software does not replace qualified legal, regulatory or security judgment.
+## Further reading
 
-## Further information
-
-- [Development guide](docs/development.md)
 - [NIST OSCAL](https://pages.nist.gov/OSCAL/)
-- [OSCAL Compass – Compliance Trestle](https://github.com/oscal-compass/compliance-trestle)
+- [OSCAL Compass](https://oscal-compass.dev/) · [GitHub](https://github.com/oscal-compass)
+- [Compliance Trestle documentation](https://oscal-compass.github.io/compliance-trestle/)
+- [NIST AI Risk Management Framework](https://www.nist.gov/itl/ai-risk-management-framework)
+- [LF AI & Data](https://lfaidata.foundation/)
 - [BSI – Stand-der-Technik-Bibliothek](https://github.com/BSI-Bund/Stand-der-Technik-Bibliothek)
