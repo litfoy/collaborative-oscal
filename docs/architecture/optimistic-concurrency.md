@@ -12,12 +12,13 @@ The following behaviors are required for mutable aggregate implementations that 
 
 1. **Mapper-backed concurrency token**
    - Use SQLAlchemy mapper versioning with `version_id_col` bound to aggregate `concurrency_version`.
-   - Keep `concurrency_version` numeric, non-null, and initialized to `1`.
+   - Keep `concurrency_version` as a non-null integer initialized to `1`.
    - Reference: `apps/api/app/persistence/models.py` (`AssessmentPlanRecord`, `AssessmentResultRecord`).
    - Migration pattern reference: `migrations/versions/e1f2a3b4c5d6_assessment_plan_concurrency.py`, `migrations/versions/f7a1c9e2d4b3_assessment_result_concurrency.py`.
 
 2. **Required expected version for existing-aggregate mutations**
-   - Require `expected_version` for update and publication mutations of existing aggregates.
+   - Require `expected_version` for all applicable mutations of existing aggregates.
+   - Where supported by aggregate behavior, this includes update, publication, and deletion mutations.
    - Missing required token must fail contract validation (`422`).
    - Reference: `apps/api/app/api/assessment_plan_schemas.py`, `apps/api/app/api/assessment_result_schemas.py`.
 
@@ -28,6 +29,8 @@ The following behaviors are required for mutable aggregate implementations that 
 
 4. **Aggregate-level protection, including nested-only mutations**
    - Protect the whole aggregate working state (including nested JSON/relational payloads), not only top-level scalar fields.
+   - Every effective mutation of protected aggregate state must advance `concurrency_version`, including nested relational and bulk mutation paths not automatically covered by mapper versioning.
+   - Preserve established no-op semantics: no-op operations do not need to increment the token.
    - Cover mutation paths where mapper versioning alone is not sufficient by adding explicit version checks and targeted regression tests.
    - Verified nested-only reference: `test_assessment_result_nested_only_update_advances_concurrency_version` in `apps/api/tests/test_assessment_results.py`.
 
@@ -39,17 +42,19 @@ The following behaviors are required for mutable aggregate implementations that 
      - API tests: `apps/api/tests/test_assessment_plan_api_concurrency.py`, `apps/api/tests/test_assessment_result_api_concurrency.py`
 
 6. **Atomic publication and token propagation**
-   - Publication is atomic with aggregate version advancement.
+   - Publication is atomic with aggregate version advancement where publication exists.
    - Publish responses must propagate the resulting token so subsequent client writes use the correct `expected_version`.
-   - Idempotent publication reuses the existing immutable snapshot and does not increment tokens unnecessarily.
+   - Idempotent publication (where supported) reuses the existing immutable snapshot and does not increment tokens unnecessarily.
    - References:
      - Service behavior: `apps/api/app/application/assessment_plans.py`, `apps/api/app/application/assessment_results.py`
      - Backend tests: `test_assessment_result_idempotent_publish_reuses_snapshot_without_token_increment` in `apps/api/tests/test_assessment_results.py`
-     - API/frontend token propagation tests: `test_publish_then_save_uses_returned_token_without_false_conflict` in both API concurrency files and both workspace test files.
+      - API token propagation tests: `test_publish_then_save_uses_returned_token_without_false_conflict` in `apps/api/tests/test_assessment_plan_api_concurrency.py` and `apps/api/tests/test_assessment_result_api_concurrency.py`.
+      - Frontend token propagation tests: `"synchronizes the publication token so a subsequent save does not conflict"` in `apps/web/tests/assessment-plan-workspace.test.tsx` and `apps/web/tests/assessment-result-workspace.test.tsx`.
 
 7. **BFF and frontend conflict handling contract**
    - Preserve backend `409` payloads through the BFF unchanged.
-   - Frontend must send `expected_version`, prevent parallel conflicting mutation requests while pending, and keep unsaved edits during conflicts.
+   - Frontend must send `expected_version`, keep unsaved edits during conflicts, and prohibit automatic conflict merging or silent overwrite behavior.
+   - During pending save, publication, and conflict-reload requests, all relevant editor inputs and mutation actions must be protected (disabled or otherwise blocked) until completion.
    - Discard/reload after conflict requires explicit user confirmation.
    - References:
      - BFF proxy: `apps/web/src/app/bff/[...path]/route.ts`
@@ -58,8 +63,8 @@ The following behaviors are required for mutable aggregate implementations that 
      - Frontend regressions: `apps/web/tests/assessment-plan-workspace.test.tsx`, `apps/web/tests/assessment-result-workspace.test.tsx`
 
 8. **Historical snapshot immutability and tenant isolation**
-   - Immutable versions remain append-only historical snapshots.
-   - Stale publish attempts must not create extra snapshots.
+   - Where immutable versions exist, they remain append-only historical snapshots.
+   - Where publication exists, stale publish attempts must not create extra snapshots.
    - Keep tenant scoping in lock/query paths and migrations (`tenant_id` filters and constraints).
    - References: application services and persistence models above.
 
@@ -95,6 +100,7 @@ This section explains the required transaction pattern and why it is structured 
 
 6. **Acknowledge mapper-versioning limits for bulk and nested relational mutation paths**
    - Mapper versioning does not replace aggregate-level mutation discipline for bulk SQL paths or domain-specific nested mutation side effects.
+   - Implement explicit mutation handling so each effective protected-state change still advances `concurrency_version` when mapper automation does not do so.
    - Keep explicit checks, lock discipline, and targeted regressions for those paths.
 
 7. **Atomic rollback requirements**
@@ -118,12 +124,28 @@ This section separates mandatory behavioral guarantees from persistence-specific
 
 Every aggregate adopting ADR 0022 must prove:
 
-1. stale update and stale publish requests are rejected with stable `409 stale_update` details,
+1. stale mutation requests are rejected with stable `409 stale_update` details for supported mutating operations,
 2. missing required expected-version tokens are rejected (`422`),
 3. exactly one winner persists under concurrent overlap for conflicting writes,
-4. stale publish attempts do not create extra immutable snapshots,
-5. idempotent publish reuse does not increment tokens unnecessarily,
-6. frontend preserves unsaved edits on conflict and requires explicit confirmation before discard/reload.
+4. effective protected-state mutations advance `concurrency_version` (with established no-op semantics preserved),
+5. frontend preserves unsaved edits on conflict, blocks relevant mutation actions while pending, and requires explicit confirmation before discard/reload,
+6. automatic conflict merge and silent overwrite behavior is not introduced.
+
+### Operation-specific guarantees
+
+Apply these guarantees only to aggregates that expose the corresponding operation or structure.
+
+1. **Publication + immutable snapshots (where present)**
+   - stale publish attempts do not create extra immutable snapshots,
+   - idempotent publish reuse does not increment tokens unnecessarily,
+   - publication responses propagate the current token for subsequent writes.
+
+2. **Deletion (where supported)**
+   - deletion requires `expected_version`,
+   - stale deletion attempts return structured `409 stale_update` behavior.
+
+3. **Nested authored structures (where present)**
+   - nested-only effective mutations advance the aggregate token and participate in stale detection.
 
 ### Verified techniques used by Assessment Plans and Assessment Results
 
@@ -148,6 +170,7 @@ Every aggregate adopting ADR 0022 must prove:
 
 4. **Winner and snapshot assertions**
    - Verify exact persisted winner payload, final `concurrency_version`, snapshot identity, and snapshot count.
+   - Apply snapshot identity/count checks where immutable version publication exists.
    - References include stale publish/no-extra-snapshot checks in both API concurrency suites.
 
 5. **Nested-only mutation and idempotent publish coverage**
@@ -171,4 +194,6 @@ Every aggregate adopting ADR 0022 must prove:
 - **Thread barriers alone are insufficient:** they coordinate timing but do not prove actual database lock contention.
 - **Simulated exceptions alone are insufficient:** they can prove translation logic, but not real transactional winner/loser behavior.
 - **Passing tests alone are insufficient without evidence quality:** concurrency guarantees require tests that demonstrate real contention, rollback behavior, and persisted-state outcomes, not only status-code checks.
+
+
 
