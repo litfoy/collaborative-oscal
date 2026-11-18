@@ -178,17 +178,11 @@ class AssessmentResultService:
             try:
                 session.flush()
             except StaleDataError as error:
-                session.rollback()
-                current = session.scalar(
-                    select(AssessmentResultRecord.concurrency_version).where(
-                        AssessmentResultRecord.tenant_id == tenant_id,
-                        AssessmentResultRecord.id == result_id,
-                    )
-                )
+                current = self._current_result_version(tenant_id, result_id)
                 raise StaleAssessmentResultUpdate(
-                    record.id,
+                    result_id,
                     expected_version,
-                    current if current is not None else record.concurrency_version,
+                    current,
                 ) from error
             return self._result_payload(session, record)
 
@@ -300,23 +294,29 @@ class AssessmentResultService:
             try:
                 session.flush()
             except StaleDataError as error:
-                session.rollback()
-                current = session.scalar(
-                    select(AssessmentResultRecord.concurrency_version).where(
-                        AssessmentResultRecord.tenant_id == tenant_id,
-                        AssessmentResultRecord.id == result_id,
-                    )
-                )
+                current = self._current_result_version(tenant_id, result_id)
                 raise StaleAssessmentResultUpdate(
-                    record.id,
+                    result_id,
                     expected_version,
-                    current if current is not None else record.concurrency_version,
+                    current,
                 ) from error
             return self._version_payload(
                 snapshot,
                 created=True,
                 concurrency_version=record.concurrency_version,
             )
+
+    def _current_result_version(self, tenant_id: UUID, result_id: UUID) -> int:
+        with self._session_scope() as session:
+            current = session.scalar(
+                select(AssessmentResultRecord.concurrency_version).where(
+                    AssessmentResultRecord.tenant_id == tenant_id,
+                    AssessmentResultRecord.id == result_id,
+                )
+            )
+            if current is None:
+                raise EntityNotFoundError("Assessment Results record not found.")
+            return int(current)
 
     def list_versions(self, tenant_id: UUID, result_id: UUID) -> list[dict[str, Any]]:
         with self._session_scope() as session:

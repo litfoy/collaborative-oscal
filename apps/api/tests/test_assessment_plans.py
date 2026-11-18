@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.application.assessment_plans import (
     AssessmentPlanService,
@@ -757,6 +760,126 @@ def test_assessment_plan_publish_rejects_stale_token_under_concurrent_transactio
 
     persisted = service.get_plan(tenant_id, plan["id"])
     assert persisted["concurrency_version"] == token + 1
+
+
+def test_assessment_plan_update_translates_mapper_stale_error(
+    grc_service, session_factory, monkeypatch
+) -> None:
+    tenant_id, actor, system_id, ssp_version_id, subject_uuid, _ = _prepare_ssp_version(
+        grc_service, session_factory
+    )
+    service = AssessmentPlanService(lambda: session_factory.begin())
+    created = service.create_plan(
+        tenant_id,
+        actor,
+        system_id,
+        ssp_version_id=ssp_version_id,
+        title="Forced mapper stale",
+        description=None,
+    )
+    token = created["concurrency_version"]
+
+    original_flush = Session.flush
+
+    def _stale_flush(self, *args, **kwargs):
+        if self.info.get("force_stale_flush") and (self.new or self.dirty or self.deleted):
+            raise StaleDataError("forced stale update")
+        return original_flush(self, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "flush", _stale_flush)
+
+    @contextmanager
+    def stale_scope():
+        with session_factory.begin() as session:
+            session.info["force_stale_flush"] = True
+            yield session
+
+    stale_service = AssessmentPlanService(stale_scope)
+    with pytest.raises(StaleAssessmentPlanUpdate) as error:
+        stale_service.update_plan(
+            tenant_id,
+            actor,
+            created["id"],
+            expected_version=token,
+            title="Forced mapper stale",
+            description=None,
+            working_data={
+                "control_ids": ["ac-1"],
+                "source_objectives": [],
+                "local_objectives": [],
+                "subject_uuids": [str(subject_uuid)],
+                "activities": [],
+                "tasks": [],
+                "roles": [],
+                "parties": [],
+                "terms": None,
+            },
+        )
+    assert error.value.expected_version == token
+    assert error.value.current_version == token
+
+
+def test_assessment_plan_publish_translates_mapper_stale_error(
+    grc_service, session_factory, monkeypatch
+) -> None:
+    tenant_id, actor, system_id, ssp_version_id, subject_uuid, _ = _prepare_ssp_version(
+        grc_service, session_factory
+    )
+    service = AssessmentPlanService(lambda: session_factory.begin())
+    plan = service.create_plan(
+        tenant_id,
+        actor,
+        system_id,
+        ssp_version_id=ssp_version_id,
+        title="Forced mapper stale publish",
+        description=None,
+    )
+    updated = service.update_plan(
+        tenant_id,
+        actor,
+        plan["id"],
+        expected_version=plan["concurrency_version"],
+        title=plan["title"],
+        description=plan["description"],
+        working_data={
+            "control_ids": ["ac-1"],
+            "source_objectives": [],
+            "local_objectives": [],
+            "subject_uuids": [str(subject_uuid)],
+            "activities": [],
+            "tasks": [],
+            "roles": [],
+            "parties": [],
+            "terms": None,
+        },
+    )
+    token = updated["concurrency_version"]
+
+    original_flush = Session.flush
+
+    def _stale_flush(self, *args, **kwargs):
+        if self.info.get("force_stale_flush") and (self.new or self.dirty or self.deleted):
+            raise StaleDataError("forced stale update")
+        return original_flush(self, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "flush", _stale_flush)
+
+    @contextmanager
+    def stale_scope():
+        with session_factory.begin() as session:
+            session.info["force_stale_flush"] = True
+            yield session
+
+    stale_service = AssessmentPlanService(stale_scope)
+    with pytest.raises(StaleAssessmentPlanUpdate) as error:
+        stale_service.create_version(
+            tenant_id,
+            actor,
+            plan["id"],
+            expected_version=token,
+        )
+    assert error.value.expected_version == token
+    assert error.value.current_version == token
 
 
 

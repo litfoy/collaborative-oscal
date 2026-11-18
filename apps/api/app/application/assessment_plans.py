@@ -151,17 +151,11 @@ class AssessmentPlanService:
             try:
                 session.flush()
             except StaleDataError as error:
-                session.rollback()
-                current = session.scalar(
-                    select(AssessmentPlanRecord.concurrency_version).where(
-                        AssessmentPlanRecord.tenant_id == tenant_id,
-                        AssessmentPlanRecord.id == plan_id,
-                    )
-                )
+                current = self._current_plan_version(tenant_id, plan_id)
                 raise StaleAssessmentPlanUpdate(
-                    plan.id,
+                    plan_id,
                     expected_version,
-                    current if current is not None else plan.concurrency_version,
+                    current,
                 ) from error
             return self._plan_payload(session, plan)
 
@@ -264,23 +258,29 @@ class AssessmentPlanService:
             try:
                 session.flush()
             except StaleDataError as error:
-                session.rollback()
-                current = session.scalar(
-                    select(AssessmentPlanRecord.concurrency_version).where(
-                        AssessmentPlanRecord.tenant_id == tenant_id,
-                        AssessmentPlanRecord.id == plan_id,
-                    )
-                )
+                current = self._current_plan_version(tenant_id, plan_id)
                 raise StaleAssessmentPlanUpdate(
-                    plan.id,
+                    plan_id,
                     expected_version,
-                    current if current is not None else plan.concurrency_version,
+                    current,
                 ) from error
             return self._version_payload(
                 record,
                 created=True,
                 concurrency_version=plan.concurrency_version,
             )
+
+    def _current_plan_version(self, tenant_id: UUID, plan_id: UUID) -> int:
+        with self._session_scope() as session:
+            current = session.scalar(
+                select(AssessmentPlanRecord.concurrency_version).where(
+                    AssessmentPlanRecord.tenant_id == tenant_id,
+                    AssessmentPlanRecord.id == plan_id,
+                )
+            )
+            if current is None:
+                raise EntityNotFoundError("Assessment Plan not found.")
+            return int(current)
 
     def list_versions(self, tenant_id: UUID, plan_id: UUID) -> list[dict[str, Any]]:
         with self._session_scope() as session:

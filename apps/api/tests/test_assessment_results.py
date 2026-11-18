@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.application.assessment_plans import AssessmentPlanService
 from app.application.assessment_results import (
@@ -614,7 +617,7 @@ def test_assessment_result_rejects_cross_tenant_assessment_plan_reference(
 
 
 def test_assessment_result_version_creation_is_stable_under_concurrency(
-    grc_service, session_factory
+    grc_service, session_factory, monkeypatch
 ) -> None:
     (
         tenant_id,
@@ -701,10 +704,57 @@ def test_assessment_result_version_creation_is_stable_under_concurrency(
 
     token = _result_expected_version(service, tenant_id, result["id"])
     release = threading.Barrier(3)
+    both_started = threading.Event()
+    gate_entered = threading.Event()
+    gate_release = threading.Event()
+    attempt_count = 0
+    gate_count = 0
+    state_lock = threading.Lock()
+    original_validate = AssessmentResultService._validate_working_integrity
+
+    def _gated_validate(
+        self,
+        working_data,
+        *,
+        result_uuid,
+        planned_control_ids,
+        allowed_subject_uuids,
+        statement_controls,
+        catalog_objective_controls,
+        selected_catalog_objective_ids,
+        local_objective_controls,
+        require_related_observations,
+    ):
+        nonlocal gate_count
+        with state_lock:
+            gate_count += 1
+            first = gate_count == 1
+        if first:
+            gate_entered.set()
+            assert gate_release.wait(timeout=5)
+        return original_validate(
+            self,
+            working_data,
+            result_uuid=result_uuid,
+            planned_control_ids=planned_control_ids,
+            allowed_subject_uuids=allowed_subject_uuids,
+            statement_controls=statement_controls,
+            catalog_objective_controls=catalog_objective_controls,
+            selected_catalog_objective_ids=selected_catalog_objective_ids,
+            local_objective_controls=local_objective_controls,
+            require_related_observations=require_related_observations,
+        )
+
+    monkeypatch.setattr(AssessmentResultService, "_validate_working_integrity", _gated_validate)
 
     def create_version_once() -> dict[str, object]:
+        nonlocal attempt_count
         concurrent_service = AssessmentResultService(lambda: session_factory.begin())
         release.wait(timeout=5)
+        with state_lock:
+            attempt_count += 1
+            if attempt_count == 2:
+                both_started.set()
         return _publish_result(
             concurrent_service,
             tenant_id,
@@ -716,7 +766,13 @@ def test_assessment_result_version_creation_is_stable_under_concurrency(
     with ThreadPoolExecutor(max_workers=2) as executor:
         first = executor.submit(create_version_once)
         second = executor.submit(create_version_once)
-        release.wait(timeout=5)
+        try:
+            release.wait(timeout=5)
+            assert both_started.wait(timeout=5)
+            assert gate_entered.wait(timeout=5)
+            assert all(not future.done() for future in (first, second))
+        finally:
+            gate_release.set()
 
     published = []
     stale = []
@@ -738,7 +794,7 @@ def test_assessment_result_version_creation_is_stable_under_concurrency(
 
 
 def test_assessment_result_update_rejects_stale_token_under_concurrent_transactions(
-    grc_service, session_factory
+    grc_service, session_factory, monkeypatch
 ) -> None:
     (
         tenant_id,
@@ -761,10 +817,57 @@ def test_assessment_result_update_rejects_stale_token_under_concurrent_transacti
     )
     token = _result_expected_version(service, tenant_id, result["id"])
     release = threading.Barrier(3)
+    both_started = threading.Event()
+    gate_entered = threading.Event()
+    gate_release = threading.Event()
+    attempt_count = 0
+    gate_count = 0
+    state_lock = threading.Lock()
+    original_validate = AssessmentResultService._validate_working_integrity
+
+    def _gated_validate(
+        self,
+        working_data,
+        *,
+        result_uuid,
+        planned_control_ids,
+        allowed_subject_uuids,
+        statement_controls,
+        catalog_objective_controls,
+        selected_catalog_objective_ids,
+        local_objective_controls,
+        require_related_observations,
+    ):
+        nonlocal gate_count
+        with state_lock:
+            gate_count += 1
+            first = gate_count == 1
+        if first:
+            gate_entered.set()
+            assert gate_release.wait(timeout=5)
+        return original_validate(
+            self,
+            working_data,
+            result_uuid=result_uuid,
+            planned_control_ids=planned_control_ids,
+            allowed_subject_uuids=allowed_subject_uuids,
+            statement_controls=statement_controls,
+            catalog_objective_controls=catalog_objective_controls,
+            selected_catalog_objective_ids=selected_catalog_objective_ids,
+            local_objective_controls=local_objective_controls,
+            require_related_observations=require_related_observations,
+        )
+
+    monkeypatch.setattr(AssessmentResultService, "_validate_working_integrity", _gated_validate)
 
     def _attempt_update(title: str) -> str:
+        nonlocal attempt_count
         concurrent_service = AssessmentResultService(lambda: session_factory.begin())
         release.wait(timeout=5)
+        with state_lock:
+            attempt_count += 1
+            if attempt_count == 2:
+                both_started.set()
         concurrent_service.update_result(
             tenant_id,
             actor,
@@ -787,7 +890,13 @@ def test_assessment_result_update_rejects_stale_token_under_concurrent_transacti
             executor.submit(_attempt_update, "Concurrent AR A"),
             executor.submit(_attempt_update, "Concurrent AR B"),
         ]
-        release.wait(timeout=5)
+        try:
+            release.wait(timeout=5)
+            assert both_started.wait(timeout=5)
+            assert gate_entered.wait(timeout=5)
+            assert all(not future.done() for future in futures)
+        finally:
+            gate_release.set()
 
     winners = []
     stale = []
@@ -808,7 +917,7 @@ def test_assessment_result_update_rejects_stale_token_under_concurrent_transacti
 
 
 def test_assessment_result_publish_rejects_stale_token_under_concurrent_transactions(
-    grc_service, session_factory
+    grc_service, session_factory, monkeypatch
 ) -> None:
     (
         tenant_id,
@@ -888,10 +997,57 @@ def test_assessment_result_publish_rejects_stale_token_under_concurrent_transact
     )
     token = _result_expected_version(service, tenant_id, result["id"])
     release = threading.Barrier(3)
+    both_started = threading.Event()
+    gate_entered = threading.Event()
+    gate_release = threading.Event()
+    attempt_count = 0
+    gate_count = 0
+    state_lock = threading.Lock()
+    original_validate = AssessmentResultService._validate_working_integrity
+
+    def _gated_validate(
+        self,
+        working_data,
+        *,
+        result_uuid,
+        planned_control_ids,
+        allowed_subject_uuids,
+        statement_controls,
+        catalog_objective_controls,
+        selected_catalog_objective_ids,
+        local_objective_controls,
+        require_related_observations,
+    ):
+        nonlocal gate_count
+        with state_lock:
+            gate_count += 1
+            first = gate_count == 1
+        if first:
+            gate_entered.set()
+            assert gate_release.wait(timeout=5)
+        return original_validate(
+            self,
+            working_data,
+            result_uuid=result_uuid,
+            planned_control_ids=planned_control_ids,
+            allowed_subject_uuids=allowed_subject_uuids,
+            statement_controls=statement_controls,
+            catalog_objective_controls=catalog_objective_controls,
+            selected_catalog_objective_ids=selected_catalog_objective_ids,
+            local_objective_controls=local_objective_controls,
+            require_related_observations=require_related_observations,
+        )
+
+    monkeypatch.setattr(AssessmentResultService, "_validate_working_integrity", _gated_validate)
 
     def _attempt_publish() -> dict[str, object]:
+        nonlocal attempt_count
         concurrent_service = AssessmentResultService(lambda: session_factory.begin())
         release.wait(timeout=5)
+        with state_lock:
+            attempt_count += 1
+            if attempt_count == 2:
+                both_started.set()
         return concurrent_service.create_version(
             tenant_id,
             actor,
@@ -901,7 +1057,13 @@ def test_assessment_result_publish_rejects_stale_token_under_concurrent_transact
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = [executor.submit(_attempt_publish), executor.submit(_attempt_publish)]
-        release.wait(timeout=5)
+        try:
+            release.wait(timeout=5)
+            assert both_started.wait(timeout=5)
+            assert gate_entered.wait(timeout=5)
+            assert all(not future.done() for future in futures)
+        finally:
+            gate_release.set()
 
     published = []
     stale = []
@@ -923,6 +1085,357 @@ def test_assessment_result_publish_rejects_stale_token_under_concurrent_transact
 
     persisted = service.get_result(tenant_id, result["id"])
     assert persisted["concurrency_version"] == token + 1
+
+
+def test_assessment_result_update_translates_mapper_stale_error(
+    grc_service, session_factory, monkeypatch
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        _subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    created = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="Forced mapper stale",
+        description=None,
+    )
+    token = created["concurrency_version"]
+
+    original_flush = Session.flush
+
+    def _stale_flush(self, *args, **kwargs):
+        if self.info.get("force_stale_flush") and (self.new or self.dirty or self.deleted):
+            raise StaleDataError("forced stale update")
+        return original_flush(self, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "flush", _stale_flush)
+
+    @contextmanager
+    def stale_scope():
+        with session_factory.begin() as session:
+            session.info["force_stale_flush"] = True
+            yield session
+
+    stale_service = AssessmentResultService(stale_scope)
+    with pytest.raises(StaleAssessmentResultUpdate) as error:
+        stale_service.update_result(
+            tenant_id,
+            actor,
+            created["id"],
+            expected_version=token,
+            title="Forced mapper stale",
+            description=None,
+            working_data={
+                "reviewed_control_ids": [control_id],
+                "start": None,
+                "end": None,
+                "observations": [],
+                "findings": [],
+            },
+        )
+    assert error.value.expected_version == token
+    assert error.value.current_version == token
+
+
+def test_assessment_result_publish_translates_mapper_stale_error(
+    grc_service, session_factory, monkeypatch
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    created = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="Forced mapper stale publish",
+        description=None,
+    )
+    seeded = _update_result(
+        service,
+        tenant_id,
+        actor,
+        created["id"],
+        title="Forced mapper stale publish",
+        description=None,
+        working_data={
+            "reviewed_control_ids": [control_id],
+            "start": "2026-11-20T00:00:00+00:00",
+            "end": "2026-11-20T01:00:00+00:00",
+            "observations": [
+                {
+                    "title": "Observation",
+                    "description": "desc",
+                    "methods": ["EXAMINE"],
+                    "collected_at": "2026-11-20T00:30:00+00:00",
+                    "subject_uuids": [str(subject_uuid)],
+                    "evidence": [],
+                }
+            ],
+            "findings": [
+                {
+                    "title": "Finding",
+                    "description": "desc",
+                    "target_type": "objective-id",
+                    "target_id": "local-mfa-objective",
+                    "status": "satisfied",
+                    "related_observation_ids": [],
+                }
+            ],
+        },
+    )
+    observation_id = str(seeded["observations"][0]["id"])
+    _update_result(
+        service,
+        tenant_id,
+        actor,
+        created["id"],
+        title="Forced mapper stale publish",
+        description=None,
+        working_data={
+            "reviewed_control_ids": [control_id],
+            "start": "2026-11-20T00:00:00+00:00",
+            "end": "2026-11-20T01:00:00+00:00",
+            "observations": seeded["observations"],
+            "findings": [
+                {
+                    "id": seeded["findings"][0]["id"],
+                    "title": "Finding",
+                    "description": "desc",
+                    "target_type": "objective-id",
+                    "target_id": "local-mfa-objective",
+                    "status": "satisfied",
+                    "related_observation_ids": [observation_id],
+                }
+            ],
+        },
+    )
+    token = _result_expected_version(service, tenant_id, created["id"])
+
+    original_flush = Session.flush
+
+    def _stale_flush(self, *args, **kwargs):
+        if self.info.get("force_stale_flush") and (self.new or self.dirty or self.deleted):
+            raise StaleDataError("forced stale update")
+        return original_flush(self, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "flush", _stale_flush)
+
+    @contextmanager
+    def stale_scope():
+        with session_factory.begin() as session:
+            session.info["force_stale_flush"] = True
+            yield session
+
+    stale_service = AssessmentResultService(stale_scope)
+    with pytest.raises(StaleAssessmentResultUpdate) as error:
+        stale_service.create_version(
+            tenant_id,
+            actor,
+            created["id"],
+            expected_version=token,
+        )
+    assert error.value.expected_version == token
+    assert error.value.current_version == token
+
+
+def test_assessment_result_nested_only_update_advances_concurrency_version(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    created = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="Nested-only version bump",
+        description=None,
+    )
+    seeded = _update_result(
+        service,
+        tenant_id,
+        actor,
+        created["id"],
+        title="Nested-only version bump",
+        description=None,
+        working_data={
+            "reviewed_control_ids": [control_id],
+            "start": None,
+            "end": None,
+            "observations": [
+                {
+                    "title": "Observation",
+                    "description": "desc",
+                    "methods": ["EXAMINE"],
+                    "collected_at": "2026-11-20T00:30:00+00:00",
+                    "subject_uuids": [str(subject_uuid)],
+                    "evidence": [
+                        {
+                            "title": "Evidence",
+                            "description": "old",
+                            "href": "https://example.test/evidence/1",
+                        }
+                    ],
+                }
+            ],
+            "findings": [],
+        },
+    )
+    token = seeded["concurrency_version"]
+    nested_change = _update_result(
+        service,
+        tenant_id,
+        actor,
+        created["id"],
+        title=seeded["title"],
+        description=seeded["description"],
+        working_data={
+            "reviewed_control_ids": seeded["reviewed_control_ids"],
+            "start": seeded["start"],
+            "end": seeded["end"],
+            "observations": [
+                {
+                    **seeded["observations"][0],
+                    "evidence": [
+                        {
+                            **seeded["observations"][0]["evidence"][0],
+                            "description": "new",
+                        }
+                    ],
+                }
+            ],
+            "findings": seeded["findings"],
+        },
+    )
+
+    assert nested_change["concurrency_version"] == token + 1
+
+
+def test_assessment_result_idempotent_publish_reuses_snapshot_without_token_increment(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    result = service.create_result(
+        tenant_id,
+        actor,
+        system_id,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        title="Idempotent publish",
+        description=None,
+    )
+    updated = _update_result(
+        service,
+        tenant_id,
+        actor,
+        result["id"],
+        title="Idempotent publish",
+        description=None,
+        working_data={
+            "reviewed_control_ids": [control_id],
+            "start": "2026-11-20T00:00:00+00:00",
+            "end": "2026-11-20T01:00:00+00:00",
+            "observations": [
+                {
+                    "title": "Observation",
+                    "description": "desc",
+                    "methods": ["EXAMINE"],
+                    "collected_at": "2026-11-20T00:30:00+00:00",
+                    "subject_uuids": [str(subject_uuid)],
+                    "evidence": [],
+                }
+            ],
+            "findings": [
+                {
+                    "title": "Finding",
+                    "description": "desc",
+                    "target_type": "objective-id",
+                    "target_id": "local-mfa-objective",
+                    "status": "satisfied",
+                    "related_observation_ids": [],
+                }
+            ],
+        },
+    )
+    observation_id = str(updated["observations"][0]["id"])
+    _update_result(
+        service,
+        tenant_id,
+        actor,
+        result["id"],
+        title="Idempotent publish",
+        description=None,
+        working_data={
+            "reviewed_control_ids": [control_id],
+            "start": "2026-11-20T00:00:00+00:00",
+            "end": "2026-11-20T01:00:00+00:00",
+            "observations": updated["observations"],
+            "findings": [
+                {
+                    "id": updated["findings"][0]["id"],
+                    "title": "Finding",
+                    "description": "desc",
+                    "target_type": "objective-id",
+                    "target_id": "local-mfa-objective",
+                    "status": "satisfied",
+                    "related_observation_ids": [observation_id],
+                }
+            ],
+        },
+    )
+
+    first = _publish_result(service, tenant_id, actor, result["id"])
+    token_after_first = int(first["concurrency_version"])
+    second = _publish_result(
+        service,
+        tenant_id,
+        actor,
+        result["id"],
+        expected_version=token_after_first,
+    )
+
+    assert second["created"] is False
+    assert second["id"] == first["id"]
+    assert second["concurrency_version"] == token_after_first
+    assert service.get_result(tenant_id, result["id"])["concurrency_version"] == token_after_first
+    assert len(service.list_versions(tenant_id, result["id"])) == 1
 
 
 def test_assessment_result_rejects_stale_related_observation_reference(
