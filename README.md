@@ -131,9 +131,7 @@ The repository includes backend and frontend tests, PostgreSQL integration cover
 
 ## Acknowledgments and community
 
-The project owes a great deal to the open work of the NIST OSCAL and OSCAL Compass communities. I am particularly grateful for the opportunity to work alongside Anca Sailer and Vikas Agarwal in a working group at [LF AI & Data](https://lfaidata.foundation/). Their work and the OSCAL Compass ecosystem are important inspirations for this project.
-
-Collaborative OSCAL is an independent personal open-source project. It is not an official OSCAL Compass, CNCF, LF AI & Data or NIST project, and no endorsement or involvement of these organizations or individuals in its development is implied.
+Collaborative OSCAL is an independent personal open-source project. It is not an official OSCAL Compass, CNCF, LF AI & Data or NIST project.
 
 ## License
 

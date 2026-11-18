@@ -130,10 +130,7 @@ Sehr große Teile der Software sind durch agentische Softwareentwicklung (Agenti
 Das Repository enthält Backend- und Frontend-Tests, PostgreSQL-Integrationstests, eine CI-Konfiguration sowie Kompatibilitäts- und Regressionstests. Die [Kompatibilitätsnotizen zu Prüfergebnissen](docs/architecture/assessment-results-compatibility-probes-2026-11-17.md) dokumentieren weitere während der Entwicklung durchgeführte Prüfungen. Testergebnisse früherer Entwicklungsstände stellen keine Release-Zertifizierung dar; die aktuellen Testsuiten und manuellen Workflows sollten entsprechend dem [Entwicklerleitfaden](docs/development.md) ausgeführt werden.
 
 ## Danksagung und Community
-
-Das Projekt verdankt der offenen Arbeit der NIST-OSCAL- und OSCAL-Compass-Communities sehr viel. Besonders dankbar bin ich für die Möglichkeit, gemeinsam mit Anca Sailer und Vikas Agarwal in einer Arbeitsgruppe bei [LF AI & Data](https://lfaidata.foundation/) mitzuwirken. Ihre Arbeit und das OSCAL-Compass-Ökosystem sind wichtige Inspirationsquellen für dieses Projekt.
-
-Collaborative OSCAL ist ein unabhängiges persönliches Open-Source-Projekt. Es ist kein offizielles Projekt von OSCAL Compass, CNCF, LF AI & Data oder NIST. Eine Unterstützung durch diese Organisationen oder eine Beteiligung der genannten Personen an der Entwicklung wird damit nicht behauptet.
+Collaborative OSCAL ist ein unabhängiges persönliches Open-Source-Projekt. Es ist kein offizielles Projekt von OSCAL Compass, CNCF, LF AI & Data oder NIST. Eine Unterstützung durch diese Organisationen  wird damit nicht behauptet.
 
 ## Lizenz
 
