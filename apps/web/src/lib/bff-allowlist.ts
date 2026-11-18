@@ -78,7 +78,7 @@ export function isCatalogImportPath(segments: string[]): boolean {
   return IMPORT_CATALOG.test(segments.join("/"));
 }
 
-const ALLOWED_QUERY = new Set(["q", "limit", "offset", "parent_kind", "parent_id", "lifecycle_status", "profile_id", "organization_id", "tenant_scope"]);
+const ALLOWED_QUERY = new Set(["q", "limit", "offset", "parent_kind", "parent_id", "lifecycle_status", "profile_id", "organization_id", "tenant_scope", "expected_version"]);
 
 export function isAllowedBffPath(segments: string[]): boolean {
   if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return false;

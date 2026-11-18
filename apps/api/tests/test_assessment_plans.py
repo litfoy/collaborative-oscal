@@ -135,14 +135,21 @@ def _prepare_ssp_version(
             None,
         ),
     )
-    ssp_service.associate_implementation(
+    included = ssp_service.associate_implementation(
         tenant.id,
         actor,
         plan["id"],
         implementation.id,
         component["id"],
+        expected_version=plan["concurrency_version"],
     )
-    version = ssp_service.create_version(tenant.id, actor, plan["id"])
+    plan["concurrency_version"] = included["concurrency_version"]
+    version = ssp_service.create_version(
+        tenant.id,
+        actor,
+        plan["id"],
+        expected_version=plan["concurrency_version"],
+    )
     component_uuid = component["oscal_component_uuid"]
     subject_uuid = component_uuid if isinstance(component_uuid, UUID) else UUID(component_uuid)
     return (

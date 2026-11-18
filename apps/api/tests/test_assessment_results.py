@@ -207,14 +207,21 @@ def _prepare_plan_version(grc_service, session_factory):
             None,
         ),
     )
-    ssp_service.associate_implementation(
+    included = ssp_service.associate_implementation(
         tenant.id,
         actor,
         ssp["id"],
         implementation.id,
         component["id"],
+        expected_version=ssp["concurrency_version"],
     )
-    ssp_version = ssp_service.create_version(tenant.id, actor, ssp["id"])
+    ssp["concurrency_version"] = included["concurrency_version"]
+    ssp_version = ssp_service.create_version(
+        tenant.id,
+        actor,
+        ssp["id"],
+        expected_version=ssp["concurrency_version"],
+    )
 
     plan = ap_service.create_plan(
         tenant.id,
@@ -361,14 +368,21 @@ def _prepare_plan_scope_context(
             None,
         ),
     )
-    ssp_service.associate_implementation(
+    included = ssp_service.associate_implementation(
         tenant.id,
         actor,
         ssp["id"],
         implementation.id,
         component_a["id"],
+        expected_version=ssp["concurrency_version"],
     )
-    ssp_version = ssp_service.create_version(tenant.id, actor, ssp["id"])
+    ssp["concurrency_version"] = included["concurrency_version"]
+    ssp_version = ssp_service.create_version(
+        tenant.id,
+        actor,
+        ssp["id"],
+        expected_version=ssp["concurrency_version"],
+    )
 
     component_uuids = [
         str(component_a["oscal_component_uuid"]),

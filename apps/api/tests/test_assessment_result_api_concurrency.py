@@ -143,14 +143,21 @@ def api_world(monkeypatch, postgres_url, session_factory, grc_service):
             None,
         ),
     )
-    ssp_service.associate_implementation(
+    included = ssp_service.associate_implementation(
         tenant.id,
         actor_id,
         ssp["id"],
         implementation.id,
         component["id"],
+        expected_version=ssp["concurrency_version"],
     )
-    ssp_version = ssp_service.create_version(tenant.id, actor_id, ssp["id"])
+    ssp["concurrency_version"] = included["concurrency_version"]
+    ssp_version = ssp_service.create_version(
+        tenant.id,
+        actor_id,
+        ssp["id"],
+        expected_version=ssp["concurrency_version"],
+    )
 
     plan = assessment_plan_service.create_plan(
         tenant.id,
@@ -395,5 +402,6 @@ def test_stale_publish_creates_no_additional_snapshot(client, api_world) -> None
     versions = listed.json()
     assert len(versions) == 1
     assert versions[0]["id"] == first_id
+
 
 

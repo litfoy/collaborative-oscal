@@ -44,6 +44,7 @@ const plan: SystemSecurityPlan = {
   catalog_name: "Baseline", title: "Identity SSP", control_implementation_description: null,
   included_implementations: [{ implementation_id: "implementation", oscal_control_id: "ac-1", system_component_id: component.id }],
   baseline_control_count: 2, documented_control_count: 1, created_at: "", updated_at: "",
+  concurrency_version: 1,
 };
 const implementation: Implementation = {
   id: "implementation", tenant_id: TENANT, organization_id: null, profile_id: null, catalog_id: CATALOG,
@@ -425,5 +426,171 @@ describe("Systems workspaces", () => {
     const old = screen.getByText("Version 1.0");
     expect(within(old.closest("li")!).getByRole("link", { name: "Export stored OSCAL JSON" })).toHaveAttribute("href", `/bff/tenants/${TENANT}/system-security-plans/plan/versions/version-1/export`);
     expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain(`/bff/tenants/${TENANT}/system-security-plans/plan/versions/version-1/export`);
+  });
+
+  it("uses the publish response token for the next SSP save", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/versions") && init?.method === "POST") {
+        const body = JSON.parse((init.body as string) ?? "{}");
+        expect(body.expected_version).toBe(1);
+        return jsonResponse({ ...version, id: "version-2", document_version: "2.0", concurrency_version: 4 });
+      }
+      if (url.endsWith("/system-security-plans/plan") && init?.method === "PUT") {
+        const body = JSON.parse((init.body as string) ?? "{}");
+        expect(body.expected_version).toBe(4);
+        return jsonResponse({ ...plan, title: body.title, concurrency_version: 5 });
+      }
+      return jsonResponse(validation);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderPlan();
+    await user.click(screen.getByRole("button", { name: "Versions" }));
+    await user.click(screen.getByRole("button", { name: "Create immutable SSP version" }));
+    await screen.findByText("Created immutable SSP version 2.0.");
+
+    await user.click(screen.getByRole("button", { name: "Control implementation" }));
+    await user.clear(screen.getByLabelText("SSP document title"));
+    await user.type(screen.getByLabelText("SSP document title"), "Published title");
+    await user.click(screen.getByRole("button", { name: "Save working state" }));
+    await screen.findByText("SSP working state saved.");
+  });
+
+  it("reports partial success for stale association and preserves unsaved inputs", async () => {
+    const user = userEvent.setup();
+    const unassignedPlan: SystemSecurityPlan = {
+      ...plan,
+      included_implementations: [],
+      documented_control_count: 0,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/implementations/implementation") && init?.method === "PUT") {
+        const body = JSON.parse((init.body as string) ?? "{}");
+        return jsonResponse({
+          ...implementation,
+          description: body.description,
+          oscal_implementation_status: body.oscal_implementation_status,
+        });
+      }
+      if (
+        url.endsWith("/system-security-plans/plan/implementations/implementation") &&
+        init?.method === "POST"
+      ) {
+        return new Response(
+          JSON.stringify({
+            detail: {
+              code: "stale_update",
+              plan_id: plan.id,
+              expected_version: 1,
+              current_version: 3,
+            },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return jsonResponse(validation);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <LocaleProvider locale="en">
+        <SystemSecurityPlanWorkspace
+          tenantId={TENANT}
+          system={system}
+          initialPlan={unassignedPlan}
+          components={[component]}
+          initialImplementations={[implementation]}
+          initialVersions={[version]}
+          revision={revision()}
+          initialRoot={page([])}
+          canWrite
+        />
+      </LocaleProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Control implementation" }));
+    await user.type(screen.getByLabelText("SSP document title"), " changed");
+    await user.click(screen.getByRole("button", { name: "Add contribution" }));
+    await user.selectOptions(
+      screen.getByLabelText(
+        "Requirement contribution from the exact pinned baseline",
+      ),
+      "implementation",
+    );
+    await user.selectOptions(
+      screen.getByLabelText("Actual system component"),
+      "component",
+    );
+    await user.clear(
+      screen.getByLabelText("Requirement-specific implementation description"),
+    );
+    await user.type(
+      screen.getByLabelText("Requirement-specific implementation description"),
+      "Edited",
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Update record and include in SSP",
+      }),
+    );
+
+    expect(
+      await screen.findByText(
+        /The Implementation Register record was saved, but could not be included in this SSP: .*changed in another session/i,
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "This Assessment Plan changed in another session. Current server version: 3.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByLabelText("SSP document title")).toHaveValue("Identity SSP changed");
+    expect(
+      screen.getByLabelText("Requirement-specific implementation description"),
+    ).toHaveValue("Edited");
+  });
+
+  it("shows explicit conflict handling and keeps unsaved SSP edits until reload is confirmed", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/system-security-plans/plan") && init?.method === "PUT") {
+        return new Response(
+          JSON.stringify({
+            detail: {
+              code: "stale_update",
+              plan_id: plan.id,
+              expected_version: 1,
+              current_version: 3,
+            },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/system-security-plans/plan") && (!init?.method || init.method === "GET")) {
+        return jsonResponse({ ...plan, title: "Server title", concurrency_version: 3 });
+      }
+      if (url.endsWith("/system-security-plans/plan/versions")) {
+        return jsonResponse([version]);
+      }
+      if (url.endsWith("/system-security-plans/plan/validation")) {
+        return jsonResponse(validation);
+      }
+      return jsonResponse(plan);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderPlan();
+    await user.click(screen.getByRole("button", { name: "Control implementation" }));
+    await user.clear(screen.getByLabelText("SSP document title"));
+    await user.type(screen.getByLabelText("SSP document title"), "Local edit");
+    await user.click(screen.getByRole("button", { name: "Save working state" }));
+
+    expect(await screen.findByText("This Assessment Plan changed in another session. Current server version: 3.")).toBeVisible();
+    expect(screen.getByLabelText("SSP document title")).toHaveValue("Local edit");
+
+    await user.click(screen.getByRole("button", { name: "Discard edits and reload" }));
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(await screen.findByLabelText("SSP document title")).toHaveValue("Server title");
   });
 });

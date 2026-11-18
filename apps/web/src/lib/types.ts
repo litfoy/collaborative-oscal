@@ -303,6 +303,7 @@ export interface SystemSecurityPlan {
   documented_control_count: number;
   created_at: string;
   updated_at: string;
+  concurrency_version: number;
 }
 
 export interface SystemSecurityPlanDiagnostic {
@@ -333,6 +334,7 @@ export interface SystemSecurityPlanVersion {
   diagnostics: SystemSecurityPlanDiagnostic[];
   created_at: string;
   created?: boolean;
+  concurrency_version?: number | null;
 }
 
 export type AssessmentMethod = "EXAMINE" | "INTERVIEW" | "TEST";

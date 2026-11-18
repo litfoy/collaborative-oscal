@@ -54,6 +54,7 @@ const ssp: SystemSecurityPlan = {
   documented_control_count: 0,
   created_at: "",
   updated_at: "",
+  concurrency_version: 1,
 };
 
 const basePlan: AssessmentPlan = {

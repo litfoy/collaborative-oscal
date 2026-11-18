@@ -118,6 +118,7 @@ class SystemSecurityPlanInput(BaseModel):
 class SystemSecurityPlanUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    expected_version: int = Field(ge=1)
     title: str = Field(min_length=1, max_length=255)
     control_implementation_description: str | None = Field(default=None, max_length=50000)
 
@@ -142,12 +143,20 @@ class SystemSecurityPlanResponse(BaseModel):
     documented_control_count: int
     created_at: datetime
     updated_at: datetime
+    concurrency_version: int
 
 
 class IncludeImplementationInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    expected_version: int = Field(ge=1)
     system_component_id: UUID
+
+
+class SystemSecurityPlanVersionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=1)
 
 
 class Diagnostic(BaseModel):
@@ -176,9 +185,15 @@ class SystemSecurityPlanVersionResponse(BaseModel):
     diagnostics: list[Diagnostic]
     created_at: datetime
     created: bool = False
+    concurrency_version: int | None = None
 
 
 class IncludedImplementationResponse(BaseModel):
     implementation_id: UUID
     system_component_id: UUID
     oscal_control_id: str
+    concurrency_version: int
+
+
+class MutationTokenResponse(BaseModel):
+    concurrency_version: int

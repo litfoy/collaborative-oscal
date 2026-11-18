@@ -527,17 +527,24 @@ def seed_ai_governance_demo(
                     oscal_status_explanation=status_explanation,
                 ),
             )
-            ssp.associate_implementation(
+            included = ssp.associate_implementation(
                 tenant_id,
                 actor_id,
                 ssp_plan["id"],
                 record.id,
                 component_id,
+                expected_version=ssp_plan["concurrency_version"],
             )
+            ssp_plan["concurrency_version"] = included["concurrency_version"]
 
         if not ssp.validate_plan(tenant_id, ssp_plan["id"])["valid"]:
             raise RuntimeError("Generated SSP draft did not pass validation.")
-        ssp_version = ssp.create_version(tenant_id, actor_id, ssp_plan["id"])
+        ssp_version = ssp.create_version(
+            tenant_id,
+            actor_id,
+            ssp_plan["id"],
+            expected_version=ssp_plan["concurrency_version"],
+        )
 
         assessment_plan = assessment_plans.create_plan(
             tenant_id,

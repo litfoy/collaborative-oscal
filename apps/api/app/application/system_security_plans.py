@@ -22,6 +22,7 @@ from collaborative_oscal_oscal.versions import (
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.domain.errors import EntityNotFoundError
 from app.persistence.models import (
@@ -58,6 +59,21 @@ class InvalidSystemSecurityPlan(ValueError):
     def __init__(self, diagnostics: list[dict[str, str]]) -> None:
         self.diagnostics = diagnostics
         super().__init__("The SSP working state is not ready to create a valid OSCAL version.")
+
+
+class StaleSystemSecurityPlanUpdate(ValueError):
+    def __init__(self, plan_id: UUID, expected_version: int, current_version: int) -> None:
+        self.plan_id = plan_id
+        self.expected_version = expected_version
+        self.current_version = current_version
+        super().__init__("The System Security Plan changed after it was loaded.")
+
+
+class _StaleSystemSecurityPlanFlush(RuntimeError):
+    def __init__(self, plan_id: UUID, expected_version: int) -> None:
+        self.plan_id = plan_id
+        self.expected_version = expected_version
+        super().__init__("System Security Plan flush detected stale mapper version.")
 
 
 class SystemSecurityPlanService:
@@ -479,6 +495,7 @@ class SystemSecurityPlanService:
                 updated_by=actor,
                 created_at=now,
                 updated_at=now,
+                concurrency_version=1,
             )
             session.add(plan)
             session.flush()
@@ -490,6 +507,7 @@ class SystemSecurityPlanService:
         actor: UUID,
         plan_id: UUID,
         *,
+        expected_version: int,
         title: str,
         control_implementation_description: str | None,
     ) -> dict[str, Any]:
@@ -497,14 +515,29 @@ class SystemSecurityPlanService:
             raise InvalidSystemSecurityPlan(
                 [{"code": "missing_title", "message": "An SSP title is required."}]
             )
-        with self._session_scope() as session:
-            plan = self._get_plan(session, tenant_id, plan_id, lock=True)
-            plan.title = title.strip()
-            plan.control_implementation_description = control_implementation_description
-            plan.updated_by = actor
-            plan.updated_at = datetime.now(UTC)
-            session.flush()
-            return self._plan_payload(session, plan)
+        try:
+            with self._session_scope() as session:
+                plan = self._get_plan(session, tenant_id, plan_id, lock=True)
+                if plan.concurrency_version != expected_version:
+                    raise StaleSystemSecurityPlanUpdate(
+                        plan.id, expected_version, plan.concurrency_version
+                    )
+                plan.title = title.strip()
+                plan.control_implementation_description = control_implementation_description
+                plan.updated_by = actor
+                plan.updated_at = datetime.now(UTC)
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleSystemSecurityPlanFlush(plan_id, expected_version) from error
+                return self._plan_payload(session, plan)
+        except _StaleSystemSecurityPlanFlush as stale:
+            current = self._current_plan_version(tenant_id, stale.plan_id)
+            raise StaleSystemSecurityPlanUpdate(
+                stale.plan_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
 
     def associate_implementation(
         self,
@@ -513,137 +546,191 @@ class SystemSecurityPlanService:
         plan_id: UUID,
         implementation_id: UUID,
         system_component_id: UUID,
+        *,
+        expected_version: int,
     ) -> dict[str, Any]:
-        with self._session_scope() as session:
-            plan = self._get_plan(session, tenant_id, plan_id, lock=True)
-            system = self._get_system(session, tenant_id, plan.system_id, lock=True)
-            record = session.scalar(
-                select(ControlImplementationRecord)
-                .where(
-                    ControlImplementationRecord.tenant_id == tenant_id,
-                    ControlImplementationRecord.id == implementation_id,
+        try:
+            with self._session_scope() as session:
+                plan = self._get_plan(session, tenant_id, plan_id, lock=True)
+                if plan.concurrency_version != expected_version:
+                    raise StaleSystemSecurityPlanUpdate(
+                        plan.id, expected_version, plan.concurrency_version
+                    )
+                system = self._get_system(session, tenant_id, plan.system_id, lock=True)
+                record = session.scalar(
+                    select(ControlImplementationRecord)
+                    .where(
+                        ControlImplementationRecord.tenant_id == tenant_id,
+                        ControlImplementationRecord.id == implementation_id,
+                    )
+                    .with_for_update()
                 )
-                .with_for_update()
-            )
-            if record is None:
-                raise EntityNotFoundError("Implementation not found.")
-            component = session.scalar(
-                select(SystemComponentRecord).where(
-                    SystemComponentRecord.tenant_id == tenant_id,
-                    SystemComponentRecord.system_id == plan.system_id,
-                    SystemComponentRecord.id == system_component_id,
+                if record is None:
+                    raise EntityNotFoundError("Implementation not found.")
+                component = session.scalar(
+                    select(SystemComponentRecord).where(
+                        SystemComponentRecord.tenant_id == tenant_id,
+                        SystemComponentRecord.system_id == plan.system_id,
+                        SystemComponentRecord.id == system_component_id,
+                    )
                 )
-            )
-            if component is None:
-                raise EntityNotFoundError("System component not found.")
-            if record.catalog_id != plan.catalog_id or record.revision_id != plan.revision_id:
-                raise InvalidSystemSecurityPlan(
-                    [
-                        {
-                            "code": "baseline_mismatch",
-                            "message": (
-                                "The implementation must reference this SSP's exact "
-                                "Catalog revision."
-                            ),
-                        }
-                    ]
+                if component is None:
+                    raise EntityNotFoundError("System component not found.")
+                if record.catalog_id != plan.catalog_id or record.revision_id != plan.revision_id:
+                    raise InvalidSystemSecurityPlan(
+                        [
+                            {
+                                "code": "baseline_mismatch",
+                                "message": (
+                                    "The implementation must reference this SSP's exact "
+                                    "Catalog revision."
+                                ),
+                            }
+                        ]
+                    )
+                if record.system_id not in {None, plan.system_id}:
+                    raise InvalidSystemSecurityPlan(
+                        [
+                            {
+                                "code": "system_mismatch",
+                                "message": (
+                                    "The implementation is already assigned to another "
+                                    "System."
+                                ),
+                            }
+                        ]
+                    )
+                if record.system_component_id not in {None, system_component_id}:
+                    raise InvalidSystemSecurityPlan(
+                        [
+                            {
+                                "code": "component_mismatch",
+                                "message": (
+                                    "The implementation is already assigned to another component. "
+                                    "Update its context explicitly before including it."
+                                ),
+                            }
+                        ]
+                    )
+                if (
+                    record.organization_id is not None
+                    and record.organization_id != system.organization_id
+                ):
+                    raise InvalidSystemSecurityPlan(
+                        [
+                            {
+                                "code": "organization_mismatch",
+                                "message": (
+                                    "The implementation's organization scope is incompatible "
+                                    "with this System."
+                                ),
+                            }
+                        ]
+                    )
+                existing = session.scalar(
+                    select(SystemSecurityPlanImplementationRecord.id).where(
+                        SystemSecurityPlanImplementationRecord.tenant_id == tenant_id,
+                        SystemSecurityPlanImplementationRecord.system_security_plan_id == plan_id,
+                        (
+                            SystemSecurityPlanImplementationRecord.implementation_id
+                            == implementation_id
+                        ),
+                    )
                 )
-            if record.system_id not in {None, plan.system_id}:
-                raise InvalidSystemSecurityPlan(
-                    [
-                        {
-                            "code": "system_mismatch",
-                            "message": "The implementation is already assigned to another System.",
-                        }
-                    ]
+                if existing is not None:
+                    raise InvalidSystemSecurityPlan(
+                        [
+                            {
+                                "code": "already_included",
+                                "message": (
+                                    "This implementation is already explicitly included in the SSP."
+                                ),
+                            }
+                        ]
+                    )
+                now = datetime.now(UTC)
+                record.system_id = plan.system_id
+                record.system_component_id = system_component_id
+                record.updated_by = actor
+                record.updated_at = now
+                association = SystemSecurityPlanImplementationRecord(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    system_security_plan_id=plan_id,
+                    implementation_id=record.id,
+                    system_id=plan.system_id,
+                    system_component_id=system_component_id,
+                    catalog_id=record.catalog_id,
+                    revision_id=record.revision_id,
+                    oscal_control_id=record.oscal_control_id,
+                    created_at=now,
                 )
-            if record.system_component_id not in {None, system_component_id}:
-                raise InvalidSystemSecurityPlan(
-                    [
-                        {
-                            "code": "component_mismatch",
-                            "message": (
-                                "The implementation is already assigned to another component. "
-                                "Update its context explicitly before including it."
-                            ),
-                        }
-                    ]
-                )
-            if (
-                record.organization_id is not None
-                and record.organization_id != system.organization_id
-            ):
-                raise InvalidSystemSecurityPlan(
-                    [
-                        {
-                            "code": "organization_mismatch",
-                            "message": (
-                                "The implementation's organization scope is incompatible "
-                                "with this System."
-                            ),
-                        }
-                    ]
-                )
-            existing = session.scalar(
-                select(SystemSecurityPlanImplementationRecord.id).where(
-                    SystemSecurityPlanImplementationRecord.tenant_id == tenant_id,
-                    SystemSecurityPlanImplementationRecord.system_security_plan_id == plan_id,
-                    SystemSecurityPlanImplementationRecord.implementation_id == implementation_id,
-                )
-            )
-            if existing is not None:
-                raise InvalidSystemSecurityPlan(
-                    [
-                        {
-                            "code": "already_included",
-                            "message": (
-                                "This implementation is already explicitly included in the SSP."
-                            ),
-                        }
-                    ]
-                )
-            now = datetime.now(UTC)
-            record.system_id = plan.system_id
-            record.system_component_id = system_component_id
-            record.updated_by = actor
-            record.updated_at = now
-            association = SystemSecurityPlanImplementationRecord(
-                id=uuid4(),
-                tenant_id=tenant_id,
-                system_security_plan_id=plan_id,
-                implementation_id=record.id,
-                system_id=plan.system_id,
-                system_component_id=system_component_id,
-                catalog_id=record.catalog_id,
-                revision_id=record.revision_id,
-                oscal_control_id=record.oscal_control_id,
-                created_at=now,
-            )
-            session.add(association)
-            session.flush()
-            return {
-                "implementation_id": record.id,
-                "system_component_id": system_component_id,
-                "oscal_control_id": record.oscal_control_id,
-            }
+                session.add(association)
+                plan.updated_by = actor
+                plan.updated_at = now
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleSystemSecurityPlanFlush(plan_id, expected_version) from error
+                return {
+                    "implementation_id": record.id,
+                    "system_component_id": system_component_id,
+                    "oscal_control_id": record.oscal_control_id,
+                    "concurrency_version": plan.concurrency_version,
+                }
+        except _StaleSystemSecurityPlanFlush as stale:
+            current = self._current_plan_version(tenant_id, stale.plan_id)
+            raise StaleSystemSecurityPlanUpdate(
+                stale.plan_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
 
     def remove_implementation(
-        self, tenant_id: UUID, plan_id: UUID, implementation_id: UUID
-    ) -> None:
-        with self._session_scope() as session:
-            self._get_plan(session, tenant_id, plan_id, lock=True)
-            association = session.scalar(
-                select(SystemSecurityPlanImplementationRecord)
-                .where(
-                    SystemSecurityPlanImplementationRecord.tenant_id == tenant_id,
-                    SystemSecurityPlanImplementationRecord.system_security_plan_id == plan_id,
-                    SystemSecurityPlanImplementationRecord.implementation_id == implementation_id,
+        self,
+        tenant_id: UUID,
+        actor: UUID,
+        plan_id: UUID,
+        implementation_id: UUID,
+        *,
+        expected_version: int,
+    ) -> dict[str, int]:
+        try:
+            with self._session_scope() as session:
+                plan = self._get_plan(session, tenant_id, plan_id, lock=True)
+                if plan.concurrency_version != expected_version:
+                    raise StaleSystemSecurityPlanUpdate(
+                        plan.id, expected_version, plan.concurrency_version
+                    )
+                association = session.scalar(
+                    select(SystemSecurityPlanImplementationRecord)
+                    .where(
+                        SystemSecurityPlanImplementationRecord.tenant_id == tenant_id,
+                        SystemSecurityPlanImplementationRecord.system_security_plan_id == plan_id,
+                        (
+                            SystemSecurityPlanImplementationRecord.implementation_id
+                            == implementation_id
+                        ),
+                    )
+                    .with_for_update()
                 )
-                .with_for_update()
-            )
-            if association is None:
-                raise EntityNotFoundError("SSP implementation contribution not found.")
-            session.delete(association)
+                if association is None:
+                    raise EntityNotFoundError("SSP implementation contribution not found.")
+                session.delete(association)
+                plan.updated_by = actor
+                plan.updated_at = datetime.now(UTC)
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleSystemSecurityPlanFlush(plan_id, expected_version) from error
+                return {"concurrency_version": int(plan.concurrency_version)}
+        except _StaleSystemSecurityPlanFlush as stale:
+            current = self._current_plan_version(tenant_id, stale.plan_id)
+            raise StaleSystemSecurityPlanUpdate(
+                stale.plan_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
 
     def validate_plan(self, tenant_id: UUID, plan_id: UUID) -> dict[str, Any]:
         with self._session_scope() as session:
@@ -669,18 +756,64 @@ class SystemSecurityPlanService:
                 "documented_control_count": documented_count,
             }
 
-    def create_version(self, tenant_id: UUID, actor: UUID, plan_id: UUID) -> dict[str, Any]:
-        with self._session_scope() as session:
-            plan = self._get_plan(session, tenant_id, plan_id, lock=True)
-            self._get_system(session, tenant_id, plan.system_id, lock=True)
-            revision = self._get_revision(
-                session, tenant_id, plan.catalog_id, plan.revision_id, lock=True
-            )
-            draft, diagnostics, _, _ = self._build_draft(session, plan, revision=revision)
-            if not any(item["code"] == "oscal_schema" for item in diagnostics):
+    def create_version(
+        self,
+        tenant_id: UUID,
+        actor: UUID,
+        plan_id: UUID,
+        *,
+        expected_version: int,
+    ) -> dict[str, Any]:
+        try:
+            with self._session_scope() as session:
+                plan = self._get_plan(session, tenant_id, plan_id, lock=True)
+                if plan.concurrency_version != expected_version:
+                    raise StaleSystemSecurityPlanUpdate(
+                        plan.id, expected_version, plan.concurrency_version
+                    )
+                self._get_system(session, tenant_id, plan.system_id, lock=True)
+                revision = self._get_revision(
+                    session, tenant_id, plan.catalog_id, plan.revision_id, lock=True
+                )
+                draft, diagnostics, _, _ = self._build_draft(session, plan, revision=revision)
+                if not any(item["code"] == "oscal_schema" for item in diagnostics):
+                    try:
+                        validate_system_security_plan_document(
+                            draft,
+                            baseline_control_ids=self._baseline_control_ids(
+                                session, plan.revision_id
+                            ),
+                            expected_baseline_href=self._catalog_href(plan),
+                        )
+                    except SystemSecurityPlanValidationError as error:
+                        diagnostics.append(
+                            {"severity": "error", "code": "oscal_schema", "message": str(error)}
+                        )
+                errors = [item for item in diagnostics if item["severity"] == "error"]
+                if errors:
+                    raise InvalidSystemSecurityPlan(diagnostics)
+
+                previous = session.scalars(
+                    select(SystemSecurityPlanVersionRecord)
+                    .where(
+                        SystemSecurityPlanVersionRecord.tenant_id == tenant_id,
+                        SystemSecurityPlanVersionRecord.system_security_plan_id == plan.id,
+                    )
+                    .order_by(SystemSecurityPlanVersionRecord.created_at.desc())
+                    .limit(1)
+                ).first()
+                version = self._next_document_version(
+                    previous.document_version if previous else None
+                )
+                now = datetime.now(UTC).replace(microsecond=0)
+                body = draft["system-security-plan"]
+                body["uuid"] = str(uuid4())
+                body["metadata"]["last-modified"] = now.isoformat()
+                body["metadata"]["version"] = version
                 try:
+                    final_document = serialize_authored_system_security_plan(draft)
                     validate_system_security_plan_document(
-                        draft,
+                        final_document,
                         baseline_control_ids=self._baseline_control_ids(
                             session, plan.revision_id
                         ),
@@ -690,76 +823,76 @@ class SystemSecurityPlanService:
                     diagnostics.append(
                         {"severity": "error", "code": "oscal_schema", "message": str(error)}
                     )
-            errors = [item for item in diagnostics if item["severity"] == "error"]
-            if errors:
-                raise InvalidSystemSecurityPlan(diagnostics)
+                    raise InvalidSystemSecurityPlan(diagnostics) from error
 
-            previous = session.scalars(
-                select(SystemSecurityPlanVersionRecord)
-                .where(
-                    SystemSecurityPlanVersionRecord.tenant_id == tenant_id,
-                    SystemSecurityPlanVersionRecord.system_security_plan_id == plan.id,
+                stable_document = copy.deepcopy(final_document)
+                stable_body = stable_document["system-security-plan"]
+                stable_body["uuid"] = ""
+                stable_body["metadata"]["last-modified"] = ""
+                stable_body["metadata"]["version"] = ""
+                digest = canonical_json_sha256(stable_document)
+                existing = session.scalar(
+                    select(SystemSecurityPlanVersionRecord).where(
+                        SystemSecurityPlanVersionRecord.tenant_id == tenant_id,
+                        SystemSecurityPlanVersionRecord.system_security_plan_id == plan.id,
+                        SystemSecurityPlanVersionRecord.content_sha256 == digest,
+                    )
                 )
-                .order_by(SystemSecurityPlanVersionRecord.created_at.desc())
-                .limit(1)
-            ).first()
-            version = self._next_document_version(previous.document_version if previous else None)
-            now = datetime.now(UTC).replace(microsecond=0)
-            body = draft["system-security-plan"]
-            body["uuid"] = str(uuid4())
-            body["metadata"]["last-modified"] = now.isoformat()
-            body["metadata"]["version"] = version
-            try:
-                final_document = serialize_authored_system_security_plan(draft)
-                validate_system_security_plan_document(
-                    final_document,
-                    baseline_control_ids=self._baseline_control_ids(
-                        session, plan.revision_id
-                    ),
-                    expected_baseline_href=self._catalog_href(plan),
-                )
-            except SystemSecurityPlanValidationError as error:
-                diagnostics.append(
-                    {"severity": "error", "code": "oscal_schema", "message": str(error)}
-                )
-                raise InvalidSystemSecurityPlan(diagnostics) from error
+                if existing is not None:
+                    return self._version_payload(
+                        existing,
+                        created=False,
+                        concurrency_version=plan.concurrency_version,
+                    )
 
-            stable_document = copy.deepcopy(final_document)
-            stable_body = stable_document["system-security-plan"]
-            stable_body["uuid"] = ""
-            stable_body["metadata"]["last-modified"] = ""
-            stable_body["metadata"]["version"] = ""
-            digest = canonical_json_sha256(stable_document)
-            existing = session.scalar(
-                select(SystemSecurityPlanVersionRecord).where(
-                    SystemSecurityPlanVersionRecord.tenant_id == tenant_id,
-                    SystemSecurityPlanVersionRecord.system_security_plan_id == plan.id,
-                    SystemSecurityPlanVersionRecord.content_sha256 == digest,
+                record = SystemSecurityPlanVersionRecord(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    system_security_plan_id=plan.id,
+                    catalog_id=plan.catalog_id,
+                    revision_id=plan.revision_id,
+                    oscal_document_uuid=UUID(final_document["system-security-plan"]["uuid"]),
+                    oscal_version=final_document["system-security-plan"]["metadata"][
+                        "oscal-version"
+                    ],
+                    document_version=version,
+                    last_modified=now,
+                    content_sha256=digest,
+                    document=final_document,
+                    diagnostics=diagnostics,
+                    created_at=now,
+                )
+                session.add(record)
+                plan.updated_by = actor
+                plan.updated_at = now
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleSystemSecurityPlanFlush(plan_id, expected_version) from error
+                return self._version_payload(
+                    record,
+                    created=True,
+                    concurrency_version=plan.concurrency_version,
+                )
+        except _StaleSystemSecurityPlanFlush as stale:
+            current = self._current_plan_version(tenant_id, stale.plan_id)
+            raise StaleSystemSecurityPlanUpdate(
+                stale.plan_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
+
+    def _current_plan_version(self, tenant_id: UUID, plan_id: UUID) -> int:
+        with self._session_scope() as session:
+            current = session.scalar(
+                select(SystemSecurityPlanRecord.concurrency_version).where(
+                    SystemSecurityPlanRecord.tenant_id == tenant_id,
+                    SystemSecurityPlanRecord.id == plan_id,
                 )
             )
-            if existing is not None:
-                return self._version_payload(existing, created=False)
-
-            record = SystemSecurityPlanVersionRecord(
-                id=uuid4(),
-                tenant_id=tenant_id,
-                system_security_plan_id=plan.id,
-                catalog_id=plan.catalog_id,
-                revision_id=plan.revision_id,
-                oscal_document_uuid=UUID(final_document["system-security-plan"]["uuid"]),
-                oscal_version=final_document["system-security-plan"]["metadata"][
-                    "oscal-version"
-                ],
-                document_version=version,
-                last_modified=now,
-                content_sha256=digest,
-                document=final_document,
-                diagnostics=diagnostics,
-                created_at=now,
-            )
-            session.add(record)
-            session.flush()
-            return self._version_payload(record, created=True)
+            if current is None:
+                raise EntityNotFoundError("SSP not found.")
+            return int(current)
 
     def list_versions(self, tenant_id: UUID, plan_id: UUID) -> list[dict[str, Any]]:
         with self._session_scope() as session:
@@ -1394,11 +1527,15 @@ class SystemSecurityPlanService:
             "documented_control_count": len({row.oscal_control_id for row in included}),
             "created_at": plan.created_at,
             "updated_at": plan.updated_at,
+            "concurrency_version": plan.concurrency_version,
         }
 
     @staticmethod
     def _version_payload(
-        version: SystemSecurityPlanVersionRecord, *, created: bool
+        version: SystemSecurityPlanVersionRecord,
+        *,
+        created: bool,
+        concurrency_version: int | None = None,
     ) -> dict[str, Any]:
         return {
             "id": version.id,
@@ -1413,4 +1550,5 @@ class SystemSecurityPlanService:
             "diagnostics": version.diagnostics,
             "created_at": version.created_at,
             "created": created,
+            "concurrency_version": concurrency_version,
         }
