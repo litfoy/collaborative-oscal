@@ -413,6 +413,7 @@ export interface AssessmentPlan {
   ssp_oscal_version: string;
   created_at: string;
   updated_at: string;
+  concurrency_version: number;
 }
 
 export interface AssessmentSourceObjectiveCatalogItem {

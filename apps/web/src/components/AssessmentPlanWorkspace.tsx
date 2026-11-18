@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { MappingControlPicker } from "@/components/MappingControlPicker";
 import { bffGet, bffWrite } from "@/lib/bff-client";
+import { ApiError } from "@/lib/errors";
 import { useI18n } from "@/lib/i18n/provider";
 import type {
   AssessmentActivity,
@@ -70,6 +71,7 @@ export function AssessmentPlanWorkspace({
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [controlTitles, setControlTitles] = useState<Record<string, string>>({});
+  const [conflict, setConflict] = useState<{ currentVersion: number } | null>(null);
 
   const [editingLocalObjective, setEditingLocalObjective] = useState<number | null>(null);
   const [localObjectiveDraft, setLocalObjectiveDraft] =
@@ -139,6 +141,7 @@ export function AssessmentPlanWorkspace({
         "PUT",
         `tenants/${tenantId}/assessment-plans/${plan.id}`,
         {
+          expected_version: plan.concurrency_version,
           title: plan.title,
           description: plan.description,
           control_ids: plan.control_ids,
@@ -181,7 +184,7 @@ export function AssessmentPlanWorkspace({
       const version = await bffWrite<AssessmentPlanVersion>(
         "POST",
         `tenants/${tenantId}/assessment-plans/${plan.id}/versions`,
-        {},
+        { expected_version: plan.concurrency_version },
       );
       setVersions((current) => [
         version,
@@ -200,10 +203,30 @@ export function AssessmentPlanWorkspace({
     try {
       setNotice(await action());
     } catch (reason) {
+      if (reason instanceof ApiError && reason.kind === "stale_update") {
+        const detail = reason.detail as { current_version?: number } | undefined;
+        setConflict({
+          currentVersion: detail?.current_version ?? plan.concurrency_version,
+        });
+        setError("");
+        return;
+      }
       setError(errorMessage(reason));
     } finally {
       setBusy(false);
     }
+  }
+
+  async function reloadAfterConflict() {
+    if (!conflict) return;
+    if (!window.confirm(t("assessmentPlans.confirmConflictReload"))) return;
+    const refreshed = await bffGet<AssessmentPlan>(
+      `tenants/${tenantId}/assessment-plans/${plan.id}`,
+    );
+    setPlan(refreshed);
+    setSavedPlan(refreshed);
+    setConflict(null);
+    setValidationStale(true);
   }
 
   function applyControlSelection(ids: string[]) {
@@ -655,6 +678,16 @@ export function AssessmentPlanWorkspace({
           {versions.length ? <ul className="profile-list">{versions.map((version) => <li key={version.id}><strong>{t("common.version")} {version.document_version}</strong><p className="muted">OSCAL {version.oscal_version} · {date(version.created_at)}</p><a href={`/bff/tenants/${tenantId}/assessment-plans/${plan.id}/versions/${version.id}/export`}>{t("systems.exportStoredOscalJson")}</a></li>)}</ul> : <p className="muted">{t("systems.noImmutableVersions")}</p>}
         </section>
 
+        {conflict ? (
+          <div role="alert" className="panel">
+            <p>{t("assessmentPlans.conflictDetected", { version: conflict.currentVersion })}</p>
+            <p className="muted">{t("assessmentPlans.conflictPreserved")}</p>
+            <button type="button" className="danger-action" onClick={() => void reloadAfterConflict()}>
+              {t("assessmentPlans.reloadConfirmedState")}
+            </button>
+          </div>
+        ) : null}
+
         {canWrite ? <button disabled={busy}>{t("assessmentPlans.save")}</button> : null}
       </form>
     </div>
@@ -833,7 +866,3 @@ function toIsoInput(value: string): string | null {
 function generateId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
-
-
-
-

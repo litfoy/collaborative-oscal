@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
 
-from app.application.assessment_plans import AssessmentPlanService, InvalidAssessmentPlan
+from app.application.assessment_plans import (
+    AssessmentPlanService,
+    InvalidAssessmentPlan,
+    StaleAssessmentPlanUpdate,
+)
 from app.application.implementations import ImplementationService
 from app.application.system_security_plans import SystemSecurityPlanService
 from app.domain.catalogs.models import CatalogOriginType
@@ -144,6 +149,10 @@ def _prepare_ssp_version(
     )
 
 
+def _expected_version(service: AssessmentPlanService, tenant_id: UUID, plan_id: UUID) -> int:
+    return int(service.get_plan(tenant_id, plan_id)["concurrency_version"])
+
+
 def test_assessment_plan_lifecycle_uses_pinned_ssp_snapshot(grc_service, session_factory) -> None:
     (
         tenant_id,
@@ -168,6 +177,7 @@ def test_assessment_plan_lifecycle_uses_pinned_ssp_snapshot(grc_service, session
         tenant_id,
         actor,
         plan["id"],
+        expected_version=_expected_version(service, tenant_id, plan["id"]),
         title="MFA Assessment",
         description="Assess MFA coverage for privileged access.",
         working_data={
@@ -239,7 +249,12 @@ def test_assessment_plan_lifecycle_uses_pinned_ssp_snapshot(grc_service, session
     validation = service.validate_plan(tenant_id, plan["id"])
     assert validation["valid"]
 
-    first = service.create_version(tenant_id, actor, plan["id"])
+    first = service.create_version(
+        tenant_id,
+        actor,
+        plan["id"],
+        expected_version=_expected_version(service, tenant_id, plan["id"]),
+    )
     assert first["created"]
     assert first["oscal_version"] == "1.2.1"
     exported = service.export_version(tenant_id, plan["id"], first["id"])
@@ -247,7 +262,12 @@ def test_assessment_plan_lifecycle_uses_pinned_ssp_snapshot(grc_service, session
         f"/{ssp_version_id}/export"
     )
 
-    unchanged = service.create_version(tenant_id, actor, plan["id"])
+    unchanged = service.create_version(
+        tenant_id,
+        actor,
+        plan["id"],
+        expected_version=_expected_version(service, tenant_id, plan["id"]),
+    )
     assert unchanged["created"] is False
     assert unchanged["id"] == first["id"]
 
@@ -279,6 +299,7 @@ def test_assessment_plan_rejects_controls_or_subjects_outside_pinned_snapshot(
             tenant_id,
             actor,
             plan["id"],
+            expected_version=_expected_version(service, tenant_id, plan["id"]),
             title="Invalid AP",
             description=None,
             working_data={
@@ -327,6 +348,7 @@ def test_assessment_plan_minimal_scope_validates_repeatedly_without_state_change
         tenant_id,
         actor,
         plan["id"],
+        expected_version=_expected_version(service, tenant_id, plan["id"]),
         title="ARCH Minimal AP",
         description="Minimal AP with immutable SSP 1.2.3 reference.",
         working_data={
@@ -348,7 +370,12 @@ def test_assessment_plan_minimal_scope_validates_repeatedly_without_state_change
     assert second_validation["valid"] is True
     assert first_validation["oscal_candidate"]["assessment-plan"]["metadata"]["version"] == "draft"
 
-    first_version = service.create_version(tenant_id, actor, plan["id"])
+    first_version = service.create_version(
+        tenant_id,
+        actor,
+        plan["id"],
+        expected_version=_expected_version(service, tenant_id, plan["id"]),
+    )
     assert first_version["created"] is True
     assert first_version["oscal_version"] == "1.2.1"
 
@@ -360,7 +387,12 @@ def test_assessment_plan_minimal_scope_validates_repeatedly_without_state_change
         f"/{ssp_version_id}/export"
     )
 
-    reused = service.create_version(tenant_id, actor, plan["id"])
+    reused = service.create_version(
+        tenant_id,
+        actor,
+        plan["id"],
+        expected_version=_expected_version(service, tenant_id, plan["id"]),
+    )
     assert reused["created"] is False
     assert reused["id"] == first_version["id"]
 
@@ -391,6 +423,7 @@ def test_assessment_plan_local_objectives_support_same_control_and_reference_int
         tenant_id,
         actor,
         plan["id"],
+        expected_version=_expected_version(service, tenant_id, plan["id"]),
         title="Objective Integrity AP",
         description=None,
         working_data={
@@ -434,7 +467,12 @@ def test_assessment_plan_local_objectives_support_same_control_and_reference_int
     exported = service.export_version(
         tenant_id,
         plan["id"],
-        service.create_version(tenant_id, actor, plan["id"])["id"],
+        service.create_version(
+            tenant_id,
+            actor,
+            plan["id"],
+            expected_version=_expected_version(service, tenant_id, plan["id"]),
+        )["id"],
     )
     local_defs = exported["assessment-plan"]["local-definitions"]["objectives-and-methods"]
     assert all(item["control-id"] == "ac-1" for item in local_defs)
@@ -467,6 +505,7 @@ def test_assessment_plan_rejects_invalid_objective_references_and_conflicts(
             tenant_id,
             actor,
             plan["id"],
+            expected_version=_expected_version(service, tenant_id, plan["id"]),
             title="Diagnostics AP",
             description=None,
             working_data={
@@ -506,6 +545,7 @@ def test_assessment_plan_rejects_invalid_objective_references_and_conflicts(
             tenant_id,
             actor,
             plan["id"],
+            expected_version=_expected_version(service, tenant_id, plan["id"]),
             title="Diagnostics AP",
             description=None,
             working_data={
@@ -528,6 +568,65 @@ def test_assessment_plan_rejects_invalid_objective_references_and_conflicts(
             },
         )
     assert any(item["code"] == "objective_id_conflict" for item in conflict_error.value.diagnostics)
+
+
+def test_assessment_plan_update_rejects_stale_token_under_concurrent_transactions(
+    grc_service, session_factory
+) -> None:
+    tenant_id, actor, system_id, ssp_version_id, subject_uuid, _ = _prepare_ssp_version(
+        grc_service, session_factory
+    )
+    service = AssessmentPlanService(lambda: session_factory.begin())
+    plan = service.create_plan(
+        tenant_id,
+        actor,
+        system_id,
+        ssp_version_id=ssp_version_id,
+        title="Concurrent AP",
+        description="Concurrency check",
+    )
+    token = _expected_version(service, tenant_id, plan["id"])
+
+    def _attempt_update(title: str) -> str:
+        concurrent_service = AssessmentPlanService(lambda: session_factory.begin())
+        concurrent_service.update_plan(
+            tenant_id,
+            actor,
+            plan["id"],
+            expected_version=token,
+            title=title,
+            description="Concurrency check",
+            working_data={
+                "control_ids": ["ac-1"],
+                "source_objectives": [],
+                "local_objectives": [],
+                "subject_uuids": [str(subject_uuid)],
+                "activities": [],
+                "tasks": [],
+                "roles": [],
+                "parties": [],
+                "terms": None,
+            },
+        )
+        return title
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(_attempt_update, "Concurrent AP A"),
+            executor.submit(_attempt_update, "Concurrent AP B"),
+        ]
+    results = []
+    stale = []
+    for future in futures:
+        try:
+            results.append(future.result())
+        except StaleAssessmentPlanUpdate as error:
+            stale.append(error)
+
+    assert len(results) == 1
+    assert len(stale) == 1
+    assert stale[0].expected_version == token
+    assert stale[0].current_version >= token + 1
 
 
 

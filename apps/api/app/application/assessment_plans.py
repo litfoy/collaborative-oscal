@@ -19,6 +19,7 @@ from collaborative_oscal_oscal.versions import (
 )
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.domain.errors import EntityNotFoundError
 from app.persistence.models import (
@@ -40,6 +41,14 @@ class InvalidAssessmentPlan(ValueError):
         super().__init__(
             "The Assessment Plan working state is not ready to create a valid OSCAL version."
         )
+
+
+class StaleAssessmentPlanUpdate(ValueError):
+    def __init__(self, plan_id: UUID, expected_version: int, current_version: int) -> None:
+        self.plan_id = plan_id
+        self.expected_version = expected_version
+        self.current_version = current_version
+        super().__init__("The Assessment Plan changed after it was loaded.")
 
 
 class AssessmentPlanService:
@@ -96,6 +105,7 @@ class AssessmentPlanService:
                 updated_by=actor,
                 created_at=now,
                 updated_at=now,
+                concurrency_version=1,
             )
             session.add(plan)
             session.flush()
@@ -111,12 +121,16 @@ class AssessmentPlanService:
         actor: UUID,
         plan_id: UUID,
         *,
+        expected_version: int,
         title: str,
         description: str | None,
         working_data: dict[str, Any],
     ) -> dict[str, Any]:
         with self._session_scope() as session:
             plan = self._get_plan(session, tenant_id, plan_id, lock=True)
+            if plan.concurrency_version != expected_version:
+                raise StaleAssessmentPlanUpdate(plan.id, expected_version, plan.concurrency_version)
+
             normalized_working_data = self._normalize_working_data(
                 working_data, previous=plan.working_data
             )
@@ -134,7 +148,20 @@ class AssessmentPlanService:
             plan.working_data = copy.deepcopy(normalized_working_data)
             plan.updated_by = actor
             plan.updated_at = datetime.now(UTC)
-            session.flush()
+            try:
+                session.flush()
+            except StaleDataError as error:
+                current = session.scalar(
+                    select(AssessmentPlanRecord.concurrency_version).where(
+                        AssessmentPlanRecord.tenant_id == tenant_id,
+                        AssessmentPlanRecord.id == plan_id,
+                    )
+                )
+                raise StaleAssessmentPlanUpdate(
+                    plan.id,
+                    expected_version,
+                    current if current is not None else plan.concurrency_version,
+                ) from error
             return self._plan_payload(session, plan)
 
     def validate_plan(self, tenant_id: UUID, plan_id: UUID) -> dict[str, Any]:
@@ -151,10 +178,13 @@ class AssessmentPlanService:
             }
 
     def create_version(
-        self, tenant_id: UUID, actor: UUID, plan_id: UUID
+        self, tenant_id: UUID, actor: UUID, plan_id: UUID, *, expected_version: int
     ) -> dict[str, Any]:
         with self._session_scope() as session:
             plan = self._get_plan(session, tenant_id, plan_id, lock=True)
+            if plan.concurrency_version != expected_version:
+                raise StaleAssessmentPlanUpdate(plan.id, expected_version, plan.concurrency_version)
+
             draft, diagnostics = self._build_draft(session, plan)
             errors = [item for item in diagnostics if item["severity"] == "error"]
             if errors:
@@ -215,9 +245,7 @@ class AssessmentPlanService:
                 assessment_plan_id=plan.id,
                 system_security_plan_version_id=plan.system_security_plan_version_id,
                 oscal_document_uuid=UUID(final_document["assessment-plan"]["uuid"]),
-                oscal_version=final_document["assessment-plan"]["metadata"][
-                    "oscal-version"
-                ],
+                oscal_version=final_document["assessment-plan"]["metadata"]["oscal-version"],
                 document_version=version,
                 last_modified=now,
                 content_sha256=digest,
@@ -228,7 +256,20 @@ class AssessmentPlanService:
             session.add(record)
             plan.updated_by = actor
             plan.updated_at = now
-            session.flush()
+            try:
+                session.flush()
+            except StaleDataError as error:
+                current = session.scalar(
+                    select(AssessmentPlanRecord.concurrency_version).where(
+                        AssessmentPlanRecord.tenant_id == tenant_id,
+                        AssessmentPlanRecord.id == plan_id,
+                    )
+                )
+                raise StaleAssessmentPlanUpdate(
+                    plan.id,
+                    expected_version,
+                    current if current is not None else plan.concurrency_version,
+                ) from error
             return self._version_payload(record, created=True)
 
     def list_versions(self, tenant_id: UUID, plan_id: UUID) -> list[dict[str, Any]]:
@@ -302,8 +343,7 @@ class AssessmentPlanService:
             reviewed_controls["control-objective-selections"] = [
                 {
                     "include-objectives": [
-                        {"objective-id": objective_id}
-                        for objective_id in sorted(objective_ids)
+                        {"objective-id": objective_id} for objective_id in sorted(objective_ids)
                     ]
                 }
             ]
@@ -322,11 +362,7 @@ class AssessmentPlanService:
                 {
                     "id": role["role_id"],
                     "title": role["title"],
-                    **(
-                        {"description": role["description"]}
-                        if role.get("description")
-                        else {}
-                    ),
+                    **({"description": role["description"]} if role.get("description") else {}),
                 }
                 for role in roles
             ]
@@ -414,8 +450,7 @@ class AssessmentPlanService:
                     related_controls["control-objective-selections"] = [
                         {
                             "include-objectives": [
-                                {"objective-id": objective_id}
-                                for objective_id in objective_refs
+                                {"objective-id": objective_id} for objective_id in objective_refs
                             ]
                         }
                     ]
@@ -448,9 +483,7 @@ class AssessmentPlanService:
             if task.get("description"):
                 task_entry["description"] = task["description"]
             if task.get("on_date"):
-                task_entry["timing"] = {
-                    "on-date": {"date": self._dt(task["on_date"])}
-                }
+                task_entry["timing"] = {"on-date": {"date": self._dt(task["on_date"])}}
             elif task.get("start") and task.get("end"):
                 task_entry["timing"] = {
                     "within-date-range": {
@@ -490,19 +523,11 @@ class AssessmentPlanService:
                 "metadata": metadata,
                 "import-ssp": {"href": self._ssp_href(plan)},
                 "reviewed-controls": reviewed_controls,
-                **(
-                    {"assessment-subjects": assessment_subjects}
-                    if assessment_subjects
-                    else {}
-                ),
+                **({"assessment-subjects": assessment_subjects} if assessment_subjects else {}),
                 **({"local-definitions": local_definitions} if local_definitions else {}),
                 **({"tasks": tasks} if tasks else {}),
                 **(
-                    {
-                        "terms-and-conditions": {
-                            "parts": [{"name": "conditions", "prose": terms}]
-                        }
-                    }
+                    {"terms-and-conditions": {"parts": [{"name": "conditions", "prose": terms}]}}
                     if terms
                     else {}
                 ),
@@ -582,9 +607,7 @@ class AssessmentPlanService:
                 }
             )
 
-        subject_uuids = {
-            UUID(str(item)) for item in working_data.get("subject_uuids", []) if item
-        }
+        subject_uuids = {UUID(str(item)) for item in working_data.get("subject_uuids", []) if item}
         missing_subjects = sorted(
             str(item) for item in subject_uuids if item not in allowed_subject_uuids
         )
@@ -688,9 +711,7 @@ class AssessmentPlanService:
         known_activities = set(activity_ids)
         known_roles = set(role_ids)
         for activity in working_data.get("activities", []):
-            unknown_refs = sorted(
-                set(activity.get("objective_ids", [])) - known_objectives
-            )
+            unknown_refs = sorted(set(activity.get("objective_ids", [])) - known_objectives)
             if unknown_refs:
                 diagnostics.append(
                     {
@@ -732,9 +753,7 @@ class AssessmentPlanService:
         for task in working_data.get("tasks", []):
             unknown_task_activities = sorted(
                 str(item)
-                for item in {
-                    UUID(str(item)) for item in task.get("activity_ids", [])
-                }
+                for item in {UUID(str(item)) for item in task.get("activity_ids", [])}
                 if item not in known_activities
             )
             if unknown_task_activities:
@@ -750,9 +769,7 @@ class AssessmentPlanService:
                 )
             unknown_task_subjects = sorted(
                 str(item)
-                for item in {
-                    UUID(str(subject)) for subject in task.get("subject_uuids", [])
-                }
+                for item in {UUID(str(subject)) for subject in task.get("subject_uuids", [])}
                 if item not in subject_uuids
             )
             if unknown_task_subjects:
@@ -927,12 +944,11 @@ class AssessmentPlanService:
             "ssp_oscal_version": ssp_version.oscal_version,
             "created_at": plan.created_at,
             "updated_at": plan.updated_at,
+            "concurrency_version": plan.concurrency_version,
         }
 
     @staticmethod
-    def _version_payload(
-        record: AssessmentPlanVersionRecord, *, created: bool
-    ) -> dict[str, Any]:
+    def _version_payload(record: AssessmentPlanVersionRecord, *, created: bool) -> dict[str, Any]:
         return {
             "id": record.id,
             "assessment_plan_id": record.assessment_plan_id,
@@ -1122,6 +1138,3 @@ class AssessmentPlanService:
         if plan is None:
             raise EntityNotFoundError("Assessment Plan not found.")
         return plan
-
-
-

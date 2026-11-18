@@ -131,6 +131,7 @@ def seed_ai_governance_demo(
             join_transaction_mode="create_savepoint",
             expire_on_commit=False,
         )
+
         def begin_scope():
             return scoped_factory.begin()
 
@@ -558,10 +559,11 @@ def seed_ai_governance_demo(
         governance_activity_id = str(uuid4())
         red_team_activity_id = str(uuid4())
         assessor_party_uuid = str(uuid4())
-        assessment_plans.update_plan(
+        assessment_plan = assessment_plans.update_plan(
             tenant_id,
             actor_id,
             assessment_plan["id"],
+            expected_version=assessment_plan["concurrency_version"],
             title=assessment_plan["title"],
             description=assessment_plan["description"],
             working_data={
@@ -759,6 +761,7 @@ def seed_ai_governance_demo(
             tenant_id,
             actor_id,
             assessment_plan["id"],
+            expected_version=assessment_plan["concurrency_version"],
         )
 
         assessment_result = assessment_results.create_result(

@@ -46,6 +46,10 @@ def _actor(session_factory, tenant_id: UUID) -> UUID:
         return identity.id
 
 
+def _expected_version(ap_service: AssessmentPlanService, tenant_id: UUID, plan_id: UUID) -> int:
+    return int(ap_service.get_plan(tenant_id, plan_id)["concurrency_version"])
+
+
 def _prepare_plan_version(grc_service, session_factory):
     tenant = grc_service.create_tenant("AR tenant", f"ar-{uuid4().hex}")
     actor = _actor(session_factory, tenant.id)
@@ -144,6 +148,7 @@ def _prepare_plan_version(grc_service, session_factory):
         tenant.id,
         actor,
         plan["id"],
+        expected_version=_expected_version(ap_service, tenant.id, plan["id"]),
         title=plan["title"],
         description=plan["description"],
         working_data={
@@ -165,7 +170,12 @@ def _prepare_plan_version(grc_service, session_factory):
             "terms": None,
         },
     )
-    plan_version = ap_service.create_version(tenant.id, actor, plan["id"])
+    plan_version = ap_service.create_version(
+        tenant.id,
+        actor,
+        plan["id"],
+        expected_version=_expected_version(ap_service, tenant.id, plan["id"]),
+    )
     return tenant.id, actor, system["id"], plan, plan_version, controls[0], UUID(str(subject_uuid))
 
 
@@ -301,6 +311,7 @@ def _prepare_plan_scope_context(
         tenant.id,
         actor,
         plan["id"],
+        expected_version=_expected_version(ap_service, tenant.id, plan["id"]),
         title=plan["title"],
         description=plan["description"],
         working_data={
@@ -319,7 +330,12 @@ def _prepare_plan_scope_context(
             "terms": None,
         },
     )
-    plan_version = ap_service.create_version(tenant.id, actor, plan["id"])
+    plan_version = ap_service.create_version(
+        tenant.id,
+        actor,
+        plan["id"],
+        expected_version=_expected_version(ap_service, tenant.id, plan["id"]),
+    )
     return {
         "tenant_id": tenant.id,
         "actor": actor,
@@ -1116,6 +1132,9 @@ def test_assessment_result_uses_pinned_plan_context_after_newer_plan_versions(
         context["tenant_id"],
         context["actor"],
         context["plan"]["id"],
+        expected_version=_expected_version(
+            context["ap_service"], context["tenant_id"], context["plan"]["id"]
+        ),
         title="Scoped AP v2",
         description="changed scope",
         working_data={
@@ -1138,7 +1157,12 @@ def test_assessment_result_uses_pinned_plan_context_after_newer_plan_versions(
         },
     )
     context["ap_service"].create_version(
-        context["tenant_id"], context["actor"], context["plan"]["id"]
+        context["tenant_id"],
+        context["actor"],
+        context["plan"]["id"],
+        expected_version=_expected_version(
+            context["ap_service"], context["tenant_id"], context["plan"]["id"]
+        ),
     )
 
     current = service.get_result(context["tenant_id"], result["id"])

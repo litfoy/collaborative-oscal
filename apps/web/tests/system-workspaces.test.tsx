@@ -361,6 +361,7 @@ describe("Systems workspaces", () => {
       ssp_oscal_version: "1.2.1",
       created_at: "",
       updated_at: "",
+      concurrency_version: 1,
     };
     render(
       <LocaleProvider locale="en">

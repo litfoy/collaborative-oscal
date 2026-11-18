@@ -128,6 +128,10 @@ export const en = {
   "assessmentPlans.validationIssues": "Validation found issues to address.",
   "assessmentPlans.versionCreated": "Created immutable Assessment Plan version {version}.",
   "assessmentPlans.versionUnchanged": "The working content is unchanged; the existing immutable version was reused.",
+  "assessmentPlans.conflictDetected": "This Assessment Plan changed in another session. Current server version: {version}.",
+  "assessmentPlans.conflictPreserved": "Your unsaved edits remain in this page. Reload only after confirmation.",
+  "assessmentPlans.confirmConflictReload": "Discard your unsaved Assessment Plan edits and reload the server state?",
+  "assessmentPlans.reloadConfirmedState": "Discard edits and reload",
 } as const;
 
 export const de: Record<keyof typeof en, string> = {
@@ -260,6 +264,10 @@ export const de: Record<keyof typeof en, string> = {
   "assessmentPlans.validationIssues": "Bei der Validierung wurden Probleme gefunden.",
   "assessmentPlans.versionCreated": "Unveraenderliche Pruefplan-Version {version} erstellt.",
   "assessmentPlans.versionUnchanged": "Der Arbeitsinhalt ist unveraendert; die vorhandene unveraenderliche Version wurde wiederverwendet.",
+  "assessmentPlans.conflictDetected": "Dieser Pruefplan wurde in einer anderen Sitzung geaendert. Aktuelle Serverversion: {version}.",
+  "assessmentPlans.conflictPreserved": "Ihre nicht gespeicherten Aenderungen bleiben auf dieser Seite erhalten. Laden Sie erst nach einer Bestaetigung neu.",
+  "assessmentPlans.confirmConflictReload": "Nicht gespeicherte Aenderungen am Pruefplan verwerfen und den Serverstand neu laden?",
+  "assessmentPlans.reloadConfirmedState": "Aenderungen verwerfen und neu laden",
 };
 
 

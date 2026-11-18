@@ -52,6 +52,7 @@ const plan: AssessmentPlan = {
   ssp_oscal_version: "1.2.1",
   created_at: "",
   updated_at: "",
+  concurrency_version: 1,
 };
 
 const result: AssessmentResult = {
