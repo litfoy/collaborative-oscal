@@ -42,6 +42,76 @@ Manual invocation remains supported:
 python -m app.cli seed-ai-governance-demo-local
 ```
 
+## Seeded scenario (fictional)
+
+All seeded content is fictional demonstration data. It is not evidence of real
+compliance, certification or production readiness, and the evidence links under
+`https://example.demo/fictional/` do not point to real or verified evidence.
+
+The seed describes the **Agentic AI Development Platform**: a fictional internal
+AI-assisted software development platform in which coding agents use approved
+development tools to generate code and execute tests, while security-sensitive
+agent actions and production releases require documented human approval. The
+seed only authors documents; it adds no agent execution functionality.
+
+Five controls from the unchanged upstream catalog are selected. Each
+contribution comes from a system component adopted from the reusable safeguard
+(Component Definition) that addresses that control. A contribution describes how
+a component contributes to a requirement; it is not a claim that the requirement
+is met.
+
+| Control | Upstream statement (summary) | Reusable safeguard | System component | Contribution status |
+| --- | --- | --- | --- | --- |
+| `MG-2.2-006` | Version control for models and datasets to track changes and facilitate rollback | Model and dataset version management | Model registry and release records | partial |
+| `MP-1.1-008` | Document system requirements, ownership and roles for human oversight | Human oversight of agent actions | Human approval workflow | implemented (documentation only) |
+| `GV-1.2-003` | Define acceptable use policies for GAI systems | AI governance policies | AI governance policy set | partial |
+| `GV-4.1-003` | Policies and procedures for risk measurement with standardized protocols and structured feedback | AI governance policies | AI governance policy set | partial |
+| `MS-2.7-016` | AI red-teaming against malicious behavior | AI security testing | AI red-teaming service | partial |
+
+The Assessment Plan defines one concrete local objective per control and three
+activities. Each activity references only objectives that belong to its selected
+controls, each task is linked to its activity and to the components that
+contribute to the activity's controls, and the lead assessor role is linked to
+its party.
+
+The Assessment Results are deliberately narrow:
+
+- They evaluate only the local objective `local-model-version-traceability`
+  (control `MG-2.2-006`): for each of three fictional sampled releases, the
+  release record must identify the exact approved model version and be matchable
+  to the model registry record.
+- The single observation records that two of three sampled release records met
+  this and one did not. The single finding targets the local objective
+  (`objective-id`) with status `not-satisfied` and references that observation.
+- The finding does not conclude that `MG-2.2-006` as a whole is satisfied or not
+  satisfied. The actual reviewed scope is `MG-2.2-006` only; the other four
+  planned controls are not assessed, and nothing is implied about them.
+
+The fictional assessment is dated 10 November 2026 (planned activities for the
+other controls on 11 and 12 November 2026). The documents are recorded
+retrospectively when the seed runs, so their publication timestamps are later
+than the fictional assessment dates.
+
+## Existing demo installations
+
+The corrected scenario applies to fresh demo initialization only.
+
+- A tenant that already carries the `ai-governance-demo-v1` seed marker keeps its
+  original System, Component Definitions, and published SSP, Assessment Plan and
+  Assessment Results versions. A repeated seed run is a no-op and never modifies,
+  deletes or replaces published immutable versions.
+- There is no seed migration and no automatic reset.
+- To receive the corrected scenario, a pre-release local demo installation must
+  be reset intentionally. This deletes **all** local demo data in that Compose
+  project, including content authored manually:
+
+  ```bash
+  docker compose down -v
+  docker compose --profile ai-governance-demo up --build -d
+  ```
+
+  Do not run this against an installation whose data must be retained.
+
 ## Scope
 
 - Investigate why `tests/test_ai_governance_demo_seed.py` was skipped.
@@ -232,12 +302,39 @@ Result:
 
 - `6 passed in 2.00s`.
 
-## 8) Remaining verification gaps
+## 8) Semantic regression coverage of the published chain
+
+`test_ai_governance_demo_seed_publishes_semantically_consistent_chain` in
+`apps/api/tests/test_ai_governance_demo_seed.py` seeds a fresh tenant and checks
+the published documents rather than object counts:
+
+- Trestle model and official JSON Schema validity of the published SSP,
+  Assessment Plan, Assessment Results and Component Definition snapshots.
+- The five approved controls, and that each contribution's component is adopted
+  from the safeguard that addresses that control (security testing separate from
+  human oversight).
+- Distinct contribution descriptions and evidence references, and aligned
+  register status, OSCAL status and status remarks.
+- The control of the local model-version objective, and that every activity
+  references only objectives belonging to its selected controls.
+- Task-to-activity, task-to-subject and role-to-party links.
+- Actual reviewed scope, finding target type and ID, existence of the targeted
+  objective in the pinned Assessment Plan, related observations, evidence
+  resources, and a consistent fictional timeline.
+- Pinned historical references along catalog revision, SSP version, Assessment
+  Plan version and Assessment Results version, and unchanged published versions
+  after a repeated seed run.
+
+With this test the focused seed test file contains four tests (sections 2, 6 and
+7 above record the earlier three-test runs).
+
+## 9) Remaining verification gaps
 
 - None identified for the requested transactional-correctness scope.
 - Cross-tenant verification still uses deterministic IDs inserted into the isolated database for repeatability.
+- The seeded scenario has not been verified through the graphical user interface.
 
-## 9) Cleanup commands used
+## 10) Cleanup commands used
 
 Isolated lifecycle stack cleanup (executed with explicit project name only):
 

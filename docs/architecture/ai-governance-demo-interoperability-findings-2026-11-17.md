@@ -26,14 +26,20 @@ Checked artifacts:
 
 ## Control ID verification
 
-The following required control IDs exist in the upstream catalog, with statement
-identifiers using the `_smt` pattern:
+The following control IDs used by the demo seed exist in the upstream catalog,
+each with a single statement part whose identifier uses the `_smt` pattern:
 
-- `MG-3.1-009`
+- `MG-2.2-006`
 - `MP-1.1-008`
 - `MS-2.7-016`
 - `GV-4.1-003`
 - `GV-1.2-003`
+
+`MG-3.1-009` was verified in the same way during the initial dataset
+implementation. Following the semantic review it is no longer used by the seed,
+because it concerns transparency documentation for third-party models rather
+than model-version traceability; `MG-2.2-006` replaces it. The catalog itself is
+unchanged.
 
 ## Group ID vs control ID re-check
 

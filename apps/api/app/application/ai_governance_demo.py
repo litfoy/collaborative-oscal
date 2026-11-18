@@ -5,7 +5,7 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
@@ -52,12 +52,26 @@ UPSTREAM_CATALOG_SOURCE_ORGANIZATION = "OSCAL Compass"
 UPSTREAM_CATALOG_LICENSE = "Apache-2.0"
 
 PRIORITIZED_CONTROL_IDS = (
-    "MG-3.1-009",
+    "MG-2.2-006",
     "MP-1.1-008",
-    "MS-2.7-016",
-    "GV-4.1-003",
     "GV-1.2-003",
+    "GV-4.1-003",
+    "MS-2.7-016",
 )
+
+MODEL_VERSION_CONTROL_ID = "MG-2.2-006"
+MODEL_VERSION_OBJECTIVE_ID = "local-model-version-traceability"
+
+# Fixed fictional assessment timeline. The demo documents are recorded retrospectively
+# when the seed runs, so these dates precede the publication timestamps of the generated
+# documents and the observation is collected inside the assessed period.
+MODEL_VERSION_TASK_START = "2026-11-10T09:00:00+00:00"
+MODEL_VERSION_OBSERVATION_COLLECTED = "2026-11-10T10:30:00+00:00"
+MODEL_VERSION_TASK_END = "2026-11-10T12:00:00+00:00"
+GOVERNANCE_TASK_START = "2026-11-11T09:00:00+00:00"
+GOVERNANCE_TASK_END = "2026-11-11T12:00:00+00:00"
+RED_TEAM_TASK_START = "2026-11-12T09:00:00+00:00"
+RED_TEAM_TASK_END = "2026-11-12T12:00:00+00:00"
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,7 +144,6 @@ def seed_ai_governance_demo(
             unit_of_work_factory=unit_of_work_factory,
         )
         _validate_prioritized_controls(session, tenant_id, revision.id)
-        statement_target = _select_statement_target(_statement_ids_by_control(revision.content))
 
         definitions = ComponentDefinitionService(begin_scope)
         implementations = ImplementationService(begin_scope)
@@ -138,51 +151,115 @@ def seed_ai_governance_demo(
         assessment_plans = AssessmentPlanService(begin_scope)
         assessment_results = AssessmentResultService(begin_scope)
 
-        transparency_definition = definitions.create(
+        # Reusable safeguards. Each Component Definition describes a contribution to the
+        # referenced requirements; none of them claims that a requirement is met.
+        version_definition = definitions.create(
             tenant_id,
             actor_id,
-            "AI transparency safeguards (fictional demo)",
-            "policy",
-            "Fictional demonstration data only. Not an actual compliance claim.",
+            "Model and dataset version management (fictional demo)",
+            "service",
+            (
+                "Fictional demonstration data only. Reusable safeguard: a registry that "
+                "versions models and evaluation datasets and links approved versions to "
+                "release records. Not an actual compliance claim."
+            ),
             [
                 ComponentRequirementInput(
                     catalog.id,
                     revision.id,
-                    "MG-3.1-009",
-                    "Fictional demo: publish model cards and training provenance.",
-                ),
-                ComponentRequirementInput(
-                    catalog.id,
-                    revision.id,
-                    "MP-1.1-008",
-                    "Fictional demo: include acceptable-use checks in release approvals.",
+                    "MG-2.2-006",
+                    (
+                        "Fictional demo safeguard: register every model and evaluation "
+                        "dataset version under a unique identifier, record the changes "
+                        "between versions, and reference the exact approved model version "
+                        "in each release record so that a release can be traced and rolled "
+                        "back. Contributes to this requirement; adopting the safeguard does "
+                        "not by itself establish that the requirement is met."
+                    ),
                 ),
             ],
         )
         oversight_definition = definitions.create(
             tenant_id,
             actor_id,
-            "Human oversight safeguards (fictional demo)",
+            "Human oversight of agent actions (fictional demo)",
             "process-procedure",
-            "Fictional demonstration data only. Not an actual compliance claim.",
+            (
+                "Fictional demonstration data only. Reusable safeguard: documented ownership "
+                "and human approval responsibilities for security-sensitive agent actions "
+                "and production releases. Not an actual compliance claim."
+            ),
             [
                 ComponentRequirementInput(
                     catalog.id,
                     revision.id,
-                    "GV-4.1-003",
-                    "Fictional demo: require explicit human release approvals.",
+                    "MP-1.1-008",
+                    (
+                        "Fictional demo safeguard: document the system requirements, the "
+                        "system owner, and the AI actor roles and responsibilities for human "
+                        "approval of security-sensitive agent actions and production "
+                        "releases. Contributes documentation only; it does not show that "
+                        "oversight is effective."
+                    ),
                 ),
+            ],
+        )
+        policy_definition = definitions.create(
+            tenant_id,
+            actor_id,
+            "AI governance policies (fictional demo)",
+            "policy",
+            (
+                "Fictional demonstration data only. Reusable safeguard: an acceptable use "
+                "policy and a risk measurement procedure for generative AI systems. Not an "
+                "actual compliance claim."
+            ),
+            [
                 ComponentRequirementInput(
                     catalog.id,
                     revision.id,
                     "GV-1.2-003",
-                    "Fictional demo: maintain accountable governance ownership.",
+                    (
+                        "Fictional demo safeguard: define an acceptable use policy stating "
+                        "permitted and prohibited uses of generative AI systems. Partial "
+                        "contribution: the policy covers only the systems it names, not "
+                        "every GAI system deployed or used within an organization."
+                    ),
                 ),
                 ComponentRequirementInput(
                     catalog.id,
                     revision.id,
+                    "GV-4.1-003",
+                    (
+                        "Fictional demo safeguard: maintain a documented risk measurement "
+                        "procedure that defines standardized measurement protocols in the "
+                        "context of use and structured feedback exercises such as AI "
+                        "red-teaming. Partial contribution: independent external audits and "
+                        "public feedback exercises are not part of this safeguard."
+                    ),
+                ),
+            ],
+        )
+        red_team_definition = definitions.create(
+            tenant_id,
+            actor_id,
+            "AI security testing (fictional demo)",
+            "service",
+            (
+                "Fictional demonstration data only. Reusable safeguard: AI red-teaming of "
+                "generative AI agents. Not an actual compliance claim."
+            ),
+            [
+                ComponentRequirementInput(
+                    catalog.id,
+                    revision.id,
                     "MS-2.7-016",
-                    "Fictional demo: execute AI security testing and red-teaming.",
+                    (
+                        "Fictional demo safeguard: perform AI red-teaming of coding agents "
+                        "against prompt injection and malicious code generation. Partial "
+                        "contribution: adversarial examples, data poisoning and model "
+                        "extraction, which the requirement also names, are not covered."
+                    ),
                 ),
             ],
         )
@@ -193,12 +270,18 @@ def seed_ai_governance_demo(
             name=SYSTEM_NAME,
             organization_id=None,
             description=(
-                "Fictional demonstration data only. Sample enterprise AI platform for "
-                "authoring workflows."
+                "Fictional demonstration data only. Internal AI-assisted software "
+                "development platform of a fictional organization. Coding agents use "
+                "approved development tools to generate code and execute tests in isolated "
+                "workspaces. Security-sensitive agent actions and production releases "
+                "require documented human approval."
             ),
             system_boundary=(
-                "Fictional demonstration data only. Includes model training, registry, "
-                "approval, and deployment flows."
+                "Fictional demonstration data only. Includes the agent orchestration "
+                "platform with its tool-execution workspaces, the model registry and "
+                "release records, the human approval workflow, the AI governance policy "
+                "set, and the AI red-teaming service. Excludes developer workstations and "
+                "the production environments that run released software."
             ),
             system_ids=[
                 {
@@ -208,62 +291,104 @@ def seed_ai_governance_demo(
             ],
             information_types=[
                 {
-                    "title": "Model training metadata",
-                    "description": "Fictional demo lineage and provenance records.",
+                    "title": "Model registry and release records",
+                    "description": (
+                        "Fictional demo records of approved model and evaluation dataset "
+                        "versions and of the releases that reference them."
+                    ),
                 },
                 {
-                    "title": "Model evaluation artifacts",
-                    "description": "Fictional demo quality and safety test results.",
+                    "title": "Agent activity and approval records",
+                    "description": (
+                        "Fictional demo logs of agent tool use, test executions and human "
+                        "approval decisions."
+                    ),
+                },
+                {
+                    "title": "AI security test results",
+                    "description": "Fictional demo plans and reports of AI red-teaming exercises.",
                 },
             ],
             operational_status="operational",
             status_remarks=None,
             security_sensitivity_level="moderate",
         )
-        system_component = ssp.create_component(
+        ssp.create_component(
             tenant_id,
             actor_id,
             system["id"],
             component_type="this-system",
-            title="Platform governance core",
-            description="Fictional demonstration data only.",
-            purpose="Centralized governance guardrails.",
+            title="Agent orchestration platform",
+            description=(
+                "Fictional demonstration data only. Runs coding agents that use approved "
+                "development tools to generate code and execute tests in isolated "
+                "workspaces, and routes security-sensitive actions and production releases "
+                "to the human approval workflow."
+            ),
+            purpose="Provide AI-assisted software development with human-approved releases.",
             status="operational",
             status_remarks=None,
             is_system_component=True,
         )
-        red_team_component = ssp.create_component(
+        registry_component = ssp.adopt_component_definition(
             tenant_id,
             actor_id,
             system["id"],
-            component_type="service",
-            title="AI security testing service",
-            description="Fictional demonstration data only.",
-            purpose="Run adversarial AI abuse simulations.",
+            version_definition.id,
+            version_definition.components[0].id,
+            title="Model registry and release records",
+            description=(
+                "Fictional demonstration data only. Registry of the approved model and "
+                "evaluation dataset versions used by the coding agents, together with the "
+                "release records that reference them."
+            ),
+            purpose="Trace each release to an exact approved model version and support rollback.",
             status="operational",
             status_remarks=None,
         )
-        adopted_transparency = ssp.adopt_component_definition(
-            tenant_id,
-            actor_id,
-            system["id"],
-            transparency_definition.id,
-            transparency_definition.components[0].id,
-            title="Model transparency workflow",
-            description="Fictional demonstration data only.",
-            purpose="Maintain model documentation and traceability.",
-            status="operational",
-            status_remarks=None,
-        )
-        adopted_oversight = ssp.adopt_component_definition(
+        approval_component = ssp.adopt_component_definition(
             tenant_id,
             actor_id,
             system["id"],
             oversight_definition.id,
             oversight_definition.components[0].id,
-            title="Human oversight workflow",
-            description="Fictional demonstration data only.",
-            purpose="Ensure accountable human decisions before release.",
+            title="Human approval workflow",
+            description=(
+                "Fictional demonstration data only. Documented workflow in which named "
+                "approvers decide on security-sensitive agent actions and production "
+                "releases before they take effect."
+            ),
+            purpose="Keep accountable human decisions in front of sensitive agent actions.",
+            status="operational",
+            status_remarks=None,
+        )
+        policy_component = ssp.adopt_component_definition(
+            tenant_id,
+            actor_id,
+            system["id"],
+            policy_definition.id,
+            policy_definition.components[0].id,
+            title="AI governance policy set",
+            description=(
+                "Fictional demonstration data only. The platform's acceptable use policy "
+                "for coding agents and its risk measurement procedure."
+            ),
+            purpose="Define permitted agent use and how platform risks are measured.",
+            status="operational",
+            status_remarks=None,
+        )
+        red_team_component = ssp.adopt_component_definition(
+            tenant_id,
+            actor_id,
+            system["id"],
+            red_team_definition.id,
+            red_team_definition.components[0].id,
+            title="AI red-teaming service",
+            description=(
+                "Fictional demonstration data only. Internal service that runs adversarial "
+                "exercises against the coding agents and reports the results."
+            ),
+            purpose="Assess agent resilience against malicious behavior.",
             status="operational",
             status_remarks=None,
         )
@@ -276,16 +401,114 @@ def seed_ai_governance_demo(
             revision_id=revision.id,
             title="Agentic AI Development Platform SSP (fictional demo)",
             control_implementation_description=(
-                "Fictional demonstration data only. Illustrative implementation records."
+                "Fictional demonstration data only. Each contribution describes how one "
+                "system component, adopted from a reusable safeguard, contributes to one "
+                "selected requirement. A contribution is not a claim that the requirement "
+                "is met."
             ),
         )
-        for control_id, component_id, status in (
-            ("MG-3.1-009", adopted_transparency["id"], OscalImplementationStatus.IMPLEMENTED),
-            ("MP-1.1-008", adopted_transparency["id"], OscalImplementationStatus.IMPLEMENTED),
-            ("GV-4.1-003", adopted_oversight["id"], OscalImplementationStatus.PARTIAL),
-            ("GV-1.2-003", system_component["id"], OscalImplementationStatus.PARTIAL),
-            ("MS-2.7-016", red_team_component["id"], OscalImplementationStatus.IMPLEMENTED),
-        ):
+        # (control, contributing component, register status, OSCAL status, description,
+        #  status explanation, fictional evidence references)
+        contributions = (
+            (
+                "MG-2.2-006",
+                registry_component["id"],
+                ImplementationStatus.IN_PROGRESS,
+                OscalImplementationStatus.PARTIAL,
+                (
+                    "Fictional demo: the model registry assigns a unique identifier to every "
+                    "approved model version and evaluation dataset version used by the "
+                    "coding agents and records the changes between versions. Release "
+                    "records are expected to cite the exact approved model version so that "
+                    "a release can be traced to its registry record and rolled back."
+                ),
+                (
+                    "Fictional demo: version registration is in place; mandatory "
+                    "model-version references in release records are still being introduced."
+                ),
+                [
+                    "https://example.demo/fictional/model-registry/approved-versions",
+                    "https://example.demo/fictional/release-records",
+                ],
+            ),
+            (
+                "MP-1.1-008",
+                approval_component["id"],
+                ImplementationStatus.IMPLEMENTED,
+                OscalImplementationStatus.IMPLEMENTED,
+                (
+                    "Fictional demo: the platform's system requirements document names the "
+                    "platform owner and the approver roles responsible for "
+                    "security-sensitive agent actions, such as dependency changes and "
+                    "credential use, and for production releases."
+                ),
+                (
+                    "Fictional demo: the documentation is described as complete for this "
+                    "system; whether human oversight operates effectively has not been "
+                    "assessed."
+                ),
+                ["https://example.demo/fictional/platform-requirements-and-oversight-roles"],
+            ),
+            (
+                "GV-1.2-003",
+                policy_component["id"],
+                ImplementationStatus.IN_PROGRESS,
+                OscalImplementationStatus.PARTIAL,
+                (
+                    "Fictional demo: the acceptable use policy permits coding agents to "
+                    "generate code and execute tests in isolated workspaces and prohibits "
+                    "unapproved production changes and handling of production credentials."
+                ),
+                (
+                    "Fictional demo: the policy covers this platform only; other GAI "
+                    "systems used within the fictional organization are not yet covered."
+                ),
+                ["https://example.demo/fictional/acceptable-use-policy-coding-agents"],
+            ),
+            (
+                "GV-4.1-003",
+                policy_component["id"],
+                ImplementationStatus.IN_PROGRESS,
+                OscalImplementationStatus.PARTIAL,
+                (
+                    "Fictional demo: the risk measurement procedure defines standardized "
+                    "measurement protocols for agent-generated changes, such as test "
+                    "results and security review findings, and names developer feedback "
+                    "sessions and AI red-teaming as structured feedback exercises."
+                ),
+                (
+                    "Fictional demo: the procedure is in draft; structured feedback "
+                    "exercises are defined but not yet scheduled, and independent external "
+                    "audits are not included."
+                ),
+                ["https://example.demo/fictional/risk-measurement-procedure-draft"],
+            ),
+            (
+                "MS-2.7-016",
+                red_team_component["id"],
+                ImplementationStatus.IN_PROGRESS,
+                OscalImplementationStatus.PARTIAL,
+                (
+                    "Fictional demo: the red-teaming service runs exercises against the "
+                    "coding agents that cover prompt injection through repository content "
+                    "and tool output, and generation of malicious code."
+                ),
+                (
+                    "Fictional demo: adversarial examples, data poisoning and model "
+                    "extraction are not yet part of the exercises."
+                ),
+                ["https://example.demo/fictional/red-team/exercise-reports"],
+            ),
+        )
+        for (
+            control_id,
+            component_id,
+            register_status,
+            oscal_status,
+            description,
+            status_explanation,
+            evidence_references,
+        ) in contributions:
             record = implementations.create(
                 tenant_id,
                 actor_id,
@@ -295,16 +518,12 @@ def seed_ai_governance_demo(
                 None,
                 None,
                 ImplementationInformation(
-                    description=(
-                        "Fictional demonstration data only. Not an actual compliance claim."
-                    ),
-                    status=ImplementationStatus.IN_PROGRESS,
-                    evidence_references=["https://example.demo/evidence/fictional-ai-governance"],
+                    description=description,
+                    status=register_status,
+                    evidence_references=evidence_references,
                     responsibilities=[],
-                    oscal_implementation_status=status,
-                    oscal_status_explanation=(
-                        "Fictional demonstration data only. Illustrative staged rollout."
-                    ),
+                    oscal_implementation_status=oscal_status,
+                    oscal_status_explanation=status_explanation,
                 ),
             )
             ssp.associate_implementation(
@@ -325,13 +544,20 @@ def seed_ai_governance_demo(
             system["id"],
             ssp_version_id=ssp_version["id"],
             title="Agentic AI Governance Assessment Plan (fictional demo)",
-            description="Fictional demonstration data only.",
+            description=(
+                "Fictional demonstration data only. Plans the examination of five selected "
+                "requirements for the fictional platform. Dates are fictional and the plan "
+                "is recorded retrospectively when the demo is seeded."
+            ),
         )
-        subject_uuids = [
-            str(adopted_transparency["oscal_component_uuid"]),
-            str(adopted_oversight["oscal_component_uuid"]),
-            str(red_team_component["oscal_component_uuid"]),
-        ]
+        registry_subject = str(registry_component["oscal_component_uuid"])
+        approval_subject = str(approval_component["oscal_component_uuid"])
+        policy_subject = str(policy_component["oscal_component_uuid"])
+        red_team_subject = str(red_team_component["oscal_component_uuid"])
+        model_version_activity_id = str(uuid4())
+        governance_activity_id = str(uuid4())
+        red_team_activity_id = str(uuid4())
+        assessor_party_uuid = str(uuid4())
         assessment_plans.update_plan(
             tenant_id,
             actor_id,
@@ -343,54 +569,187 @@ def seed_ai_governance_demo(
                 "source_objectives": [],
                 "local_objectives": [
                     {
-                        "objective_id": "local-model-version-traceability",
-                        "control_id": "MG-3.1-009",
-                        "description": "Fictional demo objective for version traceability.",
-                        "methods": ["EXAMINE", "TEST"],
-                    }
-                ],
-                "subject_uuids": subject_uuids,
-                "activities": [
-                    {
-                        "title": "Review model documentation",
-                        "description": "Fictional demonstration data only.",
+                        "objective_id": MODEL_VERSION_OBJECTIVE_ID,
+                        "control_id": MODEL_VERSION_CONTROL_ID,
+                        "description": (
+                            "Fictional demo objective: for each of three fictional sampled "
+                            "releases, the release record identifies the exact approved "
+                            "model version and can be matched to the corresponding model "
+                            "registry record."
+                        ),
                         "methods": ["EXAMINE"],
-                        "steps": [],
-                        "control_ids": ["MG-3.1-009", "MP-1.1-008"],
-                        "objective_ids": ["local-model-version-traceability"],
-                        "planned_evidence": "Fictional model registry exports.",
                     },
                     {
-                        "title": "Execute adversarial testing",
-                        "description": "Fictional demonstration data only.",
-                        "methods": ["TEST"],
+                        "objective_id": "local-oversight-roles-documented",
+                        "control_id": "MP-1.1-008",
+                        "description": (
+                            "Fictional demo objective: the system requirements document "
+                            "names the platform owner and the roles responsible for "
+                            "approving security-sensitive agent actions and production "
+                            "releases."
+                        ),
+                        "methods": ["EXAMINE", "INTERVIEW"],
+                    },
+                    {
+                        "objective_id": "local-acceptable-use-policy-defined",
+                        "control_id": "GV-1.2-003",
+                        "description": (
+                            "Fictional demo objective: an approved acceptable use policy "
+                            "states the permitted and prohibited uses of the platform's "
+                            "coding agents."
+                        ),
+                        "methods": ["EXAMINE"],
+                    },
+                    {
+                        "objective_id": "local-risk-measurement-procedure-documented",
+                        "control_id": "GV-4.1-003",
+                        "description": (
+                            "Fictional demo objective: the risk measurement procedure "
+                            "defines standardized measurement protocols and at least one "
+                            "structured feedback exercise for the platform."
+                        ),
+                        "methods": ["EXAMINE"],
+                    },
+                    {
+                        "objective_id": "local-red-team-coverage-recorded",
+                        "control_id": "MS-2.7-016",
+                        "description": (
+                            "Fictional demo objective: the records of the most recent AI "
+                            "red-teaming exercise show test cases for prompt injection and "
+                            "for malicious code generation against the coding agents."
+                        ),
+                        "methods": ["EXAMINE"],
+                    },
+                ],
+                "subject_uuids": [
+                    registry_subject,
+                    approval_subject,
+                    policy_subject,
+                    red_team_subject,
+                ],
+                "activities": [
+                    {
+                        "id": model_version_activity_id,
+                        "title": "Examine sampled release records for model-version traceability",
+                        "description": (
+                            "Fictional demonstration data only. Examine three sampled "
+                            "release records against the model registry."
+                        ),
+                        "methods": ["EXAMINE"],
+                        "steps": [
+                            {
+                                "title": "Select the sample",
+                                "description": (
+                                    "Select three fictional release records from the "
+                                    "release records of the platform."
+                                ),
+                            },
+                            {
+                                "title": "Examine the release records",
+                                "description": (
+                                    "Check whether each sampled release record identifies "
+                                    "an exact approved model version."
+                                ),
+                            },
+                            {
+                                "title": "Match to the model registry",
+                                "description": (
+                                    "Match each model-version identifier to the "
+                                    "corresponding record in the model registry export."
+                                ),
+                            },
+                        ],
+                        "control_ids": [MODEL_VERSION_CONTROL_ID],
+                        "objective_ids": [MODEL_VERSION_OBJECTIVE_ID],
+                        "planned_evidence": (
+                            "Fictional model registry export and three fictional sampled "
+                            "release records."
+                        ),
+                    },
+                    {
+                        "id": governance_activity_id,
+                        "title": "Examine oversight and governance documentation",
+                        "description": (
+                            "Fictional demonstration data only. Examine the documented "
+                            "oversight responsibilities, the acceptable use policy and the "
+                            "risk measurement procedure, and interview the platform owner "
+                            "about the oversight roles."
+                        ),
+                        "methods": ["EXAMINE", "INTERVIEW"],
                         "steps": [],
-                        "control_ids": ["MS-2.7-016", "GV-4.1-003", "GV-1.2-003"],
-                        "objective_ids": ["local-model-version-traceability"],
-                        "planned_evidence": "Fictional red-team report references.",
+                        "control_ids": ["MP-1.1-008", "GV-1.2-003", "GV-4.1-003"],
+                        "objective_ids": [
+                            "local-oversight-roles-documented",
+                            "local-acceptable-use-policy-defined",
+                            "local-risk-measurement-procedure-documented",
+                        ],
+                        "planned_evidence": (
+                            "Fictional system requirements document, acceptable use policy "
+                            "and risk measurement procedure."
+                        ),
+                    },
+                    {
+                        "id": red_team_activity_id,
+                        "title": "Examine AI red-teaming records",
+                        "description": (
+                            "Fictional demonstration data only. Examine the plan and report "
+                            "of the most recent AI red-teaming exercise. The assessor "
+                            "reviews records and does not perform the red-teaming."
+                        ),
+                        "methods": ["EXAMINE"],
+                        "steps": [],
+                        "control_ids": ["MS-2.7-016"],
+                        "objective_ids": ["local-red-team-coverage-recorded"],
+                        "planned_evidence": "Fictional AI red-teaming exercise plan and report.",
                     },
                 ],
                 "tasks": [
                     {
-                        "title": "Coordinate governance assessment",
+                        "title": "Assess model-version traceability of sampled releases",
                         "description": "Fictional demonstration data only.",
-                        "activity_ids": [],
-                        "subject_uuids": subject_uuids,
+                        "activity_ids": [model_version_activity_id],
+                        "subject_uuids": [registry_subject],
                         "role_ids": ["lead-assessor"],
-                        "on_date": "2026-11-17T10:00:00+00:00",
-                        "start": None,
-                        "end": None,
-                    }
+                        "on_date": None,
+                        "start": MODEL_VERSION_TASK_START,
+                        "end": MODEL_VERSION_TASK_END,
+                    },
+                    {
+                        "title": "Assess oversight and governance documentation",
+                        "description": "Fictional demonstration data only.",
+                        "activity_ids": [governance_activity_id],
+                        "subject_uuids": [approval_subject, policy_subject],
+                        "role_ids": ["lead-assessor"],
+                        "on_date": None,
+                        "start": GOVERNANCE_TASK_START,
+                        "end": GOVERNANCE_TASK_END,
+                    },
+                    {
+                        "title": "Assess AI red-teaming records",
+                        "description": "Fictional demonstration data only.",
+                        "activity_ids": [red_team_activity_id],
+                        "subject_uuids": [red_team_subject],
+                        "role_ids": ["lead-assessor"],
+                        "on_date": None,
+                        "start": RED_TEAM_TASK_START,
+                        "end": RED_TEAM_TASK_END,
+                    },
                 ],
                 "roles": [
                     {
                         "role_id": "lead-assessor",
                         "title": "Lead Assessor",
                         "description": "Fictional demonstration data only.",
-                        "party_uuids": [],
+                        "party_uuids": [assessor_party_uuid],
                     }
                 ],
-                "parties": [{"party_type": "person", "name": "Jordan Demo Assessor"}],
+                "parties": [
+                    {
+                        "uuid": assessor_party_uuid,
+                        "party_type": "person",
+                        "name": "Jordan Demo Assessor",
+                    }
+                ],
                 "terms": "Fictional demonstration data only. Not evidence of real compliance.",
             },
         )
@@ -409,50 +768,14 @@ def seed_ai_governance_demo(
             assessment_plan_id=assessment_plan["id"],
             assessment_plan_version_id=assessment_plan_version["id"],
             title="Agentic AI Governance Assessment Results (fictional demo)",
-            description="Fictional demonstration data only.",
+            description=(
+                "Fictional demonstration data only. Illustrative result that evaluates only "
+                f"the local objective {MODEL_VERSION_OBJECTIVE_ID} for control "
+                f"{MODEL_VERSION_CONTROL_ID}. The other planned controls were not assessed "
+                "in this result, and no conclusion about them is implied."
+            ),
         )
-        updated_result = assessment_results.update_result(
-            tenant_id,
-            actor_id,
-            assessment_result["id"],
-            title=assessment_result["title"],
-            description=assessment_result["description"],
-            working_data={
-                "reviewed_control_ids": list(PRIORITIZED_CONTROL_IDS),
-                "start": "2026-11-17T10:00:00+00:00",
-                "end": "2026-11-17T12:00:00+00:00",
-                "observations": [
-                    {
-                        "title": "Model registry traceability gap",
-                        "description": "Fictional demonstration data only.",
-                        "methods": ["EXAMINE", "TEST"],
-                        "collected_at": "2026-11-17T11:00:00+00:00",
-                        "subject_uuids": [str(adopted_transparency["oscal_component_uuid"])],
-                        "evidence": [
-                            {
-                                "title": "Deployment pipeline execution log",
-                                "description": "Fictional demonstration data only.",
-                                "href": "https://example.demo/evidence/fictional-model-traceability-log",
-                            }
-                        ],
-                    }
-                ],
-                "findings": [
-                    {
-                        "title": "Insufficient exact model-version traceability",
-                        "description": (
-                            "Fictional demonstration finding: one sampled release lacked "
-                            "an exact approved model-version identifier."
-                        ),
-                        "target_type": "statement-id",
-                        "target_id": statement_target,
-                        "status": "not-satisfied",
-                        "related_observation_ids": [],
-                    }
-                ],
-            },
-        )
-        observation_id = str(updated_result["observations"][0]["id"])
+        observation_id = str(uuid4())
         assessment_results.update_result(
             tenant_id,
             actor_id,
@@ -460,20 +783,72 @@ def seed_ai_governance_demo(
             title=assessment_result["title"],
             description=assessment_result["description"],
             working_data={
-                "reviewed_control_ids": list(PRIORITIZED_CONTROL_IDS),
-                "start": "2026-11-17T10:00:00+00:00",
-                "end": "2026-11-17T12:00:00+00:00",
-                "observations": updated_result["observations"],
+                "reviewed_control_ids": [MODEL_VERSION_CONTROL_ID],
+                "start": MODEL_VERSION_TASK_START,
+                "end": MODEL_VERSION_TASK_END,
+                "observations": [
+                    {
+                        "id": observation_id,
+                        "title": "Model-version identifiers in three sampled release records",
+                        "description": (
+                            "Fictional demonstration data only. Three fictional release "
+                            "records (REL-2026-041, REL-2026-042 and REL-2026-043) were "
+                            "examined against the fictional model registry export. "
+                            "REL-2026-041 and REL-2026-042 each contained an exact approved "
+                            "model-version identifier that matched the corresponding "
+                            "registry record. REL-2026-043 lacked the exact model-version "
+                            "identifier, so it could not be matched to a registry record."
+                        ),
+                        "methods": ["EXAMINE"],
+                        "collected_at": MODEL_VERSION_OBSERVATION_COLLECTED,
+                        "subject_uuids": [registry_subject],
+                        "evidence": [
+                            {
+                                "title": "Fictional model registry export",
+                                "description": (
+                                    "Fictional demonstration reference only; not real or "
+                                    "verified evidence. Export of the approved model "
+                                    "versions used for matching."
+                                ),
+                                "href": (
+                                    "https://example.demo/fictional/model-registry/"
+                                    "export-2026-11-10"
+                                ),
+                            },
+                            {
+                                "title": "Fictional sampled release records",
+                                "description": (
+                                    "Fictional demonstration reference only; not real or "
+                                    "verified evidence. Release records REL-2026-041, "
+                                    "REL-2026-042 and REL-2026-043."
+                                ),
+                                "href": (
+                                    "https://example.demo/fictional/release-records/"
+                                    "sample-2026-11-10"
+                                ),
+                            },
+                        ],
+                    }
+                ],
                 "findings": [
                     {
-                        "id": updated_result["findings"][0]["id"],
-                        "title": "Insufficient exact model-version traceability",
-                        "description": (
-                            "Fictional demonstration finding: one sampled release lacked "
-                            "an exact approved model-version identifier."
+                        "title": (
+                            "Local objective not satisfied: model-version traceability of "
+                            "sampled releases"
                         ),
-                        "target_type": "statement-id",
-                        "target_id": statement_target,
+                        "description": (
+                            "Fictional demonstration finding. The local objective requires "
+                            "each of the three sampled release records to identify the "
+                            "exact approved model version and to be matchable to its model "
+                            "registry record. The related observation shows that two "
+                            "records met this and one, REL-2026-043, lacked the exact "
+                            "identifier, so the objective is not satisfied. This finding "
+                            "evaluates the local objective only; it does not conclude that "
+                            f"control {MODEL_VERSION_CONTROL_ID} as a whole is satisfied or "
+                            "not satisfied."
+                        ),
+                        "target_type": "objective-id",
+                        "target_id": MODEL_VERSION_OBJECTIVE_ID,
                         "status": "not-satisfied",
                         "related_observation_ids": [observation_id],
                     }
@@ -601,42 +976,6 @@ def _validate_prioritized_controls(session: Session, tenant_id: UUID, revision_i
         raise ValueError("Required controls missing from upstream catalog: " + ", ".join(missing))
 
 
-def _statement_ids_by_control(content: dict) -> dict[str, list[str]]:
-    by_control: dict[str, list[str]] = {}
-
-    def walk_controls(controls: list[dict]) -> None:
-        for control in controls:
-            control_id = control.get("id")
-            if isinstance(control_id, str):
-                by_control[control_id] = [
-                    part["id"]
-                    for part in control.get("parts", [])
-                    if part.get("name") == "statement" and isinstance(part.get("id"), str)
-                ]
-            walk_controls(control.get("controls", []))
-
-    def walk_groups(groups: list[dict]) -> None:
-        for group in groups:
-            walk_controls(group.get("controls", []))
-            walk_groups(group.get("groups", []))
-
-    catalog = content.get("catalog", {})
-    walk_controls(catalog.get("controls", []))
-    walk_groups(catalog.get("groups", []))
-    return by_control
-
-
-def _select_statement_target(statement_ids: dict[str, list[str]]) -> str:
-    primary = statement_ids.get("MG-3.1-009", [])
-    if primary:
-        return primary[0]
-    for control_id in PRIORITIZED_CONTROL_IDS:
-        matches = statement_ids.get(control_id, [])
-        if matches:
-            return matches[0]
-    raise ValueError("No statement IDs found for prioritized controls.")
-
-
 def _validate_historical_chain(
     ssp: SystemSecurityPlanService,
     assessment_plans: AssessmentPlanService,
@@ -672,8 +1011,3 @@ def _validate_historical_chain(
         raise RuntimeError("Assessment Plan import-ssp reference does not match SSP version.")
     if not ap_href.endswith(f"/{assessment_plan_version_id}/export"):
         raise RuntimeError("Assessment Results import-ap reference does not match AP version.")
-
-
-
-
-
