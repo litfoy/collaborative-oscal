@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select, text, update
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.application.assessment_plans import AssessmentPlanService
 from app.application.assessment_results import (
@@ -1095,10 +1096,12 @@ def test_assessment_result_update_translates_mapper_stale_error(
     token = created["concurrency_version"]
 
     original_get_result = AssessmentResultService._get_result
+    loaded_version_unchanged = {"value": False}
 
     def _stale_mapper_version_get_result(session, tenant_id, result_id, *, lock=False):
         loaded = original_get_result(session, tenant_id, result_id, lock=lock)
         if lock:
+            loaded_version = int(loaded.concurrency_version)
             session.execute(
                 update(AssessmentResultRecord)
                 .where(
@@ -1108,7 +1111,9 @@ def test_assessment_result_update_translates_mapper_stale_error(
                 .values(
                     concurrency_version=AssessmentResultRecord.concurrency_version + 1,
                 )
+                .execution_options(synchronize_session=False)
             )
+            loaded_version_unchanged["value"] = int(loaded.concurrency_version) == loaded_version
         return loaded
 
     monkeypatch.setattr(
@@ -1135,8 +1140,10 @@ def test_assessment_result_update_translates_mapper_stale_error(
             },
         )
     persisted = service.get_result(tenant_id, created["id"])
+    assert loaded_version_unchanged["value"] is True
+    assert isinstance(error.value.__cause__, StaleDataError)
     assert error.value.expected_version == token
-    assert error.value.current_version == token + 1
+    assert error.value.current_version == token
     assert persisted["concurrency_version"] == token
     assert persisted["title"] == created["title"]
 
@@ -1226,10 +1233,12 @@ def test_assessment_result_publish_translates_mapper_stale_error(
     assert service.list_versions(tenant_id, created["id"]) == []
 
     original_get_result = AssessmentResultService._get_result
+    loaded_version_unchanged = {"value": False}
 
     def _stale_mapper_version_get_result(session, tenant_id, result_id, *, lock=False):
         loaded = original_get_result(session, tenant_id, result_id, lock=lock)
         if lock:
+            loaded_version = int(loaded.concurrency_version)
             session.execute(
                 update(AssessmentResultRecord)
                 .where(
@@ -1239,7 +1248,9 @@ def test_assessment_result_publish_translates_mapper_stale_error(
                 .values(
                     concurrency_version=AssessmentResultRecord.concurrency_version + 1,
                 )
+                .execution_options(synchronize_session=False)
             )
+            loaded_version_unchanged["value"] = int(loaded.concurrency_version) == loaded_version
         return loaded
 
     monkeypatch.setattr(
@@ -1256,8 +1267,10 @@ def test_assessment_result_publish_translates_mapper_stale_error(
             created["id"],
             expected_version=token,
         )
+    assert loaded_version_unchanged["value"] is True
+    assert isinstance(error.value.__cause__, StaleDataError)
     assert error.value.expected_version == token
-    assert error.value.current_version == token + 1
+    assert error.value.current_version == token
     assert service.list_versions(tenant_id, created["id"]) == []
     assert service.get_result(tenant_id, created["id"])["concurrency_version"] == token
 
