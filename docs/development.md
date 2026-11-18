@@ -190,6 +190,10 @@ Never pass imported Catalog content, OSCAL metadata, user-authored descriptions,
 or exports through translation lookup. See
 [ADR 0018](adr/0018-frontend-internationalization.md).
 
+For mutable aggregate concurrency behavior, follow [ADR 0022](adr/0022-aggregate-optimistic-concurrency.md)
+and the implementation/verification guide at
+[docs/architecture/optimistic-concurrency.md](architecture/optimistic-concurrency.md).
+
 ## Tests and checks
 
 Run backend unit tests and lint:

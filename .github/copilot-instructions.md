@@ -29,6 +29,8 @@
 - Add focused tests for behavior and run the relevant test, lint, and type-check commands before completing a change.
 - Prefer maintained open-source dependencies and update lockfiles with their manifests.
 - Keep changes focused; document meaningful architectural choices in `docs/adr/`.
+- For mutable aggregate concurrency changes, follow `docs/adr/0022-aggregate-optimistic-concurrency.md` and
+  `docs/architecture/optimistic-concurrency.md`.
 
 ## Current scope
 
