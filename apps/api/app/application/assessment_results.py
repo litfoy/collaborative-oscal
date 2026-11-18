@@ -996,11 +996,6 @@ class AssessmentResultService:
             return "Evidence href must be a syntactically valid URL."
         if parsed.scheme not in {"http", "https"}:
             return "Evidence href must use http or https."
-        if parsed.fragment:
-            return (
-                "Evidence href must be an absolute HTTP(S) URL without a URL fragment. "
-                "Use the full document URL instead."
-            )
         if parsed.username is not None or parsed.password is not None:
             return "Evidence href cannot include embedded credentials."
         try:

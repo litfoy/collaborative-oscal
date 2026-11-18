@@ -2883,6 +2883,7 @@ def test_assessment_result_export_resolves_relevant_evidence_to_back_matter_reso
         "https://example.test/evidence",
         "http://example.test/evidence",
         "https://example.test./evidence",
+        "https://example.test/report.pdf#page=12",
     ],
 )
 def test_assessment_result_accepts_http_and_https_evidence_urls(
@@ -2937,6 +2938,7 @@ def test_assessment_result_accepts_http_and_https_evidence_urls(
             ],
         ),
     )
+    assert updated["observations"][0]["evidence"][0]["href"] == href
     observation_id = str(updated["observations"][0]["id"])
     finding_id = str(updated["findings"][0]["id"])
     _update_result(service,
@@ -2965,6 +2967,11 @@ def test_assessment_result_accepts_http_and_https_evidence_urls(
     assert validation["valid"] is True
     version = _publish_result(service, tenant_id, actor, result["id"])
     assert version["created"] is True
+    exported = service.export_version(tenant_id, result["id"], version["id"])
+    assert (
+        exported["assessment-results"]["back-matter"]["resources"][0]["rlinks"][0]["href"]
+        == href
+    )
 
 
 @pytest.mark.parametrize(
@@ -2992,7 +2999,6 @@ def test_assessment_result_accepts_http_and_https_evidence_urls(
         "https://127.0.0.999/path",
         "https://example.test/%zz",
         "https://[v1.foo]/path",
-        "https://example.test/path#fragment",
     ],
 )
 def test_assessment_result_rejects_unsafe_or_ambiguous_evidence_urls(
@@ -3063,8 +3069,7 @@ def test_assessment_result_distinguishes_fragment_only_from_fragmented_absolute_
 
     assert fragment_only_error is not None
     assert "fragment-only references" in fragment_only_error
-    assert absolute_fragment_error is not None
-    assert "without a URL fragment" in absolute_fragment_error
+    assert absolute_fragment_error is None
 
 
 
