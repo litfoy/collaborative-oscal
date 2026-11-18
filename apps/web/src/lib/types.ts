@@ -442,6 +442,7 @@ export interface AssessmentPlanVersion {
   diagnostics: SystemSecurityPlanDiagnostic[];
   created_at: string;
   created?: boolean;
+  concurrency_version?: number | null;
 }
 
 export type AssessmentResultTargetType = "statement-id" | "objective-id";

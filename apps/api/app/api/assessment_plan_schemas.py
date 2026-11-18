@@ -227,3 +227,4 @@ class AssessmentPlanVersionResponse(BaseModel):
     diagnostics: list[dict]
     created_at: datetime
     created: bool = False
+    concurrency_version: int | None = None

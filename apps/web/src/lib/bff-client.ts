@@ -23,9 +23,14 @@ export async function bffGet<T>(
     throw new ApiError("unavailable", 0, ERROR_MESSAGES.unavailable);
   }
   if (!response.ok) {
-    const kind = kindForStatus(response.status);
-    const parsed = await parseErrorResponse(response, kind);
-    throw new ApiError(kind, response.status, parsed.message, parsed.detail);
+    const parsed = await parseErrorResponse(response);
+    const kind = classifyError(response.status, parsed.detail);
+    throw new ApiError(
+      kind,
+      response.status,
+      parsed.message || ERROR_MESSAGES[kind],
+      parsed.detail,
+    );
   }
   return (await response.json()) as T;
 }
@@ -49,9 +54,14 @@ export async function bffWrite<T>(
     throw new ApiError("unavailable", 0, ERROR_MESSAGES.unavailable);
   }
   if (!response.ok) {
-    const kind = kindForStatus(response.status);
-    const parsed = await parseErrorResponse(response, kind);
-    throw new ApiError(kind, response.status, parsed.message, parsed.detail);
+    const parsed = await parseErrorResponse(response);
+    const kind = classifyError(response.status, parsed.detail);
+    throw new ApiError(
+      kind,
+      response.status,
+      parsed.message || ERROR_MESSAGES[kind],
+      parsed.detail,
+    );
   }
   if (response.status === 204) return;
   return (await response.json()) as T;
@@ -59,16 +69,28 @@ export async function bffWrite<T>(
 
 async function parseErrorResponse(
   response: Response,
-  kind: ApiError["kind"],
 ): Promise<{ message: string; detail?: unknown }> {
   try {
     const problem = (await response.json()) as { detail?: unknown };
     if (typeof problem.detail === "string") return { message: problem.detail };
     if (problem.detail !== undefined) {
-      return { message: ERROR_MESSAGES[kind], detail: problem.detail };
+      return { message: "", detail: problem.detail };
     }
   } catch {
     // Keep the standard status message when the proxy did not return JSON.
   }
-  return { message: ERROR_MESSAGES[kind] };
+  return { message: "" };
+}
+
+function classifyError(status: number, detail?: unknown): ApiError["kind"] {
+  if (status !== 409) return kindForStatus(status);
+  if (
+    detail &&
+    typeof detail === "object" &&
+    "code" in detail &&
+    (detail as { code?: unknown }).code === "stale_update"
+  ) {
+    return "stale_update";
+  }
+  return "conflict";
 }

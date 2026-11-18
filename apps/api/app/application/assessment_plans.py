@@ -151,6 +151,7 @@ class AssessmentPlanService:
             try:
                 session.flush()
             except StaleDataError as error:
+                session.rollback()
                 current = session.scalar(
                     select(AssessmentPlanRecord.concurrency_version).where(
                         AssessmentPlanRecord.tenant_id == tenant_id,
@@ -237,7 +238,11 @@ class AssessmentPlanService:
                 )
             )
             if existing is not None:
-                return self._version_payload(existing, created=False)
+                return self._version_payload(
+                    existing,
+                    created=False,
+                    concurrency_version=plan.concurrency_version,
+                )
 
             record = AssessmentPlanVersionRecord(
                 id=uuid4(),
@@ -259,6 +264,7 @@ class AssessmentPlanService:
             try:
                 session.flush()
             except StaleDataError as error:
+                session.rollback()
                 current = session.scalar(
                     select(AssessmentPlanRecord.concurrency_version).where(
                         AssessmentPlanRecord.tenant_id == tenant_id,
@@ -270,7 +276,11 @@ class AssessmentPlanService:
                     expected_version,
                     current if current is not None else plan.concurrency_version,
                 ) from error
-            return self._version_payload(record, created=True)
+            return self._version_payload(
+                record,
+                created=True,
+                concurrency_version=plan.concurrency_version,
+            )
 
     def list_versions(self, tenant_id: UUID, plan_id: UUID) -> list[dict[str, Any]]:
         with self._session_scope() as session:
@@ -948,7 +958,12 @@ class AssessmentPlanService:
         }
 
     @staticmethod
-    def _version_payload(record: AssessmentPlanVersionRecord, *, created: bool) -> dict[str, Any]:
+    def _version_payload(
+        record: AssessmentPlanVersionRecord,
+        *,
+        created: bool,
+        concurrency_version: int | None = None,
+    ) -> dict[str, Any]:
         return {
             "id": record.id,
             "assessment_plan_id": record.assessment_plan_id,
@@ -961,6 +976,7 @@ class AssessmentPlanService:
             "diagnostics": record.diagnostics,
             "created_at": record.created_at,
             "created": created,
+            "concurrency_version": concurrency_version,
         }
 
     @staticmethod

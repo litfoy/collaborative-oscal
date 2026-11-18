@@ -1,6 +1,6 @@
 # ADR 0021: Optimistic concurrency for Assessment Plans
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-18
 
 ## Context
@@ -24,4 +24,5 @@ Assessment Plan working documents contain title, description, nested JSONB worki
 - Concurrent transactions cannot silently publish or overwrite newer working state.
 - A stale publication does not create a version or alter the aggregate plan version.
 - This decision applies only to Assessment Plans. Other mutable entities are not rolled into this change.
+
 

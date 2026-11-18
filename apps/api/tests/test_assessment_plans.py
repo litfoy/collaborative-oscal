@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -586,9 +587,11 @@ def test_assessment_plan_update_rejects_stale_token_under_concurrent_transaction
         description="Concurrency check",
     )
     token = _expected_version(service, tenant_id, plan["id"])
+    release = threading.Barrier(3)
 
     def _attempt_update(title: str) -> str:
         concurrent_service = AssessmentPlanService(lambda: session_factory.begin())
+        release.wait(timeout=5)
         concurrent_service.update_plan(
             tenant_id,
             actor,
@@ -615,6 +618,7 @@ def test_assessment_plan_update_rejects_stale_token_under_concurrent_transaction
             executor.submit(_attempt_update, "Concurrent AP A"),
             executor.submit(_attempt_update, "Concurrent AP B"),
         ]
+        release.wait(timeout=5)
     results = []
     stale = []
     for future in futures:
@@ -626,7 +630,11 @@ def test_assessment_plan_update_rejects_stale_token_under_concurrent_transaction
     assert len(results) == 1
     assert len(stale) == 1
     assert stale[0].expected_version == token
-    assert stale[0].current_version >= token + 1
+    assert stale[0].current_version == token + 1
+
+    persisted = service.get_plan(tenant_id, plan["id"])
+    assert persisted["concurrency_version"] == token + 1
+    assert persisted["title"] in {"Concurrent AP A", "Concurrent AP B"}
 
 
 def test_assessment_plan_publish_rejects_stale_token_under_concurrent_transactions(
@@ -664,9 +672,11 @@ def test_assessment_plan_publish_rejects_stale_token_under_concurrent_transactio
         },
     )
     token = updated["concurrency_version"]
+    release = threading.Barrier(3)
 
     def _attempt_publish() -> dict[str, object]:
         concurrent_service = AssessmentPlanService(lambda: session_factory.begin())
+        release.wait(timeout=5)
         return concurrent_service.create_version(
             tenant_id,
             actor,
@@ -676,6 +686,7 @@ def test_assessment_plan_publish_rejects_stale_token_under_concurrent_transactio
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = [executor.submit(_attempt_publish), executor.submit(_attempt_publish)]
+        release.wait(timeout=5)
     published = []
     stale = []
     for future in futures:
@@ -688,7 +699,14 @@ def test_assessment_plan_publish_rejects_stale_token_under_concurrent_transactio
     assert published[0]["created"] is True
     assert len(stale) == 1
     assert stale[0].expected_version == token
-    assert stale[0].current_version >= token + 1
+    assert stale[0].current_version == token + 1
+
+    versions = service.list_versions(tenant_id, plan["id"])
+    assert len(versions) == 1
+    assert versions[0]["id"] == published[0]["id"]
+
+    persisted = service.get_plan(tenant_id, plan["id"])
+    assert persisted["concurrency_version"] == token + 1
 
 
 

@@ -186,6 +186,11 @@ export function AssessmentPlanWorkspace({
         `tenants/${tenantId}/assessment-plans/${plan.id}/versions`,
         { expected_version: plan.concurrency_version },
       );
+      if (typeof version.concurrency_version === "number") {
+        const nextVersion = version.concurrency_version;
+        setPlan((current) => ({ ...current, concurrency_version: nextVersion }));
+        setSavedPlan((current) => ({ ...current, concurrency_version: nextVersion }));
+      }
       setVersions((current) => [
         version,
         ...current.filter((item) => item.id !== version.id),
@@ -219,18 +224,35 @@ export function AssessmentPlanWorkspace({
 
   async function reloadAfterConflict() {
     if (!conflict) return;
+    if (busy) return;
     if (!window.confirm(t("assessmentPlans.confirmConflictReload"))) return;
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const refreshed = await bffGet<AssessmentPlan>(
-        `tenants/${tenantId}/assessment-plans/${plan.id}`,
-      );
+      const [refreshed, refreshedVersions, refreshedValidation] = await Promise.all([
+        bffGet<AssessmentPlan>(`tenants/${tenantId}/assessment-plans/${plan.id}`),
+        bffGet<AssessmentPlanVersion[]>(`tenants/${tenantId}/assessment-plans/${plan.id}/versions`),
+        bffGet<AssessmentPlanValidation>(
+          `tenants/${tenantId}/assessment-plans/${plan.id}/validation`,
+        ),
+      ]);
       setPlan(refreshed);
       setSavedPlan(refreshed);
+      setVersions(refreshedVersions);
+      setValidation(refreshedValidation);
+      setValidationStale(false);
+      setEditingLocalObjective(null);
+      setLocalObjectiveDraft(null);
+      setEditingActivity(null);
+      setActivityDraft(null);
+      setEditingTask(null);
+      setTaskDraft(null);
+      setEditingRole(null);
+      setRoleDraft(null);
+      setEditingParty(null);
+      setPartyDraft(null);
       setConflict(null);
-      setValidationStale(true);
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -691,7 +713,7 @@ export function AssessmentPlanWorkspace({
           <div role="alert" className="panel">
             <p>{t("assessmentPlans.conflictDetected", { version: conflict.currentVersion })}</p>
             <p className="muted">{t("assessmentPlans.conflictPreserved")}</p>
-            <button type="button" className="danger-action" onClick={() => void reloadAfterConflict()}>
+            <button type="button" className="danger-action" disabled={busy} onClick={() => void reloadAfterConflict()}>
               {t("assessmentPlans.reloadConfirmedState")}
             </button>
           </div>
