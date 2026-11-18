@@ -10,7 +10,7 @@ Das Projekt untersucht, wie Informationssicherheit, Datenschutz, AI Governance, 
 
 Die zentrale Idee: **Umsetzungen dort, wo es sinnvoll ist, einmal dokumentieren, Informationen regelwerksübergreifend wiederverwenden und im jeweiligen fachlichen Kontext unabhängig bewerten.** OSCAL dient dabei als gemeinsame maschinenlesbare Datengrundlage und nicht lediglich als Exportformat.
 
-![Collaborative OSCAL](./assets/collaborative-oscal.svg)
+![Collaborative OSCAL](./assets/Collaborative%20OSCAL%20Governance%20Architecture.png)
 
 *Konzeptioneller Überblick: gemeinsame Maßnahmen und Systeminformationen, getrennte Prüfungen. Unabhängige Feststellungen werden auf Datenmodellebene unterstützt; eine gemeinsame Nachweisbibliothek und differenzierte Stakeholder-Berechtigungen sind noch geplant.*
 

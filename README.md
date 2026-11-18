@@ -10,7 +10,7 @@ It explores how information security, data protection, AI governance, risk manag
 
 The central idea is to **document implementation once where appropriate, reuse information across frameworks, and assess it independently in each relevant context**. OSCAL provides the common machine-readable data foundation rather than merely an export format.
 
-![Collaborative OSCAL](./assets/collaborative-oscal.svg)
+![Collaborative OSCAL](./assets/Collaborative%20OSCAL%20Governance%20Architecture.png)
 
 *Conceptual overview: shared measures and system information, separate assessments. Independent findings are supported at the data-model level; a shared evidence library and fine-grained stakeholder authorization remain future work.*
 
