@@ -31,3 +31,13 @@ The API exposes public `/health`, bearer-protected `GET /api/v1/me`, `GET /api/v
 - Raw OSCAL JSON may be exposed for optional technical inspection and export, but it must not substitute for a functional domain-oriented user interface.
 - A successful API integration is not sufficient evidence of a completed user-facing feature.
 - Verify representative workflows through the actual graphical user interface.
+
+Dependency Governance
+
+- Prefer existing dependencies and actively maintained libraries over custom implementations.
+- Before adding, replacing or upgrading dependencies, verify current stable versions, maintenance status, known vulnerabilities, license obligations and compatibility using authoritative upstream sources.
+- Consider transitive dependencies and the intended distribution model.
+- If a dependency is abandoned, deprecated, vulnerable, incompatible or has unclear licensing, report alternatives and request maintainer approval before proceeding.
+- Do not introduce new dependencies without explicit approval.
+- Keep dependency declarations, lockfiles, license inventories and relevant tests consistent.
+- Never silently accept security or licensing risks, force incompatible resolutions or bypass security checks.
