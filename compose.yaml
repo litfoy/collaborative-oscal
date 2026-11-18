@@ -94,7 +94,7 @@ services:
       context: .
       dockerfile: infrastructure/docker/web.Dockerfile
     entrypoint: ["/bin/sh", "/opt/compose/web-entrypoint.sh"]
-    command: ["node", "/opt/app/node_modules/next/dist/bin/next", "start", "--hostname", "0.0.0.0", "--port", "3000"]
+    command: ["node", "/opt/app/apps/web/node_modules/next/dist/bin/next", "start", "--hostname", "0.0.0.0", "--port", "3000"]
     environment:
       AUTH_MODE: demo
       APP_PUBLIC_URL: http://localhost:3000

@@ -6,10 +6,16 @@
     "npm": ">=10 <11"
   },
   "devDependencies": {
-    "jsdom": "26.1.0"
+    "jsdom": "27.0.1"
   },
   "overrides": {
-    "jsdom": "26.1.0"
+    "jsdom": "27.0.1",
+    "@typescript-eslint/eslint-plugin": "8.73.0",
+    "@typescript-eslint/parser": "8.73.0",
+    "@typescript-eslint/type-utils": "8.73.0",
+    "@typescript-eslint/typescript-estree": "8.73.0",
+    "@typescript-eslint/utils": "8.73.0",
+    "typescript-eslint": "8.73.0"
   },
   "workspaces": [
     "apps/web"

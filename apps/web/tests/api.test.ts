@@ -33,7 +33,12 @@ describe("backend failure logging", () => {
       .rejects.toMatchObject({ status: 503, kind: "unavailable" });
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(`Bearer ${secret}`);
     expect(JSON.stringify(log.mock.calls)).not.toContain(secret);
-    await expect(backendFetch(session, "/api/v1/tenants")).rejects.toThrow(/mode mismatch/);
+    const mismatch = await backendFetch(session, "/api/v1/tenants").then(
+      () => null,
+      (error) => error,
+    );
+    expect(mismatch).toBeInstanceOf(Error);
+    expect(String(mismatch)).toMatch(/mode mismatch/i);
   });
 
   it("logs safe connection diagnostics without error messages or credentials", async () => {

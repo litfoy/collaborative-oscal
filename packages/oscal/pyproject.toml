@@ -5,13 +5,13 @@ description = "OSCAL artifact boundary for Collaborative OSCAL"
 license = "Apache-2.0"
 requires-python = ">=3.12,<3.14"
 dependencies = [
-    "compliance-trestle>=5.2,<5.3",
+    "compliance-trestle>=5.2.1,<5.3",
     "jsonschema>=4.21,<5",
     "PyYAML>=6,<7",
     "pydantic>=2.12,<3",
-    "regex>=2024.11.6,<2027",
+    "regex>=2026.11.18,<2027",
 ]
 
 [build-system]
-requires = ["uv_build>=0.13.7,<0.14.0"]
+requires = ["uv_build>=0.13.8,<1"]
 build-backend = "uv_build"

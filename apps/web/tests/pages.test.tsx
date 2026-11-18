@@ -70,7 +70,13 @@ describe("home / tenant selection", () => {
 
   it("goes straight to a single authorized tenant", async () => {
     mocks.listTenants.mockResolvedValue({ items: [tenant(TENANT, "Alpha")] });
-    await expect(HomePage({ searchParams: Promise.resolve({}) })).rejects.toThrow(`REDIRECT:/t/${TENANT}/catalogs`);
+    const redirectSignal = await HomePage({ searchParams: Promise.resolve({}) }).then(
+      () => null,
+      (error) => error,
+    );
+    expect(redirectSignal).toBeInstanceOf(Error);
+    expect(String(redirectSignal)).toContain(`REDIRECT:/t/${TENANT}/catalogs`);
+    expect(mocks.redirect).toHaveBeenCalledWith(`/t/${TENANT}/catalogs`);
   });
 
   it("explains when the user has no workspace", async () => {
