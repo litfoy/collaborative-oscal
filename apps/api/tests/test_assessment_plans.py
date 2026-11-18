@@ -629,6 +629,68 @@ def test_assessment_plan_update_rejects_stale_token_under_concurrent_transaction
     assert stale[0].current_version >= token + 1
 
 
+def test_assessment_plan_publish_rejects_stale_token_under_concurrent_transactions(
+    grc_service, session_factory
+) -> None:
+    tenant_id, actor, system_id, ssp_version_id, subject_uuid, _ = _prepare_ssp_version(
+        grc_service, session_factory
+    )
+    service = AssessmentPlanService(lambda: session_factory.begin())
+    plan = service.create_plan(
+        tenant_id,
+        actor,
+        system_id,
+        ssp_version_id=ssp_version_id,
+        title="Concurrent AP publish",
+        description="Concurrency check",
+    )
+    updated = service.update_plan(
+        tenant_id,
+        actor,
+        plan["id"],
+        expected_version=_expected_version(service, tenant_id, plan["id"]),
+        title=plan["title"],
+        description=plan["description"],
+        working_data={
+            "control_ids": ["ac-1"],
+            "source_objectives": [],
+            "local_objectives": [],
+            "subject_uuids": [str(subject_uuid)],
+            "activities": [],
+            "tasks": [],
+            "roles": [],
+            "parties": [],
+            "terms": None,
+        },
+    )
+    token = updated["concurrency_version"]
+
+    def _attempt_publish() -> dict[str, object]:
+        concurrent_service = AssessmentPlanService(lambda: session_factory.begin())
+        return concurrent_service.create_version(
+            tenant_id,
+            actor,
+            plan["id"],
+            expected_version=token,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(_attempt_publish), executor.submit(_attempt_publish)]
+    published = []
+    stale = []
+    for future in futures:
+        try:
+            published.append(future.result())
+        except StaleAssessmentPlanUpdate as error:
+            stale.append(error)
+
+    assert len(published) == 1
+    assert published[0]["created"] is True
+    assert len(stale) == 1
+    assert stale[0].expected_version == token
+    assert stale[0].current_version >= token + 1
+
+
 
 
 

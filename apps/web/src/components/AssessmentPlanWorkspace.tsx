@@ -220,13 +220,22 @@ export function AssessmentPlanWorkspace({
   async function reloadAfterConflict() {
     if (!conflict) return;
     if (!window.confirm(t("assessmentPlans.confirmConflictReload"))) return;
-    const refreshed = await bffGet<AssessmentPlan>(
-      `tenants/${tenantId}/assessment-plans/${plan.id}`,
-    );
-    setPlan(refreshed);
-    setSavedPlan(refreshed);
-    setConflict(null);
-    setValidationStale(true);
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const refreshed = await bffGet<AssessmentPlan>(
+        `tenants/${tenantId}/assessment-plans/${plan.id}`,
+      );
+      setPlan(refreshed);
+      setSavedPlan(refreshed);
+      setConflict(null);
+      setValidationStale(true);
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function applyControlSelection(ids: string[]) {

@@ -461,6 +461,42 @@ describe("AssessmentPlanWorkspace", () => {
     expect(body.activities).toEqual([]);
     expect(body.tasks[0].activity_ids).toEqual([]);
   });
+
+  it("preserves unsaved edits when conflict reload fails", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            detail: {
+              code: "stale_update",
+              plan_id: basePlan.id,
+              expected_version: 1,
+              current_version: 2,
+            },
+          },
+          409,
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse({ error: "unavailable" }, 503));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderWorkspace();
+    const title = screen.getByRole("textbox", { name: "Assessment Plan title" });
+    await user.clear(title);
+    await user.type(title, "Assessment Alpha edited");
+    await user.click(screen.getByRole("button", { name: "Save working state" }));
+
+    expect(await screen.findByText(/Current server version: 2\./)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Discard edits and reload" }));
+
+    expect(await screen.findByText("The service is temporarily unavailable. Please try again.")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Assessment Plan title" })).toHaveValue(
+      "Assessment Alpha edited",
+    );
+  });
 });
 
 
