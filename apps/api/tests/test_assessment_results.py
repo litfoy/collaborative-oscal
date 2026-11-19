@@ -219,6 +219,7 @@ def _prepare_plan_version(grc_service, session_factory):
         implementation.id,
         component["id"],
         expected_version=ssp["concurrency_version"],
+        expected_implementation_version=implementation.concurrency_version,
     )
     ssp["concurrency_version"] = included["concurrency_version"]
     ssp_version = ssp_service.create_version(
@@ -380,6 +381,7 @@ def _prepare_plan_scope_context(
         implementation.id,
         component_a["id"],
         expected_version=ssp["concurrency_version"],
+        expected_implementation_version=implementation.concurrency_version,
     )
     ssp["concurrency_version"] = included["concurrency_version"]
     ssp_version = ssp_service.create_version(

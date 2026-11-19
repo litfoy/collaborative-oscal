@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 
 import { bffGet, bffWrite } from "@/lib/bff-client";
+import { ApiError } from "@/lib/errors";
 import type { Translate } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/provider";
 import type { ControlDetail, Implementation, ImplementationStatus, Paged, Profile, Responsibility } from "@/lib/types";
@@ -61,6 +62,7 @@ export function ImplementationRegister({ tenantId, profile, canWrite, initialCon
   const [error, setError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [conflict, setConflict] = useState<{ implementationId: string; currentVersion: number } | null>(null);
   const dirty = JSON.stringify(draft) !== JSON.stringify(original);
 
   useEffect(() => {
@@ -120,6 +122,7 @@ export function ImplementationRegister({ tenantId, profile, canWrite, initialCon
   }
   async function save() {
     setBusy(true); setError(null);
+    setConflict(null);
     const info = {
       description: draft.description, status: draft.status,
       evidence_references: draft.evidence.split("\n").map((s) => s.trim()).filter(Boolean),
@@ -127,7 +130,10 @@ export function ImplementationRegister({ tenantId, profile, canWrite, initialCon
     };
     try {
       const saved = record
-        ? await bffWrite<Implementation>("PUT", `${base}/implementations/${record.id}`, info)
+        ? await bffWrite<Implementation>("PUT", `${base}/implementations/${record.id}`, {
+          ...info,
+          expected_version: record.concurrency_version,
+        })
         : await bffWrite<Implementation>("POST", `${base}/implementations`, {
           ...info, organization_id: draft.organization_id || null, profile_id: profile.id,
           catalog_id: source.catalog_id, revision_id: source.revision_id, oscal_control_id: controlId,
@@ -136,8 +142,38 @@ export function ImplementationRegister({ tenantId, profile, canWrite, initialCon
       setRecord(saved); setCreating(false);
       const value = toDraft(saved); setDraft(value); setOriginal(value);
       setReload((n) => n + 1);
-    } catch (cause) { setError(errorMessage(cause) || t("register.genericError")); }
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.kind === "stale_update" && record) {
+        const detail = cause.detail as { implementation_id?: string; current_version?: number } | undefined;
+        setConflict({
+          implementationId: detail?.implementation_id ?? record.id,
+          currentVersion: detail?.current_version ?? record.concurrency_version,
+        });
+        return;
+      }
+      setError(errorMessage(cause) || t("register.genericError"));
+    }
     finally { setBusy(false); }
+  }
+
+  async function reloadAfterConflict() {
+    if (!conflict || busy) return;
+    if (!window.confirm(t("register.confirmConflictReload"))) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const latest = await bffGet<Implementation>(`${base}/implementations/${conflict.implementationId}`);
+      setRecord(latest);
+      const value = toDraft(latest);
+      setDraft(value);
+      setOriginal(value);
+      setConflict(null);
+      setReload((n) => n + 1);
+    } catch (cause) {
+      setError(errorMessage(cause) || t("register.genericError"));
+    } finally {
+      setBusy(false);
+    }
   }
   function updateResponsibility(index: number, patch: Partial<Responsibility>) {
     setDraft({ ...draft, responsibilities: draft.responsibilities.map((r, i) => i === index ? { ...r, ...patch } : r) });
@@ -149,22 +185,29 @@ export function ImplementationRegister({ tenantId, profile, canWrite, initialCon
       <h2>{t("register.title")}</h2>
       <p>{t("register.description")}</p>
       {error ? <p role="alert" className="alert">{error}</p> : null}
+      {conflict ? <div role="alert" className="panel">
+        <p>{t("register.conflictDetected", { version: number(conflict.currentVersion) })}</p>
+        <p className="muted">{t("register.conflictPreserved")}</p>
+        <button type="button" className="secondary" disabled={busy} onClick={() => void reloadAfterConflict()}>
+          {t("register.reloadConfirmedState")}
+        </button>
+      </div> : null}
     </header>
     <section className="panel">
       <h3>{t("register.implementationsFor", { name: profile.title })}</h3>
-      {canWrite ? <button type="button" onClick={newRecord}>{t("register.create")}</button> : null}
+      {canWrite ? <button type="button" disabled={busy} onClick={newRecord}>{t("register.create")}</button> : null}
       {!page ? <p>{t("register.loading")}</p> : page.items.length === 0 ? <p>{t("register.emptyPage")}</p> :
         <ul>{page.items.map((item) => <li key={item.id}>
-          <button type="button" className="secondary" onClick={() => open(item)}>
+          <button type="button" className="secondary" disabled={busy} onClick={() => open(item)}>
             {item.oscal_control_id} · {statusLabel(item.status, t)} · {t("register.revisionPrefix")} {item.revision_id} · {item.organization_id
               ? options?.organizations.find((org) => org.id === item.organization_id)?.name ?? item.organization_id
               : t("register.tenant")} · {item.id}
           </button>
         </li>)}</ul>}
       {page ? <div className="workspace-actions">
-        <button type="button" className="secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>{t("register.previous")}</button>
+        <button type="button" className="secondary" disabled={busy || offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>{t("register.previous")}</button>
         <span>{t("register.pagination", { start: number(offset + 1), end: number(Math.min(offset + page.items.length, page.total)), total: number(page.total) })}</span>
-        <button type="button" className="secondary" disabled={offset + page.items.length >= page.total} onClick={() => setOffset(offset + 50)}>{t("register.next")}</button>
+        <button type="button" className="secondary" disabled={busy || offset + page.items.length >= page.total} onClick={() => setOffset(offset + 50)}>{t("register.next")}</button>
       </div> : null}
     </section>
     {record || creating ? <section className="panel">

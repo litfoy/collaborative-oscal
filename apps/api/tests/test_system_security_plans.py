@@ -247,8 +247,10 @@ def test_system_ssp_shared_components_explicit_memberships_and_immutable_version
         legacy.id,
         concrete["id"],
         expected_version=plan_one["concurrency_version"],
+        expected_implementation_version=legacy.concurrency_version,
     )
     plan_one["concurrency_version"] = include_one["concurrency_version"]
+    legacy = implementations.get(tenant.id, legacy.id)
     include_two = ssp.associate_implementation(
         tenant.id,
         actor,
@@ -256,6 +258,7 @@ def test_system_ssp_shared_components_explicit_memberships_and_immutable_version
         first_other_component.id,
         adopted["id"],
         expected_version=plan_one["concurrency_version"],
+        expected_implementation_version=first_other_component.concurrency_version,
     )
     plan_one["concurrency_version"] = include_two["concurrency_version"]
     include_three = ssp.associate_implementation(
@@ -265,6 +268,7 @@ def test_system_ssp_shared_components_explicit_memberships_and_immutable_version
         second_requirement.id,
         concrete["id"],
         expected_version=plan_one["concurrency_version"],
+        expected_implementation_version=second_requirement.concurrency_version,
     )
     plan_one["concurrency_version"] = include_three["concurrency_version"]
     include_four = ssp.associate_implementation(
@@ -274,6 +278,7 @@ def test_system_ssp_shared_components_explicit_memberships_and_immutable_version
         different_baseline.id,
         concrete["id"],
         expected_version=plan_two["concurrency_version"],
+        expected_implementation_version=different_baseline.concurrency_version,
     )
     plan_two["concurrency_version"] = include_four["concurrency_version"]
     assert ssp.get_system(tenant.id, system["id"])["id"] == system["id"]
@@ -333,7 +338,8 @@ def test_system_ssp_shared_components_explicit_memberships_and_immutable_version
         tenant.id,
         actor,
         legacy.id,
-        ImplementationInformation(
+        expected_version=legacy.concurrency_version,
+        information=ImplementationInformation(
             "The identity service enforces an updated approved policy.",
             ImplementationStatus.IMPLEMENTED,
             legacy.evidence_references,

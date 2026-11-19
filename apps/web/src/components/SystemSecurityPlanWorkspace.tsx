@@ -33,7 +33,11 @@ const OSCAL_STATUSES = [
 class PartialAssociationError extends Error {
   constructor(
     message: string,
-    readonly staleDetail?: { current_version?: number },
+    readonly staleDetail?: {
+      current_version?: number;
+      plan_id?: string;
+      implementation_id?: string;
+    },
   ) {
     super(message);
     this.name = "PartialAssociationError";
@@ -79,7 +83,11 @@ export function SystemSecurityPlanWorkspace({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-  const [conflict, setConflict] = useState<{ currentVersion: number } | null>(null);
+  const [conflict, setConflict] = useState<
+    | { aggregate: "ssp"; currentVersion: number }
+    | { aggregate: "implementation"; implementationId: string; currentVersion: number }
+    | null
+  >(null);
 
   const candidates = useMemo(
     () =>
@@ -166,6 +174,7 @@ export function SystemSecurityPlanWorkspace({
         `/bff/tenants/${tenantId}/implementations/${selected.id}`,
         "PUT",
         {
+          expected_version: selected.concurrency_version,
           description,
           status: selected.status,
           evidence_references: selected.evidence_references,
@@ -188,6 +197,7 @@ export function SystemSecurityPlanWorkspace({
             "POST",
             {
               expected_version: plan.concurrency_version,
+              expected_implementation_version: updated.concurrency_version,
               system_component_id: componentId,
             },
             t,
@@ -203,6 +213,18 @@ export function SystemSecurityPlanWorkspace({
               },
             ],
             included.concurrency_version,
+          );
+          setImplementations((current) =>
+            current.map((item) =>
+              item.id === updated.id
+                ? {
+                    ...item,
+                    system_id: plan.system_id,
+                    system_component_id: included.system_component_id,
+                    concurrency_version: included.implementation_concurrency_version,
+                  }
+                : item,
+            ),
           );
         } catch (reason) {
           if (reason instanceof ApiError && reason.kind === "stale_update") {
@@ -316,50 +338,74 @@ export function SystemSecurityPlanWorkspace({
 
   async function reloadAfterConflict() {
     if (!conflict || busy) return;
-    if (!window.confirm(t("systems.confirmSspConflictReload"))) return;
+    if (
+      !window.confirm(
+        conflict.aggregate === "ssp"
+          ? t("systems.confirmSspConflictReload")
+          : t("systems.confirmImplementationConflictReload"),
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const [refreshedPlan, refreshedVersions, refreshedValidation, refreshedImplementations, refreshedComponents] = await Promise.all([
-        getJson<SystemSecurityPlan>(
-          `/bff/tenants/${tenantId}/system-security-plans/${plan.id}`,
+      if (conflict.aggregate === "implementation") {
+        const refreshed = await getJson<Implementation>(
+          `/bff/tenants/${tenantId}/implementations/${conflict.implementationId}`,
           t,
           errorMessage,
-        ),
-        getJson<SystemSecurityPlanVersion[]>(
-          `/bff/tenants/${tenantId}/system-security-plans/${plan.id}/versions`,
-          t,
-          errorMessage,
-        ),
-        getJson<SystemSecurityPlanValidation>(
-          `/bff/tenants/${tenantId}/system-security-plans/${plan.id}/validation`,
-          t,
-          errorMessage,
-        ),
-        getJson<Paged<Implementation>>(
-          `/bff/tenants/${tenantId}/implementations?limit=100&offset=0&tenant_scope=true`,
-          t,
-          errorMessage,
-        ),
-        getJson<SystemComponent[]>(
-          `/bff/tenants/${tenantId}/systems/${system.id}/components`,
-          t,
-          errorMessage,
-        ),
-      ]);
-      setPlan(refreshedPlan);
-      setSavedPlan(refreshedPlan);
-      setVersions(refreshedVersions);
-      setValidation(refreshedValidation);
-      setImplementations(refreshedImplementations.items);
-      setSystemComponents(refreshedComponents);
-      setEditingContribution(false);
-      setSelectedId("");
-      setComponentId("");
-      setDescription("");
-      setOscalStatus("");
-      setStatusExplanation("");
+        );
+        setImplementations((current) =>
+          current.map((item) => (item.id === refreshed.id ? refreshed : item)),
+        );
+        if (selectedId === refreshed.id) {
+          setDescription(refreshed.description);
+          setOscalStatus(refreshed.oscal_implementation_status ?? "");
+          setStatusExplanation(refreshed.oscal_status_explanation ?? "");
+          setComponentId(
+            plan.included_implementations.find((entry) => entry.implementation_id === refreshed.id)
+              ?.system_component_id ?? refreshed.system_component_id ?? "",
+          );
+        }
+      } else {
+        const [refreshedPlan, refreshedVersions, refreshedValidation, refreshedImplementations, refreshedComponents] = await Promise.all([
+          getJson<SystemSecurityPlan>(
+            `/bff/tenants/${tenantId}/system-security-plans/${plan.id}`,
+            t,
+            errorMessage,
+          ),
+          getJson<SystemSecurityPlanVersion[]>(
+            `/bff/tenants/${tenantId}/system-security-plans/${plan.id}/versions`,
+            t,
+            errorMessage,
+          ),
+          getJson<SystemSecurityPlanValidation>(
+            `/bff/tenants/${tenantId}/system-security-plans/${plan.id}/validation`,
+            t,
+            errorMessage,
+          ),
+          listAllImplementations(tenantId, t, errorMessage),
+          getJson<SystemComponent[]>(
+            `/bff/tenants/${tenantId}/systems/${system.id}/components`,
+            t,
+            errorMessage,
+          ),
+        ]);
+        setPlan(refreshedPlan);
+        setSavedPlan(refreshedPlan);
+        setVersions(refreshedVersions);
+        setValidation(refreshedValidation);
+        setImplementations(refreshedImplementations);
+        setSystemComponents(refreshedComponents);
+        setEditingContribution(false);
+        setSelectedId("");
+        setComponentId("");
+        setDescription("");
+        setOscalStatus("");
+        setStatusExplanation("");
+      }
       setConflict(null);
     } catch (reason) {
       setError(reason instanceof Error ? errorMessage(reason) : t("systems.requestFailed"));
@@ -377,16 +423,41 @@ export function SystemSecurityPlanWorkspace({
     } catch (reason) {
       if (reason instanceof PartialAssociationError) {
         if (reason.staleDetail) {
-          setConflict({
-            currentVersion: reason.staleDetail.current_version ?? plan.concurrency_version,
-          });
+          if (reason.staleDetail.implementation_id) {
+            setConflict({
+              aggregate: "implementation",
+              implementationId: reason.staleDetail.implementation_id,
+              currentVersion:
+                reason.staleDetail.current_version ?? selected?.concurrency_version ?? 1,
+            });
+          } else {
+            setConflict({
+              aggregate: "ssp",
+              currentVersion: reason.staleDetail.current_version ?? plan.concurrency_version,
+            });
+          }
         }
         setError(reason.message);
         return;
       }
       if (reason instanceof ApiError && reason.kind === "stale_update") {
-        const detail = reason.detail as { current_version?: number } | undefined;
-        setConflict({ currentVersion: detail?.current_version ?? plan.concurrency_version });
+        const detail = reason.detail as {
+          current_version?: number;
+          plan_id?: string;
+          implementation_id?: string;
+        } | undefined;
+        if (detail?.implementation_id) {
+          setConflict({
+            aggregate: "implementation",
+            implementationId: detail.implementation_id,
+            currentVersion: detail.current_version ?? selected?.concurrency_version ?? 1,
+          });
+        } else {
+          setConflict({
+            aggregate: "ssp",
+            currentVersion: detail?.current_version ?? plan.concurrency_version,
+          });
+        }
         setError("");
         return;
       }
@@ -432,16 +503,26 @@ export function SystemSecurityPlanWorkspace({
       {pendingContribution ? <p role="status">{t("systems.pendingContribution")}</p> : null}
       {conflict ? (
         <div role="alert" className="panel">
-          <p>{t("systems.sspConflictDetected", { version: conflict.currentVersion })}</p>
-          <p className="muted">{t("systems.sspConflictPreserved")}</p>
+          <p>
+            {conflict.aggregate === "ssp"
+              ? t("systems.sspConflictDetected", { version: conflict.currentVersion })
+              : t("systems.implementationConflictDetected", { version: conflict.currentVersion })}
+          </p>
+          <p className="muted">
+            {conflict.aggregate === "ssp"
+              ? t("systems.sspConflictPreserved")
+              : t("systems.implementationConflictPreserved")}
+          </p>
           <button type="button" className="danger-action" disabled={busy} onClick={() => void reloadAfterConflict()}>
-            {t("systems.sspReloadConfirmedState")}
+            {conflict.aggregate === "ssp"
+              ? t("systems.sspReloadConfirmedState")
+              : t("systems.implementationReloadConfirmedState")}
           </button>
         </div>
       ) : null}
       <nav className="workspace-tabs" aria-label={t("systems.sspSections")}>
         {([["baseline", t("systems.baseline")], ["implementation", t("systems.controlImplementation")], ["validation", t("systems.validation")], ["versions", t("systems.versions")]] as const).map(([id, label]) => (
-          <button type="button" key={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>{label}</button>
+          <button type="button" key={id} disabled={busy} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>{label}</button>
         ))}
       </nav>
 
@@ -727,6 +808,29 @@ function Diagnostics({ diagnostics, t, enumLabel }: { diagnostics: SystemSecurit
   );
 }
 
+async function listAllImplementations(
+  tenantId: string,
+  t: Translate,
+  errorMessage: (error: unknown) => string,
+): Promise<Implementation[]> {
+  const first = await getJson<Paged<Implementation>>(
+    `/bff/tenants/${tenantId}/implementations?limit=100&offset=0`,
+    t,
+    errorMessage,
+  );
+  const items = [...first.items];
+  while (items.length < first.total) {
+    const next = await getJson<Paged<Implementation>>(
+      `/bff/tenants/${tenantId}/implementations?limit=100&offset=${items.length}`,
+      t,
+      errorMessage,
+    );
+    if (!next.items.length) break;
+    items.push(...next.items);
+  }
+  return items;
+}
+
 async function request<T>(
   path: string,
   method: "POST" | "PUT" | "DELETE",
@@ -794,4 +898,5 @@ type IncludedImplementationResponse = {
   system_component_id: string;
   oscal_control_id: string;
   concurrency_version: number;
+  implementation_concurrency_version: number;
 };

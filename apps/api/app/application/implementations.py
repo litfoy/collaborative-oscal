@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.domain.catalogs.read_models import Page
 from app.domain.errors import EntityNotFoundError
@@ -38,6 +39,23 @@ SessionScope = Callable[[], AbstractContextManager[Session]]
 
 class InvalidImplementation(ValueError):
     pass
+
+
+class StaleImplementationUpdate(ValueError):
+    def __init__(
+        self, implementation_id: UUID, expected_version: int, current_version: int
+    ) -> None:
+        self.implementation_id = implementation_id
+        self.expected_version = expected_version
+        self.current_version = current_version
+        super().__init__("The Implementation changed after it was loaded.")
+
+
+class _StaleImplementationFlush(RuntimeError):
+    def __init__(self, implementation_id: UUID, expected_version: int) -> None:
+        self.implementation_id = implementation_id
+        self.expected_version = expected_version
+        super().__init__("Implementation flush detected stale mapper version.")
 
 
 class ImplementationService:
@@ -151,6 +169,7 @@ class ImplementationService:
                 updated_by=actor,
                 created_at=now,
                 updated_at=now,
+                concurrency_version=1,
             )
             session.add(record)
             session.flush()
@@ -207,30 +226,58 @@ class ImplementationService:
         tenant_id: UUID,
         actor: UUID,
         implementation_id: UUID,
+        *,
+        expected_version: int,
         information: ImplementationInformation,
     ) -> ControlImplementation:
-        with self._session_scope() as session:
-            record = self._get_record(session, tenant_id, implementation_id, lock=True)
-            old = self._responsibilities(session, record)
-            self._validate_responsibilities(
-                session, tenant_id, information.responsibilities, set(old)
-            )
-            record.description = information.description
-            record.status = information.status.value
-            record.evidence_references = information.evidence_references
-            if information.oscal_implementation_status is not None:
-                record.oscal_implementation_status = information.oscal_implementation_status.value
-                record.oscal_status_explanation = information.oscal_status_explanation
-            record.updated_by = actor
-            record.updated_at = datetime.now(UTC)
-            session.execute(
-                delete(ImplementationResponsibilityRecord).where(
-                    ImplementationResponsibilityRecord.tenant_id == tenant_id,
-                    ImplementationResponsibilityRecord.implementation_id == record.id,
+        try:
+            with self._session_scope() as session:
+                record = self._get_record(session, tenant_id, implementation_id, lock=True)
+                if record.concurrency_version != expected_version:
+                    raise StaleImplementationUpdate(
+                        record.id,
+                        expected_version,
+                        int(record.concurrency_version),
+                    )
+                old = self._responsibilities(session, record)
+                self._validate_responsibilities(
+                    session, tenant_id, information.responsibilities, set(old)
                 )
-            )
-            self._save_responsibilities(session, record, information.responsibilities)
-            return self._to_domain(record, information.responsibilities)
+                responsibilities_changed = self._responsibilities_changed(
+                    old, information.responsibilities
+                )
+                if self._is_noop(record, old, information):
+                    return self._to_domain(record, old)
+                try:
+                    record.description = information.description
+                    record.status = information.status.value
+                    record.evidence_references = information.evidence_references
+                    if information.oscal_implementation_status is not None:
+                        record.oscal_implementation_status = (
+                            information.oscal_implementation_status.value
+                        )
+                        record.oscal_status_explanation = information.oscal_status_explanation
+                    record.updated_by = actor
+                    record.updated_at = datetime.now(UTC)
+                    if responsibilities_changed:
+                        session.execute(
+                            delete(ImplementationResponsibilityRecord).where(
+                                ImplementationResponsibilityRecord.tenant_id == tenant_id,
+                                ImplementationResponsibilityRecord.implementation_id == record.id,
+                            )
+                        )
+                        self._save_responsibilities(session, record, information.responsibilities)
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleImplementationFlush(implementation_id, expected_version) from error
+                return self._to_domain(record, self._responsibilities(session, record))
+        except _StaleImplementationFlush as stale:
+            current = self._current_implementation_version(tenant_id, stale.implementation_id)
+            raise StaleImplementationUpdate(
+                stale.implementation_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
 
     def options(
         self, tenant_id: UUID
@@ -345,6 +392,7 @@ class ImplementationService:
             updated_by=record.updated_by,
             created_at=record.created_at,
             updated_at=record.updated_at,
+            concurrency_version=int(record.concurrency_version),
             system_id=record.system_id,
             system_component_id=record.system_component_id,
             oscal_implementation_status=(
@@ -354,3 +402,35 @@ class ImplementationService:
             ),
             oscal_status_explanation=record.oscal_status_explanation,
         )
+
+    @staticmethod
+    def _responsibilities_changed(
+        old: list[Responsibility], incoming: list[Responsibility]
+    ) -> bool:
+        return set(old) != set(incoming)
+
+    @staticmethod
+    def _is_noop(
+        record: ControlImplementationRecord,
+        old: list[Responsibility],
+        information: ImplementationInformation,
+    ) -> bool:
+        if record.description != information.description:
+            return False
+        if record.status != information.status.value:
+            return False
+        if record.evidence_references != information.evidence_references:
+            return False
+        if set(old) != set(information.responsibilities):
+            return False
+        if information.oscal_implementation_status is None:
+            return True
+        return (
+            record.oscal_implementation_status == information.oscal_implementation_status.value
+            and record.oscal_status_explanation == information.oscal_status_explanation
+        )
+
+    def _current_implementation_version(self, tenant_id: UUID, implementation_id: UUID) -> int:
+        with self._session_scope() as session:
+            record = self._get_record(session, tenant_id, implementation_id)
+            return int(record.concurrency_version)

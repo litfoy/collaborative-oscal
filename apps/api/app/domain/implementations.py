@@ -63,6 +63,7 @@ class ControlImplementation:
     updated_by: UUID
     created_at: datetime
     updated_at: datetime
+    concurrency_version: int
     system_id: UUID | None = None
     system_component_id: UUID | None = None
     oscal_implementation_status: OscalImplementationStatus | None = None

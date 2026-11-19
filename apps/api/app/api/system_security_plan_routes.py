@@ -25,6 +25,7 @@ from app.api.system_security_plan_schemas import (
     SystemSecurityPlanVersionInput,
     SystemSecurityPlanVersionResponse,
 )
+from app.application.implementations import StaleImplementationUpdate
 from app.application.system_security_plans import (
     InvalidSystemSecurityPlan,
     StaleInformationSystemUpdate,
@@ -90,6 +91,18 @@ def _handle_component_stale(error: StaleSystemComponentUpdate) -> HTTPException:
         detail={
             "code": "stale_update",
             "component_id": str(error.component_id),
+            "expected_version": error.expected_version,
+            "current_version": error.current_version,
+        },
+    )
+
+
+def _handle_implementation_stale(error: StaleImplementationUpdate) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "stale_update",
+            "implementation_id": str(error.implementation_id),
             "expected_version": error.expected_version,
             "current_version": error.current_version,
         },
@@ -386,6 +399,7 @@ def include_implementation(
             implementation_id,
             request.system_component_id,
             expected_version=request.expected_version,
+            expected_implementation_version=request.expected_implementation_version,
         )
     except EntityNotFoundError as error:
         raise _handle_not_found(error) from error
@@ -393,6 +407,8 @@ def include_implementation(
         raise _handle_invalid(error) from error
     except StaleSystemSecurityPlanUpdate as error:
         raise _handle_stale(error) from error
+    except StaleImplementationUpdate as error:
+        raise _handle_implementation_stale(error) from error
     return IncludedImplementationResponse.model_validate(result)
 
 

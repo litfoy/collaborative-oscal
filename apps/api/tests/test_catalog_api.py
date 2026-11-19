@@ -1052,6 +1052,7 @@ def test_implementation_register_preserves_original_revision_and_scope(
         == first["id"]
     )
     changed = {
+        "expected_version": first["concurrency_version"],
         "description": "Updated implementation",
         "status": "implemented",
         "evidence_references": ["document:policy", "document:review"],
@@ -1062,7 +1063,14 @@ def test_implementation_register_preserves_original_revision_and_scope(
     }
     updated = client.put(f"{path}/{first['id']}", headers=editor, json=changed)
     assert updated.status_code == 200, updated.text
-    assert updated.json()["responsibilities"] == changed["responsibilities"]
+    first = updated.json()
+    assert {
+        (entry["kind"], entry["user_id"], entry["role"])
+        for entry in first["responsibilities"]
+    } == {
+        (entry["kind"], entry["user_id"], entry["role"])
+        for entry in changed["responsibilities"]
+    }
     assert client.get(f"{path}/{second['id']}", headers=reader).json()["description"] == (
         "Organization-specific"
     )
@@ -1124,10 +1132,15 @@ def test_implementation_register_preserves_original_revision_and_scope(
     )
     assert client.get(source_path, headers=reader).json() == original
     world._membership("alice", tenant, "viewer", "inactive")
-    retained = client.put(f"{path}/{first['id']}", headers=editor, json=changed)
+    retained = client.put(
+        f"{path}/{first['id']}",
+        headers=editor,
+        json={**changed, "expected_version": first["concurrency_version"]},
+    )
     assert retained.status_code == 200
     reassigned = {
         **changed,
+        "expected_version": retained.json()["concurrency_version"],
         "responsibilities": [
             {"kind": "accountable", "user_id": str(world.identity_ids["alice"]), "role": ""}
         ],

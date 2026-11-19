@@ -145,6 +145,7 @@ def _prepare_ssp_version(
         implementation.id,
         component["id"],
         expected_version=plan["concurrency_version"],
+        expected_implementation_version=implementation.concurrency_version,
     )
     plan["concurrency_version"] = included["concurrency_version"]
     version = ssp_service.create_version(

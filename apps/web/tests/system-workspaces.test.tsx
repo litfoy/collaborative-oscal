@@ -58,6 +58,7 @@ const implementation: Implementation = {
   revision_id: REVISION, oscal_control_id: "ac-1", description: "Contribution", status: "implemented",
   oscal_implementation_status: "implemented", system_id: system.id, system_component_id: null,
   responsibilities: [], evidence_references: [], created_by: "", updated_by: "", created_at: "", updated_at: "",
+  concurrency_version: 1,
 };
 const version: SystemSecurityPlanVersion = {
   id: "version-1", system_security_plan_id: plan.id, catalog_id: CATALOG, revision_id: REVISION,
@@ -543,12 +544,15 @@ describe("Systems workspaces", () => {
           ...implementation,
           description: body.description,
           oscal_implementation_status: body.oscal_implementation_status,
+          concurrency_version: 4,
         });
       }
       if (
         url.endsWith("/system-security-plans/plan/implementations/implementation") &&
         init?.method === "POST"
       ) {
+        const body = JSON.parse((init.body as string) ?? "{}");
+        expect(body.expected_implementation_version).toBe(4);
         return new Response(
           JSON.stringify({
             detail: {
@@ -669,7 +673,7 @@ describe("Systems workspaces", () => {
       if (url.endsWith("/system-security-plans/plan/validation")) {
         return jsonResponse(validation);
       }
-      if (url.endsWith("/implementations?limit=100&offset=0&tenant_scope=true")) {
+      if (url.endsWith("/implementations?limit=100&offset=0")) {
         return jsonResponse(page([refreshedImplementation]));
       }
       if (url.endsWith(`/systems/${system.id}/components`)) {
@@ -758,7 +762,7 @@ describe("Systems workspaces", () => {
         url.endsWith("/system-security-plans/plan") ||
         url.endsWith("/system-security-plans/plan/versions") ||
         url.endsWith("/system-security-plans/plan/validation") ||
-        url.endsWith("/implementations?limit=100&offset=0&tenant_scope=true") ||
+        url.endsWith("/implementations?limit=100&offset=0") ||
         url.endsWith(`/systems/${system.id}/components`)
       ) {
         return new Response(JSON.stringify({ error: "unavailable" }), {

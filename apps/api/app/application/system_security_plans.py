@@ -27,6 +27,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
+from app.application.implementations import StaleImplementationUpdate
 from app.domain.errors import EntityNotFoundError
 from app.persistence.models import (
     CatalogControlIndexRecord,
@@ -108,6 +109,13 @@ class _StaleSystemComponentFlush(RuntimeError):
         self.component_id = component_id
         self.expected_version = expected_version
         super().__init__("System component flush detected stale mapper version.")
+
+
+class _StaleImplementationFlush(RuntimeError):
+    def __init__(self, implementation_id: UUID, expected_version: int) -> None:
+        self.implementation_id = implementation_id
+        self.expected_version = expected_version
+        super().__init__("Implementation flush detected stale mapper version.")
 
 
 class SystemSecurityPlanService:
@@ -643,6 +651,7 @@ class SystemSecurityPlanService:
         system_component_id: UUID,
         *,
         expected_version: int,
+        expected_implementation_version: int,
     ) -> dict[str, Any]:
         try:
             with self._session_scope() as session:
@@ -662,6 +671,12 @@ class SystemSecurityPlanService:
                 )
                 if record is None:
                     raise EntityNotFoundError("Implementation not found.")
+                if record.concurrency_version != expected_implementation_version:
+                    raise StaleImplementationUpdate(
+                        record.id,
+                        expected_implementation_version,
+                        int(record.concurrency_version),
+                    )
                 component = session.scalar(
                     select(SystemComponentRecord).where(
                         SystemComponentRecord.tenant_id == tenant_id,
@@ -744,10 +759,22 @@ class SystemSecurityPlanService:
                         ]
                     )
                 now = datetime.now(UTC)
-                record.system_id = plan.system_id
-                record.system_component_id = system_component_id
-                record.updated_by = actor
-                record.updated_at = now
+                context_changed = (
+                    record.system_id != plan.system_id
+                    or record.system_component_id != system_component_id
+                )
+                if context_changed:
+                    record.system_id = plan.system_id
+                    record.system_component_id = system_component_id
+                    record.updated_by = actor
+                    record.updated_at = now
+                    try:
+                        session.flush()
+                    except StaleDataError as error:
+                        raise _StaleImplementationFlush(
+                            implementation_id,
+                            expected_implementation_version,
+                        ) from error
                 association = SystemSecurityPlanImplementationRecord(
                     id=uuid4(),
                     tenant_id=tenant_id,
@@ -772,7 +799,15 @@ class SystemSecurityPlanService:
                     "system_component_id": system_component_id,
                     "oscal_control_id": record.oscal_control_id,
                     "concurrency_version": plan.concurrency_version,
+                    "implementation_concurrency_version": record.concurrency_version,
                 }
+        except _StaleImplementationFlush as stale:
+            current = self._current_implementation_version(tenant_id, stale.implementation_id)
+            raise StaleImplementationUpdate(
+                stale.implementation_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
         except _StaleSystemSecurityPlanFlush as stale:
             current = self._current_plan_version(tenant_id, stale.plan_id)
             raise StaleSystemSecurityPlanUpdate(
@@ -1000,6 +1035,18 @@ class SystemSecurityPlanService:
             )
             if current is None:
                 raise EntityNotFoundError("System not found.")
+            return int(current)
+
+    def _current_implementation_version(self, tenant_id: UUID, implementation_id: UUID) -> int:
+        with self._session_scope() as session:
+            current = session.scalar(
+                select(ControlImplementationRecord.concurrency_version).where(
+                    ControlImplementationRecord.tenant_id == tenant_id,
+                    ControlImplementationRecord.id == implementation_id,
+                )
+            )
+            if current is None:
+                raise EntityNotFoundError("Implementation not found.")
             return int(current)
 
     def _current_component_version(

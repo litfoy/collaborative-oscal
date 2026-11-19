@@ -152,6 +152,7 @@ def api_world(monkeypatch, postgres_url, session_factory, grc_service):
         "description": plan["control_implementation_description"],
         "component_id": component["id"],
         "implementation_id": implementation.id,
+        "implementation_version": implementation.concurrency_version,
     }
 
     get_settings.cache_clear()
@@ -184,6 +185,7 @@ def _include(api_world, client: TestClient, headers: dict[str, str], token: int)
         headers=headers,
         json={
             "expected_version": token,
+            "expected_implementation_version": api_world["implementation_version"],
             "system_component_id": str(api_world["component_id"]),
         },
     )
@@ -235,7 +237,26 @@ def test_ssp_include_requires_expected_version(client, api_world) -> None:
             f"/implementations/{api_world['implementation_id']}"
         ),
         headers=_headers(api_world["subject"]),
-        json={"system_component_id": str(api_world["component_id"])},
+        json={
+            "expected_implementation_version": api_world["implementation_version"],
+            "system_component_id": str(api_world["component_id"]),
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_ssp_include_requires_expected_implementation_version(client, api_world) -> None:
+    response = client.post(
+        (
+            f"{_base(api_world['tenant_id'], api_world['plan_id'])}"
+            f"/implementations/{api_world['implementation_id']}"
+        ),
+        headers=_headers(api_world["subject"]),
+        json={
+            "expected_version": 1,
+            "system_component_id": str(api_world["component_id"]),
+        },
     )
 
     assert response.status_code == 422
@@ -387,12 +408,16 @@ def test_ssp_membership_endpoints_return_token_and_stale_409(client, api_world) 
         headers=headers,
         json={
             "expected_version": token,
+            "expected_implementation_version": api_world["implementation_version"],
             "system_component_id": str(api_world["component_id"]),
         },
     )
     assert included.status_code == 201
     included_body = included.json()
     assert included_body["concurrency_version"] == token + 1
+    assert included_body["implementation_concurrency_version"] == (
+        api_world["implementation_version"] + 1
+    )
 
     stale_remove = client.delete(
         f"{base}/implementations/{api_world['implementation_id']}?expected_version={token}",
@@ -412,6 +437,52 @@ def test_ssp_membership_endpoints_return_token_and_stale_409(client, api_world) 
     )
     assert removed.status_code == 200
     assert removed.json() == {"concurrency_version": token + 2}
+
+
+def test_ssp_include_returns_implementation_stale_409(client, api_world) -> None:
+    headers = _headers(api_world["subject"])
+    implementation_path = (
+        f"/api/v1/tenants/{api_world['tenant_id']}/implementations/{api_world['implementation_id']}"
+    )
+    current = client.get(implementation_path, headers=headers)
+    assert current.status_code == 200
+    implementation = current.json()
+
+    updated = client.put(
+        implementation_path,
+        headers=headers,
+        json={
+            "expected_version": implementation["concurrency_version"],
+            "description": "Updated before include",
+            "status": implementation["status"],
+            "evidence_references": implementation["evidence_references"],
+            "responsibilities": implementation["responsibilities"],
+            "oscal_implementation_status": implementation["oscal_implementation_status"],
+            "oscal_status_explanation": implementation["oscal_status_explanation"],
+        },
+    )
+    assert updated.status_code == 200
+
+    base = _base(api_world["tenant_id"], api_world["plan_id"])
+    plan = client.get(base, headers=headers)
+    assert plan.status_code == 200
+    plan_token = int(plan.json()["concurrency_version"])
+    stale_include = client.post(
+        f"{base}/implementations/{api_world['implementation_id']}",
+        headers=headers,
+        json={
+            "expected_version": plan_token,
+            "expected_implementation_version": implementation["concurrency_version"],
+            "system_component_id": str(api_world["component_id"]),
+        },
+    )
+    assert stale_include.status_code == 409
+    assert stale_include.json()["detail"] == {
+        "code": "stale_update",
+        "implementation_id": str(api_world["implementation_id"]),
+        "expected_version": implementation["concurrency_version"],
+        "current_version": implementation["concurrency_version"] + 1,
+    }
 
 
 def test_ssp_publish_then_save_uses_returned_token_without_false_conflict(

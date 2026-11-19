@@ -153,6 +153,7 @@ def api_world(monkeypatch, postgres_url, session_factory, grc_service):
         implementation.id,
         component["id"],
         expected_version=ssp["concurrency_version"],
+        expected_implementation_version=implementation.concurrency_version,
     )
     ssp["concurrency_version"] = included["concurrency_version"]
     ssp_version = ssp_service.create_version(

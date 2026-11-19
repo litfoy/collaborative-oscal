@@ -15,11 +15,16 @@ from app.api.implementation_schemas import (
     ImplementationOptions,
     ImplementationPage,
     ImplementationResponse,
+    ImplementationUpdate,
     OrganizationOption,
     PersonOption,
 )
 from app.application.catalog_browsing import CatalogBrowsingService
-from app.application.implementations import ImplementationService, InvalidImplementation
+from app.application.implementations import (
+    ImplementationService,
+    InvalidImplementation,
+    StaleImplementationUpdate,
+)
 from app.domain.errors import EntityNotFoundError
 from app.domain.identity.models import AuthorizedTenantContext, Permission
 from app.domain.implementations import ImplementationInformation as Information
@@ -56,6 +61,18 @@ def _information(request: ImplementationInformation) -> Information:
 
 def _not_found(error: EntityNotFoundError) -> HTTPException:
     return HTTPException(status_code=404, detail=str(error))
+
+
+def _stale(error: StaleImplementationUpdate) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "stale_update",
+            "implementation_id": str(error.implementation_id),
+            "expected_version": error.expected_version,
+            "current_version": error.current_version,
+        },
+    )
 
 
 @router.get("/implementation-options", response_model=ImplementationOptions)
@@ -138,16 +155,22 @@ def update_implementation(
     context: WriteContext,
     service: Service,
     implementation_id: UUID,
-    request: ImplementationInformation,
+    request: ImplementationUpdate,
 ) -> ImplementationResponse:
     try:
         result = service.update(
-            context.tenant_id, context.membership.user_id, implementation_id, _information(request)
+            context.tenant_id,
+            context.membership.user_id,
+            implementation_id,
+            expected_version=request.expected_version,
+            information=_information(request),
         )
     except EntityNotFoundError as error:
         raise _not_found(error) from error
     except InvalidImplementation as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    except StaleImplementationUpdate as error:
+        raise _stale(error) from error
     return ImplementationResponse.model_validate(result)
 
 

@@ -187,6 +187,7 @@ def test_ssp_membership_mutations_advance_token_and_reject_stale(
         context["implementation_id"],
         context["component_id"],
         expected_version=token,
+        expected_implementation_version=1,
     )
     assert included["concurrency_version"] == token + 1
     membership_before_stale = service.get_plan(context["tenant_id"], plan["id"])[
@@ -241,6 +242,7 @@ def test_ssp_publish_is_idempotent_and_token_aware(grc_service, session_factory)
         context["implementation_id"],
         context["component_id"],
         expected_version=token,
+        expected_implementation_version=1,
     )
     token = included["concurrency_version"]
 
@@ -289,6 +291,7 @@ def test_ssp_publish_new_snapshot_advances_token_even_same_second(
         context["implementation_id"],
         context["component_id"],
         expected_version=int(plan["concurrency_version"]),
+        expected_implementation_version=1,
     )
     token = int(included["concurrency_version"])
 
@@ -318,7 +321,8 @@ def test_ssp_publish_new_snapshot_advances_token_even_same_second(
         context["tenant_id"],
         context["actor"],
         implementation.id,
-        ImplementationInformation(
+        expected_version=implementation.concurrency_version,
+        information=ImplementationInformation(
             "The identity provider now enforces MFA on privileged paths.",
             implementation.status,
             implementation.evidence_references,
@@ -354,6 +358,7 @@ def test_ssp_publish_rejects_stale_token_under_concurrent_transactions(
         context["implementation_id"],
         context["component_id"],
         expected_version=int(plan["concurrency_version"]),
+        expected_implementation_version=1,
     )
     token = int(included["concurrency_version"])
 
@@ -505,6 +510,7 @@ def test_ssp_publish_translates_mapper_stale_error_and_rolls_back_snapshot(
         context["implementation_id"],
         context["component_id"],
         expected_version=int(plan["concurrency_version"]),
+        expected_implementation_version=1,
     )
     token = int(included["concurrency_version"])
 
@@ -576,6 +582,7 @@ def test_stale_include_leaves_membership_and_unassigned_context_unchanged(
             context["implementation_id"],
             context["component_id"],
             expected_version=token,
+            expected_implementation_version=1,
         )
 
     assert stale.value.expected_version == token

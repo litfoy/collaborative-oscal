@@ -23,7 +23,7 @@ const saved: Implementation = {
   description: "Policy implemented", status: "implemented",
   evidence_references: ["document:policy"], responsibilities: [
     { kind: "accountable", user_id: "person", role: "Owner" },
-  ], created_by: "person", updated_by: "person", created_at: "2026-01-01", updated_at: "2026-01-02",
+  ], created_by: "person", updated_by: "person", created_at: "2026-01-01", updated_at: "2026-01-02", concurrency_version: 1,
 };
 
 beforeEach(() => {
@@ -76,4 +76,33 @@ it("opens a historical implementation using its own normative control endpoint",
   ));
   expect(screen.getByLabelText("Implementation description")).toBeDisabled();
   expect(screen.getByText(/Original revision:/)).toHaveTextContent(REVISION);
+});
+
+it("sends expected_version when updating an existing implementation", async () => {
+  const user = userEvent.setup();
+  const updated: Implementation = {
+    ...saved,
+    description: "Policy implemented (updated)",
+    concurrency_version: saved.concurrency_version + 1,
+  };
+  mocks.bffWrite.mockResolvedValue(updated);
+  render(<ImplementationRegister tenantId={TENANT} profile={profile} canWrite initialControlId={null} onBack={vi.fn()} />);
+  await user.click(await screen.findByRole("button", { name: /ac-1 · implemented/ }));
+  const description = screen.getByLabelText("Implementation description");
+  await user.clear(description);
+  await user.type(description, updated.description);
+  await user.click(screen.getByRole("button", { name: "Save implementation" }));
+  await waitFor(() =>
+    expect(mocks.bffWrite).toHaveBeenCalledWith(
+      "PUT",
+      `tenants/${TENANT}/implementations/${saved.id}`,
+      {
+        expected_version: saved.concurrency_version,
+        description: updated.description,
+        status: saved.status,
+        evidence_references: saved.evidence_references,
+        responsibilities: saved.responsibilities,
+      },
+    ),
+  );
 });

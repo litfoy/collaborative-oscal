@@ -319,6 +319,10 @@ export const en = {
   "register.tenantColumn": "Tenant",
   "register.genericError": "Unable to load this information.",
   "register.backendDetail": "Request detail: {message}",
+  "register.conflictDetected": "This implementation changed in another session. Current server version: {version}.",
+  "register.conflictPreserved": "Your unsaved implementation edits remain on this page. Reload only after confirmation.",
+  "register.reloadConfirmedState": "Discard edits and reload",
+  "register.confirmConflictReload": "Discard your unsaved implementation edits and reload the server state?",
 } as const;
 
 export const de: Record<keyof typeof en, string> = {
@@ -639,4 +643,8 @@ export const de: Record<keyof typeof en, string> = {
   "register.tenantColumn": "Mandant",
   "register.genericError": "Diese Informationen konnten nicht geladen werden.",
   "register.backendDetail": "Anfragedetails: {message}",
+  "register.conflictDetected": "Diese Umsetzung wurde in einer anderen Sitzung geaendert. Aktuelle Serverversion: {version}.",
+  "register.conflictPreserved": "Ihre nicht gespeicherten Umsetzungsaenderungen bleiben auf dieser Seite. Laden Sie erst nach Bestaetigung neu.",
+  "register.reloadConfirmedState": "Aenderungen verwerfen und neu laden",
+  "register.confirmConflictReload": "Ihre nicht gespeicherten Umsetzungsaenderungen verwerfen und den Serverstatus neu laden?",
 };

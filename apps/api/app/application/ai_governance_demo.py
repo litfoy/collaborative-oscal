@@ -537,6 +537,7 @@ def seed_ai_governance_demo(
                 record.id,
                 component_id,
                 expected_version=ssp_plan["concurrency_version"],
+                expected_implementation_version=record.concurrency_version,
             )
             ssp_plan["concurrency_version"] = included["concurrency_version"]
 

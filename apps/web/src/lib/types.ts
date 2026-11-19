@@ -237,6 +237,7 @@ export interface Implementation {
   updated_by: string;
   created_at: string;
   updated_at: string;
+  concurrency_version: number;
 }
 
 export type OscalImplementationStatus =

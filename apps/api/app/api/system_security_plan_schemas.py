@@ -156,6 +156,7 @@ class IncludeImplementationInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_version: int = Field(ge=1)
+    expected_implementation_version: int = Field(ge=1)
     system_component_id: UUID
 
 
@@ -199,6 +200,7 @@ class IncludedImplementationResponse(BaseModel):
     system_component_id: UUID
     oscal_control_id: str
     concurrency_version: int
+    implementation_concurrency_version: int
 
 
 class MutationTokenResponse(BaseModel):

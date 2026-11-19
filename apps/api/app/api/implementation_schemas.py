@@ -86,6 +86,11 @@ class ImplementationResponse(ImplementationInformation):
     updated_by: UUID
     created_at: datetime
     updated_at: datetime
+    concurrency_version: int
+
+
+class ImplementationUpdate(ImplementationInformation):
+    expected_version: int = Field(ge=1)
 
 
 class ImplementationPage(BaseModel):
