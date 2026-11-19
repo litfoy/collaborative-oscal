@@ -22,9 +22,9 @@ The import accepts the subset emitted by Assessment Results authoring export dra
 - Result entry:
   - `uuid`, `title`, `description`
   - `reviewed-controls.control-selections[0].include-controls[*].control-id`
+  - `start` (required timestamp), optional `end`
   - `observations[*]` with `uuid`, `title`, `description`, `methods`, `collected`, optional `subjects`, optional `relevant-evidence`
   - `findings[*]` with `uuid`, `title`, `description`, `target`, optional `related-observations`
-  - optional `start`, `end`
 
 Unsupported fields or incompatible values are rejected with `422`; the service does not silently drop content.
 
@@ -50,6 +50,7 @@ Mapped working-state fields preserve native IDs and values used by existing Asse
 On first successful import, the aggregate stores source provenance:
 
 - source OSCAL document UUID (`assessment-results.uuid`)
+- source metadata title (`assessment-results.metadata.title`)
 - source result UUID (`assessment-results.results[0].uuid`)
 - source metadata `version`
 - source metadata `last-modified`
@@ -85,7 +86,7 @@ curl -i \
   -X POST "http://127.0.0.1:8000/api/v1/tenants/${TENANT_ID}/assessment-plans/${PLAN_ID}/versions/${PLAN_VERSION_ID}/assessment-results/import" \
   -H "Authorization: Bearer ${ACCESS_TOKEN}" \
   -H "Content-Type: application/json" \
-  --data-binary @- <<'JSON'
+  --data-binary @- <<JSON
 {
   "assessment-results": {
     "uuid": "b2a95d64-00f1-4af8-a4d2-57f9f4c2038a",
@@ -108,25 +109,28 @@ curl -i \
             {
               "include-controls": [
                 {
-                  "control-id": "ac-1"
+                  "control-id": "MG-2.2-006"
                 }
               ]
             }
           ]
         },
+        "start": "2026-11-19T09:00:00+00:00",
+        "end": "2026-11-19T09:45:00+00:00",
         "observations": [
           {
             "uuid": "57612a85-4e1b-47fb-bd3c-8090fd17ec36",
-            "title": "Automated privileged login observation",
-            "description": "Scanner observed MFA challenge enforcement in production logs.",
+            "title": "Model version lineage evidence captured",
+            "description": "Automation verified production inference logs include model-version, registry digest, and deployment release references for each scoring event.",
             "methods": [
+              "EXAMINE",
               "TEST"
             ],
             "collected": "2026-11-19T09:30:00+00:00",
             "relevant-evidence": [
               {
                 "href": "#7bd39e11-3e12-49f8-805d-31189a91ee3f",
-                "description": "Automated telemetry extract"
+                "description": "Automated model lineage telemetry extract"
               }
             ]
           }
@@ -134,11 +138,11 @@ curl -i \
         "findings": [
           {
             "uuid": "e99d6f4c-c48b-4f59-89b7-e8389da53f63",
-            "title": "MFA objective satisfied",
-            "description": "Automated checks indicate the selected objective is satisfied.",
+            "title": "Model version traceability objective satisfied",
+            "description": "Evidence confirms each scored request can be traced to the deployed model version and release artifact chain.",
             "target": {
               "type": "objective-id",
-              "target-id": "local-mfa-objective",
+              "target-id": "local-model-version-traceability",
               "status": {
                 "state": "satisfied"
               }
@@ -156,11 +160,11 @@ curl -i \
       "resources": [
         {
           "uuid": "7bd39e11-3e12-49f8-805d-31189a91ee3f",
-          "title": "Automation evidence artifact",
-          "description": "Automated telemetry extract",
+          "title": "Model lineage telemetry artifact",
+          "description": "Automated model lineage telemetry extract",
           "rlinks": [
             {
-              "href": "https://example.test/evidence/automation-mfa.json"
+              "href": "https://example.test/evidence/model-lineage-2026-11-19.json"
             }
           ]
         }
@@ -170,4 +174,5 @@ curl -i \
 }
 JSON
 ```
+
 

@@ -17,6 +17,7 @@ from collaborative_oscal_oscal.assessment_result import (
 )
 from collaborative_oscal_oscal.catalog_index import canonical_json_sha256
 from collaborative_oscal_oscal.versions import OscalDocumentModel, authoring_version_for
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -251,6 +252,11 @@ class AssessmentResultService:
                     document,
                     expected_plan_href=expected_plan_href,
                 )
+                self._validate_imported_working_state(
+                    title=imported["title"],
+                    description=imported["description"],
+                    working_data=imported["working_data"],
+                )
                 self._validate_working_integrity(
                     imported["working_data"],
                     result_uuid=None,
@@ -295,6 +301,7 @@ class AssessmentResultService:
                     source_content_sha256=content_sha256,
                     source_provenance={
                         "source_document_uuid": str(source_document_uuid),
+                        "source_metadata_title": imported["source_metadata_title"],
                         "source_result_uuid": imported["source_result_uuid"],
                         "source_metadata_version": imported["source_metadata_version"],
                         "source_metadata_last_modified": imported["source_metadata_last_modified"],
@@ -964,9 +971,54 @@ class AssessmentResultService:
                 }
             ),
             "source_result_uuid": source_result_uuid,
+            "source_metadata_title": metadata.get("title"),
             "source_metadata_version": metadata.get("version"),
             "source_metadata_last_modified": metadata.get("last-modified"),
         }
+
+    @staticmethod
+    def _validate_imported_working_state(
+        *,
+        title: str,
+        description: str | None,
+        working_data: dict[str, Any],
+    ) -> None:
+        from app.api.assessment_result_schemas import AssessmentResultWorkingInput
+
+        try:
+            AssessmentResultWorkingInput.model_validate(
+                {
+                    "expected_version": 1,
+                    "title": title,
+                    "description": description,
+                    "reviewed_control_ids": working_data.get("reviewed_control_ids", []),
+                    "observations": working_data.get("observations", []),
+                    "findings": working_data.get("findings", []),
+                    "start": working_data.get("start"),
+                    "end": working_data.get("end"),
+                }
+            )
+        except PydanticValidationError as error:
+            diagnostics: list[dict[str, str]] = []
+            for issue in error.errors(include_url=False, include_input=False):
+                path_parts = [
+                    str(part)
+                    for part in issue.get("loc", ())
+                    if part != "expected_version"
+                ]
+                path = "$" if not path_parts else f"$.{'.'.join(path_parts)}"
+                diagnostics.append(
+                    {
+                        "severity": "error",
+                        "category": "application_integrity",
+                        "code": "invalid_working_state",
+                        "message": str(
+                            issue.get("msg", "Invalid Assessment Results import payload.")
+                        ),
+                        "path": path,
+                    }
+                )
+            raise InvalidAssessmentResult(diagnostics) from error
 
     def _import_reviewed_control_ids(
         self,

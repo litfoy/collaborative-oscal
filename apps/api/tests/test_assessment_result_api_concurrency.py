@@ -551,4 +551,19 @@ def test_assessment_result_import_endpoint_enforces_tenant_isolation(client, api
     assert response.status_code == 403
 
 
+def test_assessment_result_import_endpoint_rejects_invalid_interval(client, api_world) -> None:
+    headers = _headers(api_world["subject"])
+    path = _import_base(api_world["tenant_id"], api_world["plan_id"], api_world["plan_version_id"])
+    payload = _import_payload(api_world)
+    payload["assessment-results"]["results"][0]["start"] = "2026-11-19T10:00:00+00:00"
+    payload["assessment-results"]["results"][0]["end"] = "2026-11-19T09:00:00+00:00"
+
+    response = client.post(path, headers=headers, json=payload)
+    assert response.status_code == 422
+    assert any(
+        item.get("code") == "invalid_working_state"
+        for item in response.json()["detail"]["diagnostics"]
+    )
+
+
 

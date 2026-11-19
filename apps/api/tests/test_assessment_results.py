@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select, text, update
+from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.application.assessment_plans import AssessmentPlanService
@@ -3200,6 +3201,23 @@ def _native_import_payload(
     }
 
 
+def _set_overlong_result_title(payload: dict[str, object]) -> None:
+    payload["assessment-results"]["results"][0]["title"] = "x" * 256
+
+
+def _remove_observation_title(payload: dict[str, object]) -> None:
+    payload["assessment-results"]["results"][0]["observations"][0].pop("title")
+
+
+def _set_invalid_observation_methods(payload: dict[str, object]) -> None:
+    payload["assessment-results"]["results"][0]["observations"][0]["methods"] = [
+        "EXAMINE",
+        "INTERVIEW",
+        "TEST",
+        "EXAMINE",
+    ]
+
+
 def test_assessment_result_import_maps_supported_native_oscal_subset_and_provenance(
     grc_service, session_factory
 ) -> None:
@@ -3259,6 +3277,10 @@ def test_assessment_result_import_maps_supported_native_oscal_subset_and_provena
             "assessment-results"
         ]["uuid"]
         assert (
+            record.source_provenance["source_metadata_title"]
+            == payload["assessment-results"]["metadata"]["title"]
+        )
+        assert (
             record.source_provenance["source_result_uuid"]
             == payload["assessment-results"]["results"][0]["uuid"]
         )
@@ -3271,6 +3293,89 @@ def test_assessment_result_import_maps_supported_native_oscal_subset_and_provena
             == payload["assessment-results"]["metadata"]["last-modified"]
         )
         assert record.source_provenance["submitted_by"] == str(actor)
+
+
+@pytest.mark.parametrize(
+    "mutator,expected_path",
+    [
+        (_set_overlong_result_title, "$.title"),
+        (_remove_observation_title, "$.observations.0.title"),
+        (_set_invalid_observation_methods, "$.observations.0.methods"),
+    ],
+)
+def test_assessment_result_import_rejects_invalid_mapped_working_state_without_persistence(
+    grc_service,
+    session_factory,
+    mutator,
+    expected_path: str,
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    payload = _native_import_payload(
+        tenant_id=tenant_id,
+        plan_id=plan["id"],
+        plan_version_id=plan_version["id"],
+        control_id=control_id,
+        subject_uuid=subject_uuid,
+    )
+    mutator(payload)
+
+    with pytest.raises(InvalidAssessmentResult) as error:
+        service.import_result(
+            tenant_id,
+            actor,
+            assessment_plan_id=plan["id"],
+            assessment_plan_version_id=plan_version["id"],
+            document=payload,
+        )
+
+    assert any(item["code"] == "invalid_working_state" for item in error.value.diagnostics)
+    assert any(item.get("path") == expected_path for item in error.value.diagnostics)
+    assert service.list_results(tenant_id, system_id) == []
+
+
+def test_assessment_result_import_rejects_invalid_assessment_interval_without_persistence(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    payload = _native_import_payload(
+        tenant_id=tenant_id,
+        plan_id=plan["id"],
+        plan_version_id=plan_version["id"],
+        control_id=control_id,
+        subject_uuid=subject_uuid,
+    )
+    payload["assessment-results"]["results"][0]["start"] = "2026-11-19T10:00:00+00:00"
+    payload["assessment-results"]["results"][0]["end"] = "2026-11-19T09:00:00+00:00"
+
+    with pytest.raises(InvalidAssessmentResult) as error:
+        service.import_result(
+            tenant_id,
+            actor,
+            assessment_plan_id=plan["id"],
+            assessment_plan_version_id=plan_version["id"],
+            document=payload,
+        )
+
+    assert any(item["code"] == "invalid_working_state" for item in error.value.diagnostics)
+    assert service.list_results(tenant_id, system_id) == []
 
 
 def test_assessment_result_import_is_idempotent_for_identical_replay(
@@ -3524,7 +3629,7 @@ def test_assessment_result_import_rejects_mismatched_import_ap_without_partial_p
 
 
 def test_assessment_result_import_is_concurrency_safe_for_duplicate_submissions(
-    grc_service, session_factory
+    grc_service, session_factory, monkeypatch
 ) -> None:
     (
         tenant_id,
@@ -3545,6 +3650,55 @@ def test_assessment_result_import_is_concurrency_safe_for_duplicate_submissions(
     service = AssessmentResultService(lambda: session_factory.begin())
 
     barrier = threading.Barrier(3)
+    insert_flush_count = {"value": 0}
+    unique_recovery_used = threading.Event()
+    second_insert_flushed = threading.Event()
+    flush_lock = threading.Lock()
+    first_flush_waiting = {"value": False}
+
+    target_source_uuid = UUID(payload["assessment-results"]["uuid"])
+
+    original_flush = Session.flush
+    original_conflict_probe = AssessmentResultService._is_source_document_constraint_violation
+
+    def _gated_flush(session: Session, *args, **kwargs):
+        relevant_insert = any(
+            isinstance(item, AssessmentResultRecord)
+            and item.source_document_uuid == target_source_uuid
+            for item in session.new
+        )
+        if not relevant_insert:
+            return original_flush(session, *args, **kwargs)
+
+        with flush_lock:
+            insert_flush_count["value"] += 1
+            if not first_flush_waiting["value"]:
+                first_flush_waiting["value"] = True
+                is_first = True
+            else:
+                is_first = False
+
+        if is_first:
+            assert second_insert_flushed.wait(timeout=5)
+            return original_flush(session, *args, **kwargs)
+
+        try:
+            return original_flush(session, *args, **kwargs)
+        finally:
+            second_insert_flushed.set()
+
+    def _tracking_conflict_probe(error):
+        matched = original_conflict_probe(error)
+        if matched:
+            unique_recovery_used.set()
+        return matched
+
+    monkeypatch.setattr(Session, "flush", _gated_flush)
+    monkeypatch.setattr(
+        AssessmentResultService,
+        "_is_source_document_constraint_violation",
+        staticmethod(_tracking_conflict_probe),
+    )
 
     def _submit_once() -> tuple[UUID, bool]:
         concurrent_service = AssessmentResultService(lambda: session_factory.begin())
@@ -3569,6 +3723,8 @@ def test_assessment_result_import_is_concurrency_safe_for_duplicate_submissions(
         service.list_results(tenant_id, system_id)[0]["id"]
     }
     assert {first_result[1], second_result[1]} == {True, False}
+    assert insert_flush_count["value"] >= 2
+    assert unique_recovery_used.is_set()
     assert len(service.list_results(tenant_id, system_id)) == 1
 
 
