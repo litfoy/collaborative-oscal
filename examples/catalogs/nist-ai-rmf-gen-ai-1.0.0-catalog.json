@@ -5,7 +5,14 @@
       "title": "NIST AI Risk Management Framework Generattive AI Profile",
       "last-modified": "2024-10-16T11:17:59+00:00",
       "version": "1.0.0",
-      "oscal-version": "1.1.2"
+      "oscal-version": "1.1.2",
+      "links": [
+        {
+          "href": "#72670f1a-0e8c-58b7-a9c5-47286a713987",
+          "rel": "reference",
+          "text": "NIST Generative AI Profile (NIST AI 600-1)"
+        }
+      ]
     },
     "groups": [
       {
@@ -5452,6 +5459,27 @@
           }
         ]
       }
-    ]
+    ],
+    "back-matter": {
+      "resources": [
+        {
+          "uuid": "72670f1a-0e8c-58b7-a9c5-47286a713987",
+          "title": "NIST AI RMF: Generative Artificial Intelligence Profile (NIST AI 600-1)",
+          "description": "NIST companion guidance adapting the voluntary AI Risk Management Framework to generative AI.",
+          "props": [
+            {
+              "name": "type",
+              "value": "external-guidance",
+              "ns": "http://csrc.nist.gov/ns/oscal"
+            }
+          ],
+          "rlinks": [
+            {
+              "href": "https://doi.org/10.6028/NIST.AI.600-1"
+            }
+          ]
+        }
+      ]
+    }
   }
 }
