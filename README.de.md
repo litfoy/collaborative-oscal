@@ -10,7 +10,7 @@ Das Projekt soll redundante Governance- und Compliance-Arbeit in den Bereichen D
 
 Die zentrale Idee: **Umsetzungen dort, wo es sinnvoll ist, einmal dokumentieren, Informationen regelwerksübergreifend wiederverwenden und im jeweiligen fachlichen Kontext unabhängig bewerten.** OSCAL dient dabei als gemeinsame maschinenlesbare Datengrundlage und nicht lediglich als Exportformat.
 
-![Collaborative OSCAL](./assets/Collaborative%20OSCAL%20Governance%20Blueprint.png)
+![Collaborative OSCAL](./assets/Collaborative%20OSCAL%20Governance%20Framework.png)
 
 *Konzeptioneller Überblick: gemeinsame Schutzmaßnahmen und Systeminformationen, getrennte Prüfungen. Unabhängige Feststellungen werden auf Datenmodellebene unterstützt; gemeinsame Nachweisverwaltung und differenzierte Stakeholder-Berechtigungen sind noch geplant.*
 

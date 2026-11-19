@@ -10,7 +10,7 @@ It is designed to reduce redundant governance and compliance work across data pr
 
 The central idea is to **document implementation once where appropriate, reuse information across frameworks, and assess it independently in each relevant context**. OSCAL provides the common machine-readable data foundation rather than merely an export format.
 
-![Collaborative OSCAL](./assets/Collaborative%20OSCAL%20Governance%20Blueprint.png)
+![Collaborative OSCAL](./assets/Collaborative%20OSCAL%20Governance%20Framework.png)
 
 *Conceptual overview: shared safeguards and system information, separate assessments. Independent findings are supported at the data-model level; shared evidence management and fine-grained stakeholder authorization remain future work.*
 
