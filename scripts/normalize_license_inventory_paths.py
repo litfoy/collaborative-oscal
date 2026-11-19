@@ -25,6 +25,11 @@ def _normalize_path(value: Any) -> Any:
     try:
         return candidate.resolve().relative_to(REPO_ROOT).as_posix()
     except Exception:
+        normalized = value.replace("\\", "/")
+        for marker in ("/site-packages/", "/node_modules/"):
+            if marker in normalized:
+                tail = normalized.split(marker, maxsplit=1)[1]
+                return f"{marker.strip('/')}/{tail}"
         return value
 
 
@@ -69,5 +74,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-

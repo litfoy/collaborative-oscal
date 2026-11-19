@@ -63,8 +63,18 @@ Inventories retained and normalized to workspace-relative paths:
 - `docs/python-license-inventory.runtime.json`
 - `docs/python-license-inventory.dev-and-runtime.json`
 
-Normalization script:
-- `scripts/normalize_license_inventory_paths.py`
+Local generation:
+- `chmod +x scripts/generate_license_inventories.sh`
+- `scripts/generate_license_inventories.sh`
+
+CycloneDX SBOM generation (application dependencies only):
+- `chmod +x scripts/generate_sboms.sh`
+- `scripts/generate_sboms.sh`
+- outputs under `artifacts/sbom/` (not committed)
+
+CI artifact availability:
+- `.github/workflows/ci.yml` includes `sbom` job on `push` and `pull_request`
+- uploads `artifacts/sbom/` as `sbom-${GITHUB_SHA}`
 
 ## License classification summary
 
@@ -84,8 +94,16 @@ These require explicit maintainer/legal review for release positioning:
   technical benchmark.
 
 ### Unknown/unclear licensing signals to track
-- npm inventory includes one `UNLICENSED` entry for workspace package
-  `@collaborative-oscal/web` (internal package marker, not an external dependency).
+- none currently identified for project-owned npm workspace packages after explicit
+  `Apache-2.0` metadata was added.
+
+## SBOM scope limitations
+
+- The generated CycloneDX files model lockfile-resolved application dependencies
+  for `apps/api` and `apps/web` only.
+- These SBOMs are not complete OCI image SBOMs and do not enumerate base-image
+  packages, OS packages, or runtime filesystem artifacts outside the application
+  dependency graphs.
 
 ## Actual redistribution obligations (current distribution model)
 
@@ -151,6 +169,3 @@ Excluded scope:
 - Automate periodic inventory regeneration in CI.
 - Add explicit workflow checks for SPDX header presence in new source files.
 - Add documented legal-review checklist for release candidates.
-
-
-

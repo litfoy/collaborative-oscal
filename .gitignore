@@ -16,3 +16,4 @@ build/
 .idea/
 *.tsbuildinfo
 next-env.d.ts
+artifacts/sbom/

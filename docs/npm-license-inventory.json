@@ -1096,6 +1096,13 @@
     "licenses": "MIT",
     "path": "node_modules/client-only"
   },
+  "collaborative-oscal@0.1.0": {
+    "licenses": "UNLICENSED",
+    "private": true,
+    "path": ".",
+    "licenseFile": "LICENSE",
+    "noticeFile": "/Users/rib/workspace/collaborative-oscal/NOTICE"
+  },
   "color-convert@2.0.1": {
     "licenses": "MIT",
     "repository": "https://github.com/Qix-/color-convert",

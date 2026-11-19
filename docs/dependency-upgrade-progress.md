@@ -92,12 +92,19 @@ _Last updated: 2026-11-18_
 
 ## Reproducible license inventory commands
 
-- npm inventory (existing process):
-  - `npx license-checker --json --out docs/npm-license-inventory.json`
-- Python inventories:
-  - `cd apps/api && uv run --with pip-licenses pip-licenses --format=json --with-authors --with-license-file --output-file ../../docs/python-license-inventory.dev-and-runtime.json`
-  - `cd apps/api && uv run --no-dev --with pip-licenses pip-licenses --format=json --with-authors --with-license-file --output-file ../../docs/python-license-inventory.runtime.json`
-  - `python scripts/normalize_license_inventory_paths.py`
+- License inventories (runtime and dev+runtime):
+  - `chmod +x scripts/generate_license_inventories.sh`
+  - `scripts/generate_license_inventories.sh`
+- CycloneDX SBOMs (runtime and dev+runtime for API and web):
+  - `chmod +x scripts/generate_sboms.sh`
+  - `scripts/generate_sboms.sh`
+  - optional output directory override: `scripts/generate_sboms.sh artifacts/sbom`
+
+Generated SBOM files:
+- `artifacts/sbom/api-runtime.cyclonedx.json`
+- `artifacts/sbom/api-dev-and-runtime.cyclonedx.json`
+- `artifacts/sbom/web-runtime.cyclonedx.json`
+- `artifacts/sbom/web-dev-and-runtime.cyclonedx.json`
 
 ## Hardening Task 05 pre-work obligations (unresolved)
 

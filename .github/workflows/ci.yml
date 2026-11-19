@@ -74,3 +74,26 @@ jobs:
       - run: npm --workspace apps/web run lint
       - run: npm --workspace apps/web run typecheck
       - run: npm --workspace apps/web run test
+
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13"
+          cache: npm
+      - run: chmod +x scripts/generate_sboms.sh
+      - run: scripts/generate_sboms.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: artifacts/sbom/
+          if-no-files-found: error
