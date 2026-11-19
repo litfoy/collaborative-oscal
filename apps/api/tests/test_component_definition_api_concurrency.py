@@ -220,6 +220,47 @@ def test_component_definition_delete_component_response_contract(client, api_wor
     assert removed_document.status_code == 204
 
 
+def test_component_definition_nested_only_requirement_mutation_advances_concurrency_version(
+    client, api_world
+) -> None:
+    tenant_id = api_world["tenant_id"]
+    headers = _headers(api_world["subject"])
+    created = _create_document(client, api_world)
+    token = int(created["concurrency_version"])
+
+    component = created["components"][0]
+    nested_update = client.put(
+        f"/api/v1/tenants/{tenant_id}/component-definitions/{created['id']}",
+        headers=headers,
+        json={
+            "expected_version": token,
+            "title": created["title"],
+            "components": [
+                {
+                    "id": component["id"],
+                    "type": component["type"],
+                    "title": component["title"],
+                    "description": component["description"],
+                    "requirements": [
+                        {
+                            **component["requirements"][0],
+                            "description": "Require MFA and document exception handling.",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    assert nested_update.status_code == 200
+    body = nested_update.json()
+    assert int(body["concurrency_version"]) == token + 1
+    assert body["title"] == created["title"]
+    assert (
+        body["components"][0]["requirements"][0]["description"]
+        == "Require MFA and document exception handling."
+    )
+
+
 def test_component_definition_stale_update_and_delete_return_409_and_preserve_state(
     client, api_world
 ) -> None:
@@ -291,5 +332,6 @@ def test_component_definition_stale_update_and_delete_return_409_and_preserve_st
     )
     assert after_stale.status_code == 200
     assert after_stale.json() == before_stale.json()
+
 
 

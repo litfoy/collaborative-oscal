@@ -234,6 +234,80 @@ it("preserves local edits after stale conflicts and reloads on confirmation", as
   confirm.mockRestore();
 });
 
+it("requires closing the requirement picker before conflict reload", async () => {
+  const stale = new ApiError("stale_update", 409, "stale", { current_version: 4 });
+  const refreshed = { ...created, title: "Server document", concurrency_version: 4 };
+  mocks.bffWrite.mockRejectedValue(stale);
+  mocks.bffGet.mockImplementation(async (path: string) => {
+    if (path === `tenants/${TENANT}/component-definitions/${DOCUMENT}`) return refreshed;
+    if (path.endsWith("/revisions")) return page([
+      revision({ id: REVISION, catalog_id: CATALOG }),
+      revision({ id: SECOND_REVISION, catalog_id: CATALOG, revision_number: 2 }),
+    ]);
+    if (path.endsWith("/profile-browser")) return { nodes: [
+      { key: "ac-1", parent_key: null, kind: "control", id: "ac-1", title: "Access Policy", text: "policy requirements", properties: [{ name: "sec_level", value: "high" }] },
+      { key: "ac-2", parent_key: null, kind: "control", id: "ac-2", title: "Account Management", text: "accounts", properties: [{ name: "sec_level", value: "low" }] },
+    ] };
+    if (path.includes("/revisions/")) return { ...revision({ id: REVISION, catalog_id: CATALOG }), group_count: 0, source_document: {} };
+    return page([]);
+  });
+  const confirm = vi.spyOn(window, "confirm")
+    .mockReturnValueOnce(false)
+    .mockReturnValue(true);
+  const user = userEvent.setup();
+  render(<MeasureDetailWorkspace tenantId={TENANT} initialDocument={created} componentId={COMPONENT}
+    catalogs={[selectedCatalog]} catalogTotal={1} canWrite />);
+  await user.clear(screen.getByLabelText("Measure title"));
+  await user.type(screen.getByLabelText("Measure title"), "Local edit");
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+  expect(await screen.findByText(/changed in another session/i)).toBeInTheDocument();
+
+  await user.click(screen.getByRole("tab", { name: /Requirements/ }));
+  await user.click(screen.getByRole("button", { name: "Add requirements" }));
+  await screen.findByRole("option", { name: /Revision 1 .*Published/ });
+  await user.selectOptions(screen.getByLabelText("Catalog revision"), REVISION);
+  await user.click(await screen.findByRole("checkbox", { name: /ac-1 Access Policy/ }));
+
+  const reload = screen.getByRole("button", { name: "Reload latest document" });
+  expect(reload).toBeDisabled();
+  await user.click(reload);
+  expect(mocks.bffGet).not.toHaveBeenCalledWith(`tenants/${TENANT}/component-definitions/${DOCUMENT}`);
+
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.getByRole("heading", { name: "Add requirements" })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("heading", { name: "Add requirements" })).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Reload latest document" }));
+  expect(await screen.findByLabelText("Measure title")).toHaveValue("Multifactor authentication");
+  confirm.mockRestore();
+});
+
+it("preserves local edits when conflict reload is canceled or fails", async () => {
+  const stale = new ApiError("stale_update", 409, "stale", { current_version: 4 });
+  mocks.bffWrite.mockRejectedValue(stale);
+  const user = userEvent.setup();
+  render(<MeasureDetailWorkspace tenantId={TENANT} initialDocument={created} componentId={COMPONENT}
+    catalogs={[selectedCatalog]} catalogTotal={1} canWrite />);
+  await user.clear(screen.getByLabelText("Measure title"));
+  await user.type(screen.getByLabelText("Measure title"), "Local edit");
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+  expect(await screen.findByText(/changed in another session/i)).toBeInTheDocument();
+
+  mocks.bffGet.mockClear();
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  await user.click(screen.getByRole("button", { name: "Reload latest document" }));
+  expect(mocks.bffGet).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Measure title")).toHaveValue("Local edit");
+
+  mocks.bffGet.mockRejectedValueOnce(new Error("reload failed"));
+  confirm.mockReturnValue(true);
+  await user.click(screen.getByRole("button", { name: "Reload latest document" }));
+  expect(await screen.findByText(/reload failed/i)).toBeInTheDocument();
+  expect(screen.getByLabelText("Measure title")).toHaveValue("Local edit");
+  confirm.mockRestore();
+});
+
 it("deletes one component with token query and keeps editing remaining components", async () => {
   const updated = {
     ...created,

@@ -157,6 +157,7 @@ def test_component_definition_update_uses_pg_blocking_pids_and_rejects_stale_tok
     state_lock = threading.Lock()
     backend_pids: dict[str, int] = {}
     winner_pid: dict[str, int | None] = {"value": None}
+    winner_worker: dict[str, str | None] = {"value": None}
     original_get_record = ComponentDefinitionService._get_record
 
     def _gated_get_record(session, tenant_id, document_id, *, lock=False):
@@ -217,6 +218,9 @@ def test_component_definition_update_uses_pg_blocking_pids_and_rejects_stale_tok
             assert winner_holding_lock.wait(timeout=5)
             winner = winner_pid["value"]
             assert winner is not None
+            winner_worker["value"] = next(
+                name for name, pid in backend_pids.items() if pid == winner
+            )
             blocked = next(pid for pid in backend_pids.values() if pid != winner)
             _assert_blocked_by(session_factory, blocked_pid=blocked, blocker_pid=winner)
         finally:
@@ -237,6 +241,7 @@ def test_component_definition_update_uses_pg_blocking_pids_and_rejects_stale_tok
 
     persisted = context["service"].get(context["tenant_id"], created.id)
     assert persisted.concurrency_version == token + 1
+    assert persisted.title == f"Winner {winner_worker['value']}"
 
 
 def test_component_definition_mapper_stale_translation_rolls_back_document_and_sources(
@@ -384,6 +389,97 @@ def test_component_definition_stale_delete_preserves_document_and_source_project
     )
     assert persisted.id == created.id
     assert source_after == source_before
+
+
+def test_component_definition_component_removal_mapper_stale_translation_rolls_back(
+    grc_service, session_factory, monkeypatch
+) -> None:
+    context = _prepare_context(grc_service, session_factory)
+    service = context["service"]
+    created = context["created"]
+    expanded = service.update(
+        context["tenant_id"],
+        context["actor_id"],
+        created.id,
+        created.concurrency_version,
+        created.title,
+        [
+            ComponentInput(
+                created.components[0].id,
+                created.components[0].type,
+                created.components[0].title,
+                created.components[0].description,
+                [
+                    ComponentRequirementInput(
+                        context["catalog_id"],
+                        context["revision_id"],
+                        "ac-1",
+                        "Require MFA for privileged access.",
+                    )
+                ],
+            ),
+            ComponentInput(None, "software", "Audit", "Collect events", []),
+        ],
+    )
+    before = service.get(context["tenant_id"], created.id)
+    before_export = service.export(context["tenant_id"], created.id)
+    before_sources = _source_projection(
+        session_factory,
+        tenant_id=context["tenant_id"],
+        document_id=created.id,
+    )
+
+    original_get_record = ComponentDefinitionService._get_record
+    bumped = {"done": False}
+
+    def _stale_get_record(session, tenant_id, document_id, *, lock=False):
+        record = original_get_record(session, tenant_id, document_id, lock=lock)
+        if lock and document_id == created.id and not bumped["done"]:
+            session.execute(
+                text(
+                    "UPDATE component_definitions "
+                    "SET concurrency_version = concurrency_version + 1 "
+                    "WHERE tenant_id = :tenant_id AND id = :document_id"
+                ),
+                {
+                    "tenant_id": tenant_id,
+                    "document_id": document_id,
+                },
+            )
+            bumped["done"] = True
+        return record
+
+    monkeypatch.setattr(
+        ComponentDefinitionService,
+        "_get_record",
+        staticmethod(_stale_get_record),
+    )
+
+    with pytest.raises(StaleComponentDefinitionUpdate) as stale:
+        service.delete_component(
+            context["tenant_id"],
+            context["actor_id"],
+            created.id,
+            expanded.components[0].id,
+            expected_version=before.concurrency_version,
+        )
+
+    assert isinstance(stale.value.__cause__, StaleDataError)
+    assert stale.value.expected_version == before.concurrency_version
+    assert stale.value.current_version == before.concurrency_version
+
+    after = service.get(context["tenant_id"], created.id)
+    after_export = service.export(context["tenant_id"], created.id)
+    after_sources = _source_projection(
+        session_factory,
+        tenant_id=context["tenant_id"],
+        document_id=created.id,
+    )
+    assert after.id == before.id
+    assert after.title == before.title
+    assert after_export == before_export
+    assert after_sources == before_sources
+
 
 
 

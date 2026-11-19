@@ -214,7 +214,7 @@ export function MeasureDetailWorkspace({
   }
 
   async function reloadAfterConflict() {
-    if (!conflict || busy) return;
+    if (!conflict || busy || picker || pickerPending) return;
     if (!window.confirm(t("measures.confirmConflictReload"))) return;
     setBusy(true);
     setError(null);
@@ -260,7 +260,7 @@ export function MeasureDetailWorkspace({
         <p>{t("measures.conflictDetected", { version: conflict.currentVersion })}</p>
         <p className="muted">{t("measures.conflictPreserved")}</p>
         <div className="workspace-actions">
-          <button type="button" className="danger-action" disabled={busy}
+          <button type="button" className="danger-action" disabled={busy || picker || pickerPending}
             onClick={() => void reloadAfterConflict()}>{t("measures.reloadConfirmedState")}</button>
           <button type="button" className="secondary" disabled={busy}
             onClick={() => setConflict(null)}>{t("measures.keepMyEdits")}</button>

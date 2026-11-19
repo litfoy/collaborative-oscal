@@ -198,6 +198,56 @@ def test_profile_update_returns_stale_409_and_preserves_state(client, api_world)
     assert after_stale == before_stale
 
 
+def test_profile_nested_only_import_mutation_advances_concurrency_version(
+    client, api_world
+) -> None:
+    tenant_id = api_world["tenant_id"]
+    headers = _headers(api_world["subject"])
+    created = client.post(
+        f"/api/v1/tenants/{tenant_id}/profiles",
+        headers=headers,
+        json={
+            "catalog_id": str(api_world["source_catalog_id"]),
+            "revision_id": str(api_world["source_revision_id"]),
+            "title": "Nested profile",
+            "control_ids": [api_world["source_control"]],
+        },
+    )
+    assert created.status_code == 201
+    profile = created.json()
+    token = int(profile["concurrency_version"])
+    existing_import = profile["imports"][0]
+
+    nested_update = client.put(
+        f"/api/v1/tenants/{tenant_id}/profiles/{profile['id']}",
+        headers=headers,
+        json={
+            "expected_version": token,
+            "title": profile["title"],
+            "description": profile.get("description", ""),
+            "imports": [
+                {
+                    "id": existing_import["id"],
+                    "catalog_id": existing_import["catalog_id"],
+                    "revision_id": existing_import["revision_id"],
+                    "control_ids": existing_import["control_ids"],
+                },
+                {
+                    "id": str(uuid4()),
+                    "catalog_id": str(api_world["target_catalog_id"]),
+                    "revision_id": str(api_world["target_revision_id"]),
+                    "control_ids": [api_world["target_control"]],
+                },
+            ],
+        },
+    )
+    assert nested_update.status_code == 200
+    body = nested_update.json()
+    assert int(body["concurrency_version"]) == token + 1
+    assert body["title"] == profile["title"]
+    assert len(body["imports"]) == 2
+
+
 def _create_mapping_collection(
     client: TestClient,
     api_world: dict[str, object],
@@ -363,4 +413,45 @@ def test_mapping_stale_update_and_delete_preserve_collection(client, api_world) 
         headers=headers,
     )
     assert missing.status_code == 404
+
+
+def test_mapping_nested_only_entry_mutation_advances_concurrency_version(
+    client, api_world
+) -> None:
+    tenant_id = api_world["tenant_id"]
+    headers = _headers(api_world["subject"])
+    collection = _create_mapping_collection(client, api_world)
+    token = int(collection["concurrency_version"])
+
+    nested_update = client.put(
+        f"/api/v1/tenants/{tenant_id}/mapping-collections/{collection['id']}",
+        headers=headers,
+        json={
+            "expected_version": token,
+            "title": collection["title"],
+            "description": collection["description"],
+            "mappings": [
+                {
+                    "source_catalog_id": str(api_world["source_catalog_id"]),
+                    "source_revision_id": str(api_world["source_revision_id"]),
+                    "target_catalog_id": str(api_world["target_catalog_id"]),
+                    "target_revision_id": str(api_world["target_revision_id"]),
+                    "entries": [
+                        {
+                            "sources": [api_world["source_control"]],
+                            "targets": [api_world["target_control"]],
+                            "relationship": "subset-of",
+                            "matching_rationale": "functional",
+                            "justification": "nested mutation",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    assert nested_update.status_code == 200
+    body = nested_update.json()
+    assert int(body["concurrency_version"]) == token + 1
+    assert body["title"] == collection["title"]
+    assert body["mappings"][0]["entries"][0]["relationship"] == "subset-of"
 

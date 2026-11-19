@@ -184,15 +184,15 @@ class MappingService:
                     now,
                     existing.concurrency_version,
                 )
-                repository.update(updated, members)
                 try:
+                    repository.update(updated, members)
                     session.flush()
+                    persisted = repository.get(tenant_id, collection_id)
+                    if persisted is None:
+                        raise RuntimeError("Mapping collection disappeared after update.")
+                    return persisted
                 except StaleDataError as error:
                     raise _StaleMappingCollectionFlush(collection_id, expected_version) from error
-                persisted = repository.get(tenant_id, collection_id)
-                if persisted is None:
-                    raise RuntimeError("Mapping collection disappeared after update.")
-                return persisted
         except _StaleMappingCollectionFlush as stale:
             current = self._current_collection_version(tenant_id, stale.collection_id)
             raise StaleMappingCollectionUpdate(
@@ -214,9 +214,9 @@ class MappingService:
                         expected_version,
                         existing.concurrency_version,
                     )
-                if not repository.delete(tenant_id, collection_id):
-                    raise EntityNotFoundError("Mapping collection not found.")
                 try:
+                    if not repository.delete(tenant_id, collection_id):
+                        raise EntityNotFoundError("Mapping collection not found.")
                     session.flush()
                 except StaleDataError as error:
                     raise _StaleMappingCollectionFlush(collection_id, expected_version) from error

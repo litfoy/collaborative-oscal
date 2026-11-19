@@ -359,6 +359,90 @@ describe("Profile Builder", () => {
     expect(title).toHaveValue("Canceled reload draft");
   });
 
+  it("blocks profile source mutation actions while save is pending", async () => {
+    const user = userEvent.setup();
+    const multiSource: Profile = {
+      ...profile,
+      imports: [
+        { id: "import-a", catalog_id: CATALOG, revision_id: REVISION, control_ids: ["ac-1"] },
+        { id: "import-b", catalog_id: CATALOG, revision_id: REVISION, control_ids: ["ac-1"] },
+      ],
+    };
+    renderManager([multiSource]);
+    await user.click(screen.getByRole("button", { name: "Edit profile" }));
+    await user.click(screen.getByRole("tab", { name: "Profile Settings" }));
+    await user.clear(screen.getByRole("textbox", { name: "Profile title" }));
+    await user.type(screen.getByRole("textbox", { name: "Profile title" }), "Busy profile");
+
+    let rejectSave: (cause: Error) => void = () => { throw new Error("Save has not started"); };
+    mocks.bffWrite.mockImplementation(() => new Promise<Profile>((_resolve, reject) => {
+      rejectSave = reject;
+    }));
+
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+    await screen.findByRole("button", { name: "Saving…" });
+
+    expect(screen.getByRole("button", { name: "Remove source" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Open implementation register" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("Add catalog source"));
+    expect(screen.getByRole("button", { name: "Add source" })).toBeDisabled();
+
+    await act(async () => rejectSave(new Error("network")));
+  });
+
+  it("prefetches reloaded profile source data before replacing local conflict state", async () => {
+    const user = userEvent.setup();
+    const sourceB = {
+      id: "import-b",
+      catalog_id: "55555555-5555-4555-8555-555555555555",
+      revision_id: "66666666-6666-4666-8666-666666666666",
+      control_ids: ["ir-1"],
+    };
+    renderManager([profile]);
+    await user.click(screen.getByRole("button", { name: "Edit profile" }));
+    await user.click(screen.getByRole("tab", { name: "Profile Settings" }));
+    const title = screen.getByRole("textbox", { name: "Profile title" });
+    await user.clear(title);
+    await user.type(title, "Conflicting draft");
+
+    mocks.bffWrite.mockRejectedValueOnce(
+      new ApiError("stale_update", 409, "stale", { current_version: 3 }),
+    );
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+    await screen.findByText(/changed in another session/i);
+
+    mocks.bffGet.mockClear();
+    mocks.bffGet.mockImplementation(async (path: string) => {
+      if (path === `tenants/${TENANT}/profiles/${profile.id}`) {
+        return { ...profile, title: "Server profile", concurrency_version: 3, imports: [
+          { id: "import-a", catalog_id: CATALOG, revision_id: REVISION, control_ids: ["ac-1"] },
+          sourceB,
+        ] };
+      }
+      if (path.endsWith(`/catalogs/${sourceB.catalog_id}/revisions/${sourceB.revision_id}/profile-browser`)) {
+        return { nodes };
+      }
+      if (path.endsWith(`/catalogs/${sourceB.catalog_id}/revisions/${sourceB.revision_id}`)) {
+        return { ...revision({ id: sourceB.revision_id, catalog_id: sourceB.catalog_id }), group_count: 1, source_document: {} };
+      }
+      if (path.endsWith("profile-browser")) return { nodes };
+      return { ...revision(), group_count: 1, source_document: {} };
+    });
+
+    vi.mocked(window.confirm).mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: "Reload latest profile" }));
+
+    expect(await screen.findByRole("heading", { name: "Server profile" })).toBeInTheDocument();
+    const calledPaths = mocks.bffGet.mock.calls.map((call) => String(call[0]));
+    expect(calledPaths.some((path) => path.endsWith(
+      `/catalogs/${sourceB.catalog_id}/revisions/${sourceB.revision_id}/profile-browser`,
+    ))).toBe(true);
+    expect(calledPaths.some((path) => path.endsWith(
+      `/catalogs/${sourceB.catalog_id}/revisions/${sourceB.revision_id}`,
+    ))).toBe(true);
+  });
+
   it("preserves unsaved profile edits when save conflicts and reload fails", async () => {
     const user = userEvent.setup();
     renderManager([profile]);
@@ -376,12 +460,39 @@ describe("Profile Builder", () => {
     expect(await screen.findByText(/changed in another session/i)).toBeInTheDocument();
     expect(title).toHaveValue("Conflicting draft");
 
-    mocks.bffGet.mockRejectedValueOnce(new Error("reload failed"));
+    const sourceB = {
+      id: "import-b",
+      catalog_id: "55555555-5555-4555-8555-555555555555",
+      revision_id: "66666666-6666-4666-8666-666666666666",
+      control_ids: ["ir-1"],
+    };
+    mocks.bffGet.mockImplementation(async (path: string) => {
+      if (path === `tenants/${TENANT}/profiles/${profile.id}`) {
+        return { ...profile, title: "Server profile", concurrency_version: 3, imports: [
+          { id: "import-a", catalog_id: CATALOG, revision_id: REVISION, control_ids: ["ac-1"] },
+          sourceB,
+        ] };
+      }
+      if (path.endsWith(`/catalogs/${sourceB.catalog_id}/revisions/${sourceB.revision_id}/profile-browser`)) {
+        throw new Error("reload failed");
+      }
+      if (path.endsWith("profile-browser")) return { nodes };
+      return { ...revision(), group_count: 1, source_document: {} };
+    });
     vi.mocked(window.confirm).mockReturnValue(true);
     await user.click(screen.getByRole("button", { name: "Reload latest profile" }));
 
     expect(await screen.findByText(/reload failed/i)).toBeInTheDocument();
     expect(title).toHaveValue("Conflicting draft");
+    expect(screen.getByText(/version 3/i)).toBeInTheDocument();
+
+    mocks.bffWrite.mockResolvedValueOnce(profile);
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+    await waitFor(() => expect(mocks.bffWrite).toHaveBeenLastCalledWith(
+      "PUT",
+      `tenants/${TENANT}/profiles/${profile.id}`,
+      expect.objectContaining({ expected_version: profile.concurrency_version }),
+    ));
   });
 
   it("shows catalog loading errors and can retry", async () => {

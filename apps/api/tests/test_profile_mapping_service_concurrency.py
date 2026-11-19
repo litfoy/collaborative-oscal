@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.application.catalog_import import CatalogImportService
@@ -201,6 +201,7 @@ def test_profile_update_uses_pg_blocking_pids_and_rejects_stale_tokens(
     state_lock = threading.Lock()
     backend_pids: dict[str, int] = {}
     winner_pid: dict[str, int | None] = {"value": None}
+    winner_worker: dict[str, str | None] = {"value": None}
     original_get = SQLProfileRepository.get
 
     def _gated_get(self, tenant_id, profile_id, *, lock=False):
@@ -242,6 +243,9 @@ def test_profile_update_uses_pg_blocking_pids_and_rejects_stale_tokens(
             assert winner_holding_lock.wait(timeout=5)
             winner = winner_pid["value"]
             assert winner is not None
+            winner_worker["value"] = next(
+                name for name, pid in backend_pids.items() if pid == winner
+            )
             blocked = next(pid for pid in backend_pids.values() if pid != winner)
             _assert_blocked_by(session_factory, blocked_pid=blocked, blocker_pid=winner)
         finally:
@@ -262,10 +266,11 @@ def test_profile_update_uses_pg_blocking_pids_and_rejects_stale_tokens(
 
     persisted = service.get(context["tenant_id"], profile.id)
     assert persisted.concurrency_version == token + 1
+    assert persisted.title == f"Winner {winner_worker['value']}"
 
 
 def test_profile_mapper_stale_translation_rolls_back_document_imports_and_provenance(
-    grc_service, session_factory, monkeypatch
+    grc_service, session_factory
 ) -> None:
     context = _prepare_context(grc_service, session_factory)
     profile_service = ProfileService(lambda: session_factory.begin())
@@ -301,56 +306,54 @@ def test_profile_mapper_stale_translation_rolls_back_document_imports_and_proven
 
     before = profile_service.get(context["tenant_id"], profile.id)
 
-    def _stale_update(self, updated_profile):
-        record = self._session.scalar(
-            select(ProfileRecord).where(
-                ProfileRecord.tenant_id == updated_profile.tenant_id,
-                ProfileRecord.id == updated_profile.id,
-            )
-        )
-        assert record is not None
-        with self._session.no_autoflush:
-            self._session.execute(
-                text(
-                    "UPDATE profiles "
-                    "SET concurrency_version = concurrency_version + 1 "
-                    "WHERE tenant_id = :tenant_id AND id = :profile_id"
-                ),
-                {
-                    "tenant_id": updated_profile.tenant_id,
-                    "profile_id": updated_profile.id,
-                },
-            )
-            record.title = updated_profile.title
-            record.document = updated_profile.document
-            record.updated_at = updated_profile.updated_at
-            self._update_imports(updated_profile)
+    bumped = {"done": False}
 
-    monkeypatch.setattr(SQLProfileRepository, "update", _stale_update)
-
-    with pytest.raises(StaleProfileUpdate) as stale:
-        profile_service.update(
-            context["tenant_id"],
-            profile.id,
-            before.concurrency_version,
-            "Profile after stale",
-            None,
-            "After",
-            imports=[
-                ProfileImport(
-                    id=original_import.id,
-                    catalog_id=original_import.catalog_id,
-                    revision_id=original_import.revision_id,
-                    control_ids=[context["source_control"]],
-                ),
-                ProfileImport(
-                    id=uuid4(),
-                    catalog_id=context["target_catalog_id"],
-                    revision_id=context["target_revision_id"],
-                    control_ids=[context["target_control"]],
-                ),
-            ],
+    def _stale_before_flush(session, _flush_context, _instances):
+        if bumped["done"]:
+            return
+        if not any(
+            isinstance(record, ProfileRecord) and record.id == profile.id
+            for record in session.dirty
+        ):
+            return
+        session.connection().exec_driver_sql(
+            "UPDATE profiles "
+            "SET concurrency_version = concurrency_version + 1 "
+            "WHERE tenant_id = %(tenant_id)s AND id = %(profile_id)s",
+            {
+                "tenant_id": context["tenant_id"],
+                "profile_id": profile.id,
+            },
         )
+        bumped["done"] = True
+
+    event.listen(session_factory.class_, "before_flush", _stale_before_flush)
+    try:
+        with pytest.raises(StaleProfileUpdate) as stale:
+            profile_service.update(
+                context["tenant_id"],
+                profile.id,
+                before.concurrency_version,
+                "Profile after stale",
+                None,
+                "After",
+                imports=[
+                    ProfileImport(
+                        id=original_import.id,
+                        catalog_id=original_import.catalog_id,
+                        revision_id=original_import.revision_id,
+                        control_ids=[context["source_control"]],
+                    ),
+                    ProfileImport(
+                        id=uuid4(),
+                        catalog_id=context["target_catalog_id"],
+                        revision_id=context["target_revision_id"],
+                        control_ids=[context["target_control"]],
+                    ),
+                ],
+            )
+    finally:
+        event.remove(session_factory.class_, "before_flush", _stale_before_flush)
 
     assert isinstance(stale.value.__cause__, StaleDataError)
     assert stale.value.expected_version == before.concurrency_version
@@ -392,6 +395,7 @@ def test_mapping_update_uses_pg_blocking_pids_and_rejects_stale_tokens(
     state_lock = threading.Lock()
     backend_pids: dict[str, int] = {}
     winner_pid: dict[str, int | None] = {"value": None}
+    winner_worker: dict[str, str | None] = {"value": None}
     original_get = SQLMappingRepository.get
 
     def _gated_get(self, tenant_id, collection_id, *, lock=False):
@@ -434,6 +438,9 @@ def test_mapping_update_uses_pg_blocking_pids_and_rejects_stale_tokens(
             assert winner_holding_lock.wait(timeout=5)
             winner = winner_pid["value"]
             assert winner is not None
+            winner_worker["value"] = next(
+                name for name, pid in backend_pids.items() if pid == winner
+            )
             blocked = next(pid for pid in backend_pids.values() if pid != winner)
             _assert_blocked_by(session_factory, blocked_pid=blocked, blocker_pid=winner)
         finally:
@@ -454,10 +461,14 @@ def test_mapping_update_uses_pg_blocking_pids_and_rejects_stale_tokens(
 
     persisted = service.get(context["tenant_id"], collection.id)
     assert persisted.concurrency_version == token + 1
+    assert (
+        persisted.document["mapping-collection"]["metadata"]["title"]
+        == f"Mapping {winner_worker['value']}"
+    )
 
 
 def test_mapping_mapper_stale_translation_rolls_back_document_and_members(
-    grc_service, session_factory, monkeypatch
+    grc_service, session_factory
 ) -> None:
     context = _prepare_context(grc_service, session_factory)
     service = MappingService(lambda: session_factory.begin())
@@ -475,67 +486,59 @@ def test_mapping_mapper_stale_translation_rolls_back_document_and_members(
         collection_id=collection.id,
     )
 
-    def _stale_update(self, updated_collection, members):
-        record = self._session.scalar(
-            select(MappingCollectionRecord)
-            .where(
-                MappingCollectionRecord.tenant_id == updated_collection.tenant_id,
-                MappingCollectionRecord.id == updated_collection.id,
-            )
-            .with_for_update()
+    bumped = {"done": False}
+
+    def _stale_before_flush(session, _flush_context, _instances):
+        if bumped["done"]:
+            return
+        if not any(
+            isinstance(record, MappingCollectionRecord) and record.id == collection.id
+            for record in session.dirty
+        ):
+            return
+        session.connection().exec_driver_sql(
+            "UPDATE mapping_collections "
+            "SET concurrency_version = concurrency_version + 1 "
+            "WHERE tenant_id = %(tenant_id)s AND id = %(collection_id)s",
+            {
+                "tenant_id": context["tenant_id"],
+                "collection_id": collection.id,
+            },
         )
-        assert record is not None
-        with self._session.no_autoflush:
-            self._session.execute(
-                text(
-                    "UPDATE mapping_collections "
-                    "SET concurrency_version = concurrency_version + 1 "
-                    "WHERE tenant_id = :tenant_id AND id = :collection_id"
-                ),
-                {
-                    "tenant_id": updated_collection.tenant_id,
-                    "collection_id": updated_collection.id,
-                },
-            )
-            record.document = updated_collection.document
-            record.updated_by = updated_collection.updated_by
-            record.updated_at = updated_collection.updated_at
-            self._session.query(MappingMemberRecord).filter_by(
-                tenant_id=updated_collection.tenant_id,
-                collection_id=updated_collection.id,
-            ).delete(synchronize_session=False)
-            self._session.add_all(members)
+        bumped["done"] = True
 
-    monkeypatch.setattr(SQLMappingRepository, "update", _stale_update)
-
-    with pytest.raises(StaleMappingCollectionUpdate) as stale:
-        service.update(
-            context["tenant_id"],
-            collection.id,
-            before.concurrency_version,
-            context["actor"],
-            "After stale",
-            "Updated",
-            [
-                MappingPairSpec(
-                    id=None,
-                    source_catalog_id=context["source_catalog_id"],
-                    source_revision_id=context["source_revision_id"],
-                    target_catalog_id=context["target_catalog_id"],
-                    target_revision_id=context["target_revision_id"],
-                    entries=(
-                        MappingEntrySpec(
-                            id=None,
-                            sources=(context["source_control"],),
-                            targets=(context["target_control"],),
-                            relationship="subset-of",
-                            matching_rationale="functional",
-                            justification="changed",
+    event.listen(session_factory.class_, "before_flush", _stale_before_flush)
+    try:
+        with pytest.raises(StaleMappingCollectionUpdate) as stale:
+            service.update(
+                context["tenant_id"],
+                collection.id,
+                before.concurrency_version,
+                context["actor"],
+                "After stale",
+                "Updated",
+                [
+                    MappingPairSpec(
+                        id=None,
+                        source_catalog_id=context["source_catalog_id"],
+                        source_revision_id=context["source_revision_id"],
+                        target_catalog_id=context["target_catalog_id"],
+                        target_revision_id=context["target_revision_id"],
+                        entries=(
+                            MappingEntrySpec(
+                                id=None,
+                                sources=(context["source_control"],),
+                                targets=(context["target_control"],),
+                                relationship="subset-of",
+                                matching_rationale="functional",
+                                justification="changed",
+                            ),
                         ),
-                    ),
-                )
-            ],
-        )
+                    )
+                ],
+            )
+    finally:
+        event.remove(session_factory.class_, "before_flush", _stale_before_flush)
 
     assert isinstance(stale.value.__cause__, StaleDataError)
     assert stale.value.expected_version == before.concurrency_version

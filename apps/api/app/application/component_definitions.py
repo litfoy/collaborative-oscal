@@ -248,47 +248,39 @@ class ComponentDefinitionService:
 
                 active_ids = {item[0] for item in generated}
                 removed_ids = set(old_identity_records) - active_ids
-                if removed_ids:
-                    session.execute(
-                        delete(ComponentDefinitionComponentRecord).where(
-                            ComponentDefinitionComponentRecord.tenant_id == tenant_id,
-                            ComponentDefinitionComponentRecord.document_id == document_id,
-                            ComponentDefinitionComponentRecord.id.in_(removed_ids),
-                        )
-                    )
                 try:
-                    session.flush()
-                except StaleDataError as error:
-                    raise _StaleComponentDefinitionFlush(document_id, expected_version) from error
-                for component_id, component_uuid, _component_json, sources in generated:
-                    identity = old_identity_records.get(component_id)
-                    if identity is None:
-                        session.add(
-                            ComponentDefinitionComponentRecord(
-                                id=component_id,
-                                tenant_id=tenant_id,
-                                document_id=document_id,
-                                oscal_component_uuid=component_uuid,
+                    if removed_ids:
+                        session.execute(
+                            delete(ComponentDefinitionComponentRecord).where(
+                                ComponentDefinitionComponentRecord.tenant_id == tenant_id,
+                                ComponentDefinitionComponentRecord.document_id == document_id,
+                                ComponentDefinitionComponentRecord.id.in_(removed_ids),
                             )
                         )
-                    source_rows = self._source_records(
-                        tenant_id, document_id, component_id, sources
-                    )
-                    session.execute(
-                        delete(ComponentDefinitionSourceRecord).where(
-                            ComponentDefinitionSourceRecord.tenant_id == tenant_id,
-                            ComponentDefinitionSourceRecord.document_id == document_id,
-                            ComponentDefinitionSourceRecord.component_id == component_id,
+                    session.flush()
+                    for component_id, component_uuid, _component_json, sources in generated:
+                        identity = old_identity_records.get(component_id)
+                        if identity is None:
+                            session.add(
+                                ComponentDefinitionComponentRecord(
+                                    id=component_id,
+                                    tenant_id=tenant_id,
+                                    document_id=document_id,
+                                    oscal_component_uuid=component_uuid,
+                                )
+                            )
+                        source_rows = self._source_records(
+                            tenant_id, document_id, component_id, sources
                         )
-                    )
-                    try:
+                        session.execute(
+                            delete(ComponentDefinitionSourceRecord).where(
+                                ComponentDefinitionSourceRecord.tenant_id == tenant_id,
+                                ComponentDefinitionSourceRecord.document_id == document_id,
+                                ComponentDefinitionSourceRecord.component_id == component_id,
+                            )
+                        )
                         session.flush()
-                    except StaleDataError as error:
-                        raise _StaleComponentDefinitionFlush(
-                            document_id, expected_version
-                        ) from error
-                    session.add_all(source_rows)
-                try:
+                        session.add_all(source_rows)
                     session.flush()
                 except StaleDataError as error:
                     raise _StaleComponentDefinitionFlush(document_id, expected_version) from error
@@ -327,8 +319,8 @@ class ComponentDefinitionService:
                 if component is None:
                     raise EntityNotFoundError("Component not found.")
                 if len(current.components) == 1:
-                    session.delete(record)
                     try:
+                        session.delete(record)
                         session.flush()
                     except StaleDataError as error:
                         raise _StaleComponentDefinitionFlush(
@@ -352,14 +344,14 @@ class ComponentDefinitionService:
                 )
                 record.updated_by = actor
                 record.updated_at = now
-                session.execute(
-                    delete(ComponentDefinitionComponentRecord).where(
-                        ComponentDefinitionComponentRecord.tenant_id == tenant_id,
-                        ComponentDefinitionComponentRecord.document_id == document_id,
-                        ComponentDefinitionComponentRecord.id == component_id,
-                    )
-                )
                 try:
+                    session.execute(
+                        delete(ComponentDefinitionComponentRecord).where(
+                            ComponentDefinitionComponentRecord.tenant_id == tenant_id,
+                            ComponentDefinitionComponentRecord.document_id == document_id,
+                            ComponentDefinitionComponentRecord.id == component_id,
+                        )
+                    )
                     session.flush()
                 except StaleDataError as error:
                     raise _StaleComponentDefinitionFlush(

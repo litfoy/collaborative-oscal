@@ -186,15 +186,15 @@ class ProfileService:
                     now,
                     existing.concurrency_version,
                 )
-                repository.update(updated)
                 try:
+                    repository.update(updated)
                     session.flush()
+                    persisted = repository.get(tenant_id, profile_id)
+                    if persisted is None:
+                        raise RuntimeError("Profile disappeared after update.")
+                    return persisted
                 except StaleDataError as error:
                     raise _StaleProfileFlush(profile_id, expected_version) from error
-                persisted = repository.get(tenant_id, profile_id)
-                if persisted is None:
-                    raise RuntimeError("Profile disappeared after update.")
-                return persisted
         except _StaleProfileFlush as stale:
             current = self._current_profile_version(tenant_id, stale.profile_id)
             raise StaleProfileUpdate(

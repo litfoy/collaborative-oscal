@@ -309,15 +309,31 @@ export function ProfileWorkspace({
     setStatus(null);
     try {
       const profile = await bffGet<Profile>(`tenants/${tenantId}/profiles/${saved.id}`);
-      setSaved(profile);
-      setTitle(profile.title);
-      setDescription(profile.description ?? "");
-      setSources(profile.imports ?? [{
+      const nextSources = profile.imports ?? [{
         id: crypto.randomUUID(),
         catalog_id: profile.catalog_id,
         revision_id: profile.revision_id,
         control_ids: profile.control_ids,
-      }]);
+      }];
+      const loadedSources = await Promise.all(nextSources.map(async (item) => {
+        const path = `tenants/${tenantId}/catalogs/${item.catalog_id}/revisions/${item.revision_id}`;
+        const [browser, revision] = await Promise.all([
+          bffGet<{ nodes: ProfileBrowserNode[] }>(`${path}/profile-browser`),
+          bffGet<RevisionDetail>(path),
+        ]);
+        return [item.id, { nodes: browser.nodes, revision }] as const;
+      }));
+      setSaved(profile);
+      setTitle(profile.title);
+      setDescription(profile.description ?? "");
+      setSources(nextSources);
+      setSourceData((current) => ({
+        ...current,
+        ...Object.fromEntries(loadedSources),
+      }));
+      setActiveSourceId((current) => (
+        nextSources.some((item) => item.id === current) ? current : (nextSources[0]?.id ?? "")
+      ));
       setConflict(null);
       onSaved(profile);
     } catch (cause) {
@@ -397,7 +413,7 @@ export function ProfileWorkspace({
             : null}
           <p className="muted">{t("profiles.authoringCompatibility")}</p>
           {source ? <p>{t("profiles.pinnedRevisionField")} <span className="mono">{source.revision_id}</span>{data ? ` · OSCAL ${data.revision.oscal_version}` : ""}</p> : null}
-          {canWrite && sources.length > 1 ? <button className="secondary" type="button" onClick={() => {
+          {canWrite && sources.length > 1 ? <button className="secondary" type="button" disabled={busy} onClick={() => {
             if (!source || !window.confirm(t("profiles.removeSourceConfirm"))) return;
             setSources((current) => current.filter((item) => item.id !== source.id));
             setActiveSourceId(sources.find((item) => item.id !== source.id)?.id ?? "");
@@ -422,7 +438,7 @@ export function ProfileWorkspace({
               <button type="button" className="secondary" disabled={revisionOffset === 0} onClick={() => setRevisionOffset(Math.max(0, revisionOffset - 200))}>{t("profiles.previousRevisions")}</button>
               <button type="button" className="secondary" disabled={revisionOffset + 200 >= revisionTotal} onClick={() => setRevisionOffset(revisionOffset + 200)}>{t("profiles.nextRevisions")}</button>
             </div> : null}
-            <button type="button" disabled={!addCatalogId || !addRevisionId || duplicateAddSource} onClick={() => {
+            <button type="button" disabled={busy || !addCatalogId || !addRevisionId || duplicateAddSource} onClick={() => {
               const existing = sources.find((item) => item.catalog_id === addCatalogId && item.revision_id === addRevisionId);
               if (existing) {
                 setActiveSourceId(existing.id);
@@ -499,7 +515,7 @@ export function ProfileWorkspace({
           <h3>{group.title}</h3>
           <ul className="result-list">{group.nodes.map(({ node, source: item }) => <li key={`${item.id}:${node.key}`} className="selection-row">
             <button type="button" onClick={() => navigateTo(node, item.id)}><span className="mono">{node.id}</span> {node.title}</button>
-            {saved && !dirty && node.id ? <button type="button" className="secondary"
+            {saved && !dirty && !busy && node.id ? <button type="button" className="secondary"
               onClick={() => setRegister({ controlId: node.id, importId: item.id })}>{t("profiles.implement", { name: node.id })}</button> : null}
             <button type="button" className="secondary" disabled={!canWrite || busy} aria-label={t("profiles.removeItem", { name: node.id ?? "" })} onClick={() => {
               setSources((current) => current.map((entry) => entry.id === item.id
