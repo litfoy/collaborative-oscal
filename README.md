@@ -86,7 +86,7 @@ All implemented features are experimental and remain alpha quality.
 | Automated assessment integration | Tenant-scoped REST submission of native OSCAL 1.2.1 Assessment Results JSON into the Assessment Results lifecycle | Implemented |
 | Human and automated assessments | Both enter the same working-state, publication, validation, and historical snapshot model in which publication creates an immutable snapshot while the working state remains editable for subsequent updates | Implemented |
 | Historical integrity | Imported catalog revisions and published document snapshots remain immutable. Publication creates an immutable historical snapshot while the working state remains editable for subsequent updates. Imported Assessment Results working states remain editable until first publication. Historical references remain pinned to the original document state. | Implemented |
-| Optimistic concurrency | Implemented for Assessment Plans, Assessment Results, SSPs, Profiles, and Mapping Collections. Independently reviewed and accepted for Assessment Plans, Assessment Results, and SSPs; Profiles and Mapping Collections await independent review | Implementation complete for these aggregates; independent review pending for Profiles and Mapping Collections |
+| Optimistic concurrency | Implemented for Assessment Plans, Assessment Results, SSPs, Profiles, and Mapping Collections. Reviewed and accepted for Assessment Plans, Assessment Results, and SSPs; Profiles and Mapping Collections await review | Implementation complete for these aggregates; review pending for Profiles and Mapping Collections |
 | CI supply-chain visibility | Automated CycloneDX SBOM generation for API and web runtime/development dependencies | Implemented in CI |
 | Shared assessment evidence | Managed, versioned evidence library and cross-assessment reuse | Longer-term plan |
 | Risks and POA&M | Risk treatment, remediation and tracking | Planned |
@@ -119,11 +119,11 @@ Collaborative OSCAL explores a complementary approach: a browser-based, database
 
 ## Known limitations and roadmap
 
-Alpha limitations include incomplete semantic validation, fine-grained stakeholder authorization and separation of duties, incomplete workflow coverage and further operational hardening. Optimistic concurrency is implemented for Assessment Plans, Assessment Results, SSPs, Profiles and Mapping Collections; independent review and verification evidence is currently established for Assessment Plans, Assessment Results, and SSPs, while Profiles and Mapping Collections await independent review.
+Alpha limitations include incomplete semantic validation, fine-grained stakeholder authorization and separation of duties, incomplete workflow coverage and further operational hardening. Optimistic concurrency is implemented for Assessment Plans, Assessment Results, SSPs, Profiles and Mapping Collections; review and verification evidence is currently established for Assessment Plans, Assessment Results, and SSPs, while Profiles and Mapping Collections await review.
 
 ### Near-term priorities
 
-- Complete optimistic concurrency coverage for the remaining aggregates by finishing independent contention and verification review for Profiles and Mapping Collections.
+- Complete optimistic concurrency coverage for the remaining aggregates by finishing contention and verification review for Profiles and Mapping Collections.
 - Add shared Parties, Roles and Responsibilities management.
 - Implement native OSCAL Inventory Items and extend assessment subjects.
 - Add a shared system and inventory overview.

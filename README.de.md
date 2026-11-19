@@ -86,7 +86,7 @@ Alle implementierten Funktionen befinden sich in experimenteller Alpha-Qualität
 | Automatisierte Prüfung | Mandantenbezogene REST-Übermittlung nativer OSCAL-1.2.1-Prüfergebnis-JSON-Dokumente in den Prüfergebnis-Lebenszyklus | Implementiert |
 | Menschliche und automatisierte Prüfungen | Beide folgen demselben Arbeitsstand-, Veröffentlichungs-, Validierungs- und Historienmodell, bei dem eine Veröffentlichung einen unveränderlichen Snapshot erzeugt, während der Arbeitsstand für nachfolgende Änderungen bearbeitbar bleibt | Implementiert |
 | Historische Integrität | Importierte Katalogrevisionen und veröffentlichte SSP-, AP- und AR-Dokumentstände sind unveränderlich. Eine Veröffentlichung erzeugt einen unveränderlichen historischen Snapshot, während der Arbeitsstand für nachfolgende Änderungen bearbeitbar bleibt. Importierte Prüfergebnis-Arbeitsstände bleiben bis zur ersten Veröffentlichung bearbeitbar. Historische Referenzen bleiben an den ursprünglichen Dokumentstand gebunden. | Implementiert |
-| Optimistische Nebenläufigkeit | Implementiert für Prüfpläne, Prüfergebnisse, SSPs, Profile und Mapping-Sammlungen. Unabhängig geprüft und akzeptiert für Prüfpläne, Prüfergebnisse und SSPs; Profile und Mapping-Sammlungen warten auf unabhängige Prüfung | Implementierung für diese Aggregate vorhanden; unabhängige Prüfung für Profile und Mapping-Sammlungen ausstehend |
+| Optimistische Nebenläufigkeit | Implementiert für Prüfpläne, Prüfergebnisse, SSPs, Profile und Mapping-Sammlungen. Geprüft und akzeptiert für Prüfpläne, Prüfergebnisse und SSPs; Profile und Mapping-Sammlungen warten auf Prüfung | Implementierung für diese Aggregate vorhanden; Prüfung für Profile und Mapping-Sammlungen ausstehend |
 | SBOM-Sichtbarkeit in der CI | Automatisierte CycloneDX-SBOM-Erzeugung für API- und Web-Abhängigkeiten in Entwicklungs- und Laufzeitumfang | In der CI implementiert |
 | Gemeinsame Prüfnachweise | Verwaltete, versionierte Nachweisbibliothek und prüfungsübergreifende Wiederverwendung | Langfristiger Plan |
 
@@ -118,11 +118,11 @@ Collaborative OSCAL untersucht einen ergänzenden Ansatz: einen browserbasierten
 
 ## Bekannte Einschränkungen und Roadmap
 
-Zu den Alpha-Einschränkungen gehören unvollständige semantische Validierung, differenzierte Stakeholder-Berechtigungen und Funktionstrennung, teilweise noch fehlende Workflow-Abdeckung sowie weitere operative Härtung. Optimistische Nebenläufigkeit ist für Prüfpläne, Prüfergebnisse, SSPs, Profile und Mapping-Sammlungen implementiert; unabhängig überprüfte und verifizierte Nachweise bestehen für Prüfpläne, Prüfergebnisse und SSPs, während Profile und Mapping-Sammlungen auf unabhängige Prüfung warten.
+Zu den Alpha-Einschränkungen gehören unvollständige semantische Validierung, differenzierte Stakeholder-Berechtigungen und Funktionstrennung, teilweise noch fehlende Workflow-Abdeckung sowie weitere operative Härtung. Optimistische Nebenläufigkeit ist für Prüfpläne, Prüfergebnisse, SSPs, Profile und Mapping-Sammlungen implementiert; überprüfte und verifizierte Nachweise bestehen für Prüfpläne, Prüfergebnisse und SSPs, während Profile und Mapping-Sammlungen auf Prüfung warten.
 
 ### Kurzfristige Prioritäten
 
-- Die Nebenläufigkeitsabdeckung für die verbleibenden Aggregate abschließen, indem die unabhängige Prüfung und Verifikation für Profile und Mapping-Sammlungen fertiggestellt wird.
+- Die Nebenläufigkeitsabdeckung für die verbleibenden Aggregate abschließen, indem die Prüfung und Verifikation für Profile und Mapping-Sammlungen fertiggestellt wird.
 - Gemeinsame Verwaltung von Parties, Rollen und Verantwortlichkeiten ergänzen.
 - Native OSCAL-Inventaritems und erweiterte Prüfgegenstände implementieren.
 - Eine gemeinsame System- und Inventarübersicht bereitstellen.
