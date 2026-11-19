@@ -21,3 +21,4 @@ class Profile:
     document: dict[str, Any]
     created_at: datetime
     updated_at: datetime
+    concurrency_version: int = 1

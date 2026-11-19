@@ -59,6 +59,10 @@ class MappingCollectionInput(BaseModel):
         return title
 
 
+class MappingCollectionUpdateInput(MappingCollectionInput):
+    expected_version: int = Field(ge=1)
+
+
 class MappingEntryResponse(BaseModel):
     id: UUID
     relationship: str
@@ -90,6 +94,7 @@ class MappingCollectionResponse(BaseModel):
     updated_by: UUID
     created_at: datetime
     updated_at: datetime
+    concurrency_version: int
 
     @classmethod
     def from_collection(cls, value: MappingCollection) -> MappingCollectionResponse:
@@ -146,6 +151,7 @@ class MappingCollectionResponse(BaseModel):
             updated_by=value.updated_by,
             created_at=value.created_at,
             updated_at=value.updated_at,
+            concurrency_version=value.concurrency_version,
         )
 
 

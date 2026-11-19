@@ -9,6 +9,7 @@ from collaborative_oscal_oscal.profile import build_profile_document
 from collaborative_oscal_oscal.versions import DEFAULT_OSCAL_VERSION
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.domain.catalogs.read_models import Page
 from app.domain.errors import EntityNotFoundError
@@ -26,6 +27,21 @@ SessionScope = Callable[[], AbstractContextManager[Session]]
 
 class InvalidProfileSelection(ValueError):
     pass
+
+
+class StaleProfileUpdate(ValueError):
+    def __init__(self, profile_id: UUID, expected_version: int, current_version: int) -> None:
+        self.profile_id = profile_id
+        self.expected_version = expected_version
+        self.current_version = current_version
+        super().__init__("The Profile changed after it was loaded.")
+
+
+class _StaleProfileFlush(RuntimeError):
+    def __init__(self, profile_id: UUID, expected_version: int) -> None:
+        self.profile_id = profile_id
+        self.expected_version = expected_version
+        super().__init__("Profile flush detected stale mapper version.")
 
 
 class ProfileService:
@@ -97,65 +113,104 @@ class ProfileService:
         self,
         tenant_id: UUID,
         profile_id: UUID,
+        expected_version: int,
         title: str,
         control_ids: Sequence[str] | None,
         description: str | None = None,
         imports: Sequence[ProfileImport] | None = None,
     ) -> Profile:
+        try:
+            with self._session_scope() as session:
+                repository = SQLProfileRepository(session)
+                existing = repository.get(tenant_id, profile_id, lock=True)
+                if existing is None:
+                    raise EntityNotFoundError("Profile not found.")
+                if existing.concurrency_version != expected_version:
+                    raise StaleProfileUpdate(
+                        existing.id,
+                        expected_version,
+                        existing.concurrency_version,
+                    )
+                if imports is None:
+                    if len(existing.imports) != 1 or control_ids is None:
+                        raise InvalidProfileSelection(
+                            "Multi-import profiles require imports in updates."
+                        )
+                    old = existing.imports[0]
+                    imports = [
+                        ProfileImport(old.id, old.catalog_id, old.revision_id, list(control_ids))
+                    ]
+                existing_by_id = {item.id: item for item in existing.imports}
+                for item in imports:
+                    old = existing_by_id.get(item.id)
+                    if old and (old.catalog_id, old.revision_id) != (
+                        item.catalog_id,
+                        item.revision_id,
+                    ):
+                        raise InvalidProfileSelection(
+                            "An existing import cannot change its source."
+                        )
+                self._validate_import_identities(session, imports, profile_id)
+                self._validate_imports(session, tenant_id, imports)
+                now = datetime.now(UTC)
+                metadata = existing.document["profile"]["metadata"]
+                document = build_profile_document(
+                    profile_uuid=uuid4(),
+                    title=title,
+                    oscal_version=metadata["oscal-version"],
+                    imports=[
+                        (
+                            self._catalog_href(tenant_id, item.catalog_id, item.revision_id),
+                            item.control_ids,
+                        )
+                        for item in imports
+                    ],
+                    version=metadata["version"],
+                    last_modified=now,
+                    description=(
+                        description
+                        if description is not None
+                        else metadata.get("remarks", "")
+                    ),
+                )
+                updated = Profile(
+                    existing.id,
+                    existing.tenant_id,
+                    list(imports),
+                    title,
+                    document,
+                    existing.created_at,
+                    now,
+                    existing.concurrency_version,
+                )
+                repository.update(updated)
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleProfileFlush(profile_id, expected_version) from error
+                persisted = repository.get(tenant_id, profile_id)
+                if persisted is None:
+                    raise RuntimeError("Profile disappeared after update.")
+                return persisted
+        except _StaleProfileFlush as stale:
+            current = self._current_profile_version(tenant_id, stale.profile_id)
+            raise StaleProfileUpdate(
+                stale.profile_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
+
+    def _current_profile_version(self, tenant_id: UUID, profile_id: UUID) -> int:
         with self._session_scope() as session:
-            repository = SQLProfileRepository(session)
-            session.scalar(
-                select(ProfileRecord)
-                .where(ProfileRecord.tenant_id == tenant_id, ProfileRecord.id == profile_id)
-                .with_for_update()
+            current = session.scalar(
+                select(ProfileRecord.concurrency_version).where(
+                    ProfileRecord.tenant_id == tenant_id,
+                    ProfileRecord.id == profile_id,
+                )
             )
-            existing = repository.get(tenant_id, profile_id)
-            if existing is None:
+            if current is None:
                 raise EntityNotFoundError("Profile not found.")
-            if imports is None:
-                if len(existing.imports) != 1 or control_ids is None:
-                    raise InvalidProfileSelection(
-                        "Multi-import profiles require imports in updates."
-                    )
-                old = existing.imports[0]
-                imports = [
-                    ProfileImport(old.id, old.catalog_id, old.revision_id, list(control_ids))
-                ]
-            existing_by_id = {item.id: item for item in existing.imports}
-            for item in imports:
-                old = existing_by_id.get(item.id)
-                if old and (old.catalog_id, old.revision_id) != (item.catalog_id, item.revision_id):
-                    raise InvalidProfileSelection("An existing import cannot change its source.")
-            self._validate_import_identities(session, imports, profile_id)
-            self._validate_imports(session, tenant_id, imports)
-            now = datetime.now(UTC)
-            metadata = existing.document["profile"]["metadata"]
-            document = build_profile_document(
-                profile_uuid=uuid4(),
-                title=title,
-                oscal_version=metadata["oscal-version"],
-                imports=[
-                    (
-                        self._catalog_href(tenant_id, item.catalog_id, item.revision_id),
-                        item.control_ids,
-                    )
-                    for item in imports
-                ],
-                version=metadata["version"],
-                last_modified=now,
-                description=description if description is not None else metadata.get("remarks", ""),
-            )
-            updated = Profile(
-                existing.id,
-                existing.tenant_id,
-                list(imports),
-                title,
-                document,
-                existing.created_at,
-                now,
-            )
-            repository.update(updated)
-        return updated
+            return int(current)
 
     @staticmethod
     def _validate_import_identities(

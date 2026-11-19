@@ -3,6 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import { bffGet, bffWrite } from "@/lib/bff-client";
+import { ApiError } from "@/lib/errors";
 import { useI18n } from "@/lib/i18n/provider";
 import { renderProse } from "@/lib/safe";
 import { inBranch, indexBrowser, matchesProperties, MAX_PROFILE_CONTROLS, propertyLabel } from "@/lib/profile-browser";
@@ -52,6 +53,7 @@ export function ProfileWorkspace({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
+  const [conflict, setConflict] = useState<{ currentVersion: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<WorkspaceView>("catalog");
   const [showNavigation, setShowNavigation] = useState(true);
@@ -264,7 +266,12 @@ export function ProfileWorkspace({
     setStatus(null);
     setSaveFailed(false);
     try {
-      const body = { title: title.trim(), description, imports: sources };
+      const body = {
+        title: title.trim(),
+        description,
+        imports: sources,
+        ...(saved ? { expected_version: saved.concurrency_version } : {}),
+      };
       const profile = saved
         ? await bffWrite<Profile>("PUT", `tenants/${tenantId}/profiles/${saved.id}`, body)
         : await bffWrite<Profile>("POST", `tenants/${tenantId}/profiles`, body);
@@ -274,9 +281,44 @@ export function ProfileWorkspace({
       setSources(profile.imports ?? sources);
       onSaved(profile);
       setStatus(t("profiles.saveStatus", { name: profile.title }));
+      setConflict(null);
     } catch (cause) {
+      if (cause instanceof ApiError && cause.kind === "stale_update") {
+        const detail = cause.detail as { current_version?: number } | undefined;
+        setConflict({
+          currentVersion: detail?.current_version ?? saved?.concurrency_version ?? 1,
+        });
+        setError("");
+        return;
+      }
       setError(errorMessage(cause));
       setSaveFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reloadAfterConflict() {
+    if (!conflict || !saved || busy) return;
+    if (!window.confirm(t("profiles.confirmConflictReload"))) return;
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const profile = await bffGet<Profile>(`tenants/${tenantId}/profiles/${saved.id}`);
+      setSaved(profile);
+      setTitle(profile.title);
+      setDescription(profile.description ?? "");
+      setSources(profile.imports ?? [{
+        id: crypto.randomUUID(),
+        catalog_id: profile.catalog_id,
+        revision_id: profile.revision_id,
+        control_ids: profile.control_ids,
+      }]);
+      setConflict(null);
+      onSaved(profile);
+    } catch (cause) {
+      setError(errorMessage(cause));
     } finally {
       setBusy(false);
     }
@@ -408,6 +450,16 @@ export function ProfileWorkspace({
             }}>{t(name === "catalog" ? "profiles.catalogBrowser" : name === "selected" ? "profiles.selectedRequirements" : "profiles.settingsTab")}{name === "selected" ? ` (${number(totalSelected)})` : ""}</button>)}
         </div>
         {error ? <p role="alert" className="alert">{error}</p> : null}
+        {conflict ? <div role="alert" className="panel">
+          <p>{t("profiles.conflictDetected", { version: conflict.currentVersion })}</p>
+          <p className="muted">{t("profiles.conflictPreserved")}</p>
+          <div className="workspace-actions">
+            <button type="button" className="danger-action" disabled={busy || !saved}
+              onClick={() => void reloadAfterConflict()}>{t("profiles.reloadConfirmedState")}</button>
+            <button type="button" className="secondary" disabled={busy}
+              onClick={() => setConflict(null)}>{t("profiles.keepMyEdits")}</button>
+          </div>
+        </div> : null}
       </header>
       {loadError ? <div role="alert" className="alert">{loadError} <button type="button" onClick={() => { setLoadError(null); setLoadAttempt((value) => value + 1); }}>{t("profiles.retryCatalogLoading")}</button></div> : null}
       {!data && !loadError ? <p role="status">{t("profiles.loadingPinnedRequirements")}</p> : null}

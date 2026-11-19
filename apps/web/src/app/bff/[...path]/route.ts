@@ -123,7 +123,7 @@ async function mutate(
     upstream = await backendFetch(
       session,
       `/api/v1/${path.join("/")}`,
-      undefined,
+      filterBffQuery(request.nextUrl.searchParams),
       isImport ? { method, body, timeoutMs: 120_000 } : { method, body },
     );
   } catch {

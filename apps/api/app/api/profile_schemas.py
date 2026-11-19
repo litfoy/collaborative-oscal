@@ -69,6 +69,7 @@ class ProfileCreateRequest(BaseModel):
 
 
 class ProfileUpdateRequest(BaseModel):
+    expected_version: int = Field(ge=1)
     title: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=10000)
     control_ids: list[ControlId] | None = Field(default=None, min_length=1, max_length=10000)
@@ -112,6 +113,7 @@ class ProfileResponse(BaseModel):
     imports: list[ProfileImportInput]
     created_at: datetime
     updated_at: datetime
+    concurrency_version: int
 
     @classmethod
     def from_profile(cls, profile: Profile) -> ProfileResponse:
@@ -135,6 +137,7 @@ class ProfileResponse(BaseModel):
             ],
             created_at=profile.created_at,
             updated_at=profile.updated_at,
+            concurrency_version=profile.concurrency_version,
         )
 
 

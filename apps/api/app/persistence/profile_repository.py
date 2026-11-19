@@ -41,6 +41,7 @@ def _profile(session: Session, record: ProfileRecord) -> Profile:
         record.document,
         record.created_at,
         record.updated_at,
+        record.concurrency_version,
     )
 
 
@@ -57,20 +58,19 @@ class SQLProfileRepository:
                 document=profile.document,
                 created_at=profile.created_at,
                 updated_at=profile.updated_at,
+                concurrency_version=profile.concurrency_version,
             )
         )
         self._session.flush()
         self._update_imports(profile)
 
-    def get(self, tenant_id: UUID, profile_id: UUID) -> Profile | None:
-        record = self._session.scalar(
-            select(ProfileRecord)
-            .where(
-                ProfileRecord.tenant_id == tenant_id,
-                ProfileRecord.id == profile_id,
-            )
-            .with_for_update(read=True)
+    def get(self, tenant_id: UUID, profile_id: UUID, *, lock: bool = False) -> Profile | None:
+        statement = select(ProfileRecord).where(
+            ProfileRecord.tenant_id == tenant_id,
+            ProfileRecord.id == profile_id,
         )
+        statement = statement.with_for_update() if lock else statement.with_for_update(read=True)
+        record = self._session.scalar(statement)
         return _profile(self._session, record) if record is not None else None
 
     def list_for_tenant(self, tenant_id: UUID, *, limit: int, offset: int) -> Page[Profile]:

@@ -21,6 +21,7 @@ from collaborative_oscal_oscal.versions import (
 )
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.domain.catalogs.read_models import Page
 from app.domain.errors import EntityNotFoundError
@@ -31,6 +32,7 @@ from app.persistence.models import (
     CatalogControlIndexRecord,
     CatalogRecord,
     CatalogRevisionRecord,
+    MappingCollectionRecord,
     MappingMemberRecord,
 )
 
@@ -39,6 +41,21 @@ SessionScope = Callable[[], AbstractContextManager[Session]]
 
 class InvalidMapping(ValueError):
     pass
+
+
+class StaleMappingCollectionUpdate(ValueError):
+    def __init__(self, collection_id: UUID, expected_version: int, current_version: int) -> None:
+        self.collection_id = collection_id
+        self.expected_version = expected_version
+        self.current_version = current_version
+        super().__init__("The Mapping Collection changed after it was loaded.")
+
+
+class _StaleMappingCollectionFlush(RuntimeError):
+    def __init__(self, collection_id: UUID, expected_version: int) -> None:
+        self.collection_id = collection_id
+        self.expected_version = expected_version
+        super().__init__("Mapping Collection flush detected stale mapper version.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,48 +137,105 @@ class MappingService:
         self,
         tenant_id: UUID,
         collection_id: UUID,
+        expected_version: int,
         actor: UserIdentity,
         title: str,
         description: str,
         pairs: Sequence[MappingPairSpec],
     ) -> MappingCollection:
         self._validate_specs(pairs)
-        with self._session_scope() as session:
-            repository = SQLMappingRepository(session)
-            existing = repository.get(tenant_id, collection_id, lock=True)
-            if existing is None:
-                raise EntityNotFoundError("Mapping collection not found.")
-            old_pairs = _mapping_identities(existing.document, tenant_id)
-            self._validate_stable_identities(pairs, old_pairs)
-            self._validate_sources(session, tenant_id, pairs)
-            now = datetime.now(UTC)
-            document, members = self._build_document(
-                tenant_id,
-                collection_id,
-                actor,
-                title,
-                description,
-                pairs,
-                now,
-                previous=existing.document,
-            )
-            validate_mapping_document(document)
-            updated = MappingCollection(
-                existing.id,
-                existing.tenant_id,
-                document,
-                existing.created_by,
-                actor.id,
-                existing.created_at,
-                now,
-            )
-            repository.update(updated, members)
-        return updated
+        try:
+            with self._session_scope() as session:
+                repository = SQLMappingRepository(session)
+                existing = repository.get(tenant_id, collection_id, lock=True)
+                if existing is None:
+                    raise EntityNotFoundError("Mapping collection not found.")
+                if existing.concurrency_version != expected_version:
+                    raise StaleMappingCollectionUpdate(
+                        existing.id,
+                        expected_version,
+                        existing.concurrency_version,
+                    )
+                old_pairs = _mapping_identities(existing.document, tenant_id)
+                self._validate_stable_identities(pairs, old_pairs)
+                self._validate_sources(session, tenant_id, pairs)
+                now = datetime.now(UTC)
+                document, members = self._build_document(
+                    tenant_id,
+                    collection_id,
+                    actor,
+                    title,
+                    description,
+                    pairs,
+                    now,
+                    previous=existing.document,
+                )
+                validate_mapping_document(document)
+                updated = MappingCollection(
+                    existing.id,
+                    existing.tenant_id,
+                    document,
+                    existing.created_by,
+                    actor.id,
+                    existing.created_at,
+                    now,
+                    existing.concurrency_version,
+                )
+                repository.update(updated, members)
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleMappingCollectionFlush(collection_id, expected_version) from error
+                persisted = repository.get(tenant_id, collection_id)
+                if persisted is None:
+                    raise RuntimeError("Mapping collection disappeared after update.")
+                return persisted
+        except _StaleMappingCollectionFlush as stale:
+            current = self._current_collection_version(tenant_id, stale.collection_id)
+            raise StaleMappingCollectionUpdate(
+                stale.collection_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
 
-    def delete(self, tenant_id: UUID, collection_id: UUID) -> None:
+    def delete(self, tenant_id: UUID, collection_id: UUID, *, expected_version: int) -> None:
+        try:
+            with self._session_scope() as session:
+                repository = SQLMappingRepository(session)
+                existing = repository.get(tenant_id, collection_id, lock=True)
+                if existing is None:
+                    raise EntityNotFoundError("Mapping collection not found.")
+                if existing.concurrency_version != expected_version:
+                    raise StaleMappingCollectionUpdate(
+                        existing.id,
+                        expected_version,
+                        existing.concurrency_version,
+                    )
+                if not repository.delete(tenant_id, collection_id):
+                    raise EntityNotFoundError("Mapping collection not found.")
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleMappingCollectionFlush(collection_id, expected_version) from error
+        except _StaleMappingCollectionFlush as stale:
+            current = self._current_collection_version(tenant_id, stale.collection_id)
+            raise StaleMappingCollectionUpdate(
+                stale.collection_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
+
+    def _current_collection_version(self, tenant_id: UUID, collection_id: UUID) -> int:
         with self._session_scope() as session:
-            if not SQLMappingRepository(session).delete(tenant_id, collection_id):
+            current = session.scalar(
+                select(MappingCollectionRecord.concurrency_version).where(
+                    MappingCollectionRecord.tenant_id == tenant_id,
+                    MappingCollectionRecord.id == collection_id,
+                )
+            )
+            if current is None:
                 raise EntityNotFoundError("Mapping collection not found.")
+            return int(current)
 
     def related_controls(
         self,

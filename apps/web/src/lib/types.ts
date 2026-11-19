@@ -60,6 +60,7 @@ export interface Profile {
   imports?: ProfileImport[];
   created_at: string;
   updated_at: string;
+  concurrency_version: number;
 }
 
 export interface ComponentRequirement {
@@ -149,6 +150,7 @@ export interface MappingCollection {
   updated_by: string;
   created_at: string;
   updated_at: string;
+  concurrency_version: number;
 }
 
 export interface MappingEntryInput {

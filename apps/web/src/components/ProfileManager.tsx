@@ -53,7 +53,7 @@ export function ProfileManager({
             profile: {
               id: "new", tenant_id: tenantId, catalog_id: catalog.id,
               revision_id: catalog.latest_revision.id, title: "", description: "",
-              control_ids: [], created_at: "", updated_at: "",
+                control_ids: [], created_at: "", updated_at: "", concurrency_version: 1,
             },
           });
         }}>
@@ -93,7 +93,7 @@ export function ProfileManager({
                 <a className="button secondary" href={`/bff/tenants/${tenantId}/profiles/${profile.id}/export`}>{t("profiles.export")}</a>
                 {canWrite ? <button className="secondary" type="button" onClick={() => setWorkspace({
                   isNew: true, profile: { ...profile, id: "new", title: `${profile.title} (copy)`.slice(0, 255),
-                    imports: profile.imports?.map((item) => ({ ...item, id: crypto.randomUUID() })) },
+                    imports: profile.imports?.map((item) => ({ ...item, id: crypto.randomUUID() })), concurrency_version: 1 },
                 })}>{t("profiles.duplicate")}</button> : null}
               </div>
             </li>

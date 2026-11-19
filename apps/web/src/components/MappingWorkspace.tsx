@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { bffGet, bffWrite } from "@/lib/bff-client";
+import { ApiError } from "@/lib/errors";
 import { useI18n } from "@/lib/i18n/provider";
 import type { Translate } from "@/lib/i18n";
 import { MappingControlDetails, MappingControlPicker } from "@/components/MappingControlPicker";
@@ -97,6 +98,8 @@ export function MappingWorkspace({
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [draftPairs, setDraftPairs] = useState<Record<string, boolean>>({});
+  const [conflict, setConflict] = useState<{ currentVersion: number } | null>(null);
+  const [editorEpoch, setEditorEpoch] = useState(0);
   const reportPairDraft = useCallback((clientKey: string, hasDraft: boolean) => {
     setDraftPairs((current) => ({ ...current, [clientKey]: hasDraft }));
   }, []);
@@ -198,7 +201,9 @@ export function MappingWorkspace({
         collection
           ? `tenants/${tenantId}/mapping-collections/${collection.id}`
           : `tenants/${tenantId}/mapping-collections`,
-        body,
+        collection
+          ? { ...body, expected_version: collection.concurrency_version }
+          : body,
       );
       setCollection(saved);
       setTitle(saved.title);
@@ -207,8 +212,18 @@ export function MappingWorkspace({
       setPairs(savedPairs);
       setBaseline(mappingSnapshot(saved.title, saved.description, savedPairs));
       setStatus(t("mappings.savedNotice"));
+      setConflict(null);
+      setEditorEpoch((value) => value + 1);
       window.history.replaceState(null, "", `/t/${tenantId}/mappings/${saved.id}`);
     } catch (cause) {
+      if (cause instanceof ApiError && cause.kind === "stale_update") {
+        const detail = cause.detail as { current_version?: number } | undefined;
+        setConflict({
+          currentVersion: detail?.current_version ?? collection?.concurrency_version ?? 1,
+        });
+        setError("");
+        return;
+      }
       setError(errorMessage(cause) || t("mappings.saveError"));
     } finally {
       setBusy(false);
@@ -220,10 +235,49 @@ export function MappingWorkspace({
     setBusy(true);
     setError(null);
     try {
-      await bffWrite("DELETE", `tenants/${tenantId}/mapping-collections/${collection.id}`, {});
+      await bffWrite(
+        "DELETE",
+        `tenants/${tenantId}/mapping-collections/${collection.id}?expected_version=${collection.concurrency_version}`,
+        {},
+      );
       router.push(`/t/${tenantId}/mappings`);
     } catch (cause) {
+      if (cause instanceof ApiError && cause.kind === "stale_update") {
+        const detail = cause.detail as { current_version?: number } | undefined;
+        setConflict({
+          currentVersion: detail?.current_version ?? collection.concurrency_version,
+        });
+        setError("");
+        setBusy(false);
+        return;
+      }
       setError(errorMessage(cause) || t("mappings.deleteError"));
+      setBusy(false);
+    }
+  }
+
+  async function reloadAfterConflict() {
+    if (!collection || !conflict || busy) return;
+    if (!window.confirm(t("mappings.confirmConflictReload"))) return;
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const refreshed = await bffGet<MappingCollection>(
+        `tenants/${tenantId}/mapping-collections/${collection.id}`,
+      );
+      const refreshedPairs = refreshed.mappings.map((pair) => initialPair(pair));
+      setCollection(refreshed);
+      setTitle(refreshed.title);
+      setDescription(refreshed.description);
+      setPairs(refreshedPairs);
+      setBaseline(mappingSnapshot(refreshed.title, refreshed.description, refreshedPairs));
+      setDraftPairs({});
+      setConflict(null);
+      setEditorEpoch((value) => value + 1);
+    } catch (cause) {
+      setError(errorMessage(cause) || t("mappings.saveError"));
+    } finally {
       setBusy(false);
     }
   }
@@ -255,6 +309,16 @@ export function MappingWorkspace({
       </div>
       <p className="mapping-context">{t("mappings.context")}</p>
       {error ? <p role="alert" className="alert">{error}</p> : null}
+      {conflict ? <div role="alert" className="panel">
+        <p>{t("mappings.conflictDetected", { version: conflict.currentVersion })}</p>
+        <p className="muted">{t("mappings.conflictPreserved")}</p>
+        <div className="workspace-actions">
+          <button type="button" className="danger-action" disabled={busy || !collection}
+            onClick={() => void reloadAfterConflict()}>{t("mappings.reloadConfirmedState")}</button>
+          <button type="button" className="secondary" disabled={busy}
+            onClick={() => setConflict(null)}>{t("mappings.keepMyEdits")}</button>
+        </div>
+      </div> : null}
       {!valid ? <ul className="muted mapping-validation" aria-label={t("mappings.saveRequirements")}>
         {mappingValidationMessages(title, pairs, t, number).map((message) => <li key={message}>{message}</li>)}
       </ul> : null}
@@ -278,7 +342,7 @@ export function MappingWorkspace({
     </header>
 
     {pairs.map((pair, index) => <MappingPairEditor
-      key={`${pair.clientKey}:${pair.source_catalog_id}:${pair.source_revision_id}:${pair.target_catalog_id}:${pair.target_revision_id}`}
+      key={`${editorEpoch}:${pair.clientKey}:${pair.source_catalog_id}:${pair.source_revision_id}:${pair.target_catalog_id}:${pair.target_revision_id}`}
       tenantId={tenantId}
       catalogs={catalogOptions}
       allPairs={pairs}
