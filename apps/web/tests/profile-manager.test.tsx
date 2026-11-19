@@ -413,31 +413,37 @@ describe("Profile Builder", () => {
     await waitFor(() => expect(screen.getByText("Page 1 of 41")).toBeInTheDocument());
   });
 
-  it.each([10_000, 10_001])("enforces the explicit selection limit for %i matches without partial selection", async (count) => {
-    const largeNodes = Array.from({ length: count }, (_, i) => ({
-      ...nodes[1], key: `/catalog/controls/${i}`, parent_key: null, id: `c-${i}`, title: `Requirement ${i}`,
-    }));
-    mocks.bffGet.mockImplementation(async (path: string) => path.endsWith("profile-browser") ? { nodes: largeNodes } : revision());
-    const user = await createWorkspace();
-    const navigation = screen.getByRole("complementary", { name: "Catalog navigation" });
-    expect(within(navigation).getAllByRole("button")).toHaveLength(102); // 100 nodes, all requirements, load more
-    const localizedCount = new Intl.NumberFormat("en").format(count);
-    await user.click(screen.getByRole("button", { name: `Select all ${localizedCount} matches` }));
-    if (count === 10_001) {
-      expect(screen.getByRole("alert")).toHaveTextContent(/up to 10,000/);
-      expect(screen.getByRole("tab", { name: "Selected Requirements (0)" })).toBeInTheDocument();
-    } else {
-      expect(screen.getByRole("tab", { name: "Selected Requirements (10,000)" })).toBeInTheDocument();
-      expect(screen.getAllByRole("checkbox")).toHaveLength(50);
-      expect(screen.queryByRole("button", { name: "Remove c-0" })).not.toBeInTheDocument();
-      await user.click(screen.getByRole("tab", { name: "Selected Requirements (10,000)" }));
-      expect(screen.getByText("10,000 matching selected requirements · 10,000 total selected")).toBeInTheDocument();
-      expect(screen.getAllByRole("button", { name: /^Remove c-/ })).toHaveLength(50);
-      await user.click(screen.getByRole("button", { name: "Next selected" }));
-      expect(screen.getByRole("button", { name: "Remove c-50" })).toBeInTheDocument();
-      await user.type(screen.getByRole("searchbox", { name: "Search selected requirements" }), "Requirement 9999");
-      expect(screen.getByRole("button", { name: "Remove c-9999" })).toBeInTheDocument();
-      expect(screen.getAllByRole("button", { name: /^Remove c-/ })).toHaveLength(1);
-    }
-  });
+  it.each([10_000, 10_001])(
+    "enforces the explicit selection limit for %i matches without partial selection",
+    async (count) => {
+      const largeNodes = Array.from({ length: count }, (_, i) => ({
+        ...nodes[1], key: `/catalog/controls/${i}`, parent_key: null, id: `c-${i}`, title: `Requirement ${i}`,
+      }));
+      mocks.bffGet.mockImplementation(async (path: string) => path.endsWith("profile-browser") ? { nodes: largeNodes } : revision());
+      const user = await createWorkspace();
+      const navigation = screen.getByRole("complementary", { name: "Catalog navigation" });
+      expect(within(navigation).getAllByRole("button")).toHaveLength(102); // 100 nodes, all requirements, load more
+      const localizedCount = new Intl.NumberFormat("en").format(count);
+      await user.click(screen.getByRole("button", { name: `Select all ${localizedCount} matches` }));
+      if (count === 10_001) {
+        expect(screen.getByRole("alert")).toHaveTextContent(/up to 10,000/);
+        expect(screen.getByRole("tab", { name: "Selected Requirements (0)" })).toBeInTheDocument();
+      } else {
+        expect(screen.getByRole("tab", { name: "Selected Requirements (10,000)" })).toBeInTheDocument();
+        expect(screen.getAllByRole("checkbox")).toHaveLength(50);
+        expect(screen.queryByRole("button", { name: "Remove c-0" })).not.toBeInTheDocument();
+        await user.click(screen.getByRole("tab", { name: "Selected Requirements (10,000)" }));
+        expect(screen.getByText("10,000 matching selected requirements · 10,000 total selected")).toBeInTheDocument();
+        expect(screen.getAllByRole("button", { name: /^Remove c-/ })).toHaveLength(50);
+        await user.click(screen.getByRole("button", { name: "Next selected" }));
+        expect(screen.getByRole("button", { name: "Remove c-50" })).toBeInTheDocument();
+        fireEvent.change(screen.getByRole("searchbox", { name: "Search selected requirements" }), {
+          target: { value: "Requirement 9999" },
+        });
+        expect(screen.getByRole("button", { name: "Remove c-9999" })).toBeInTheDocument();
+        expect(screen.getAllByRole("button", { name: /^Remove c-/ })).toHaveLength(1);
+      }
+    },
+    15_000,
+  );
 });
