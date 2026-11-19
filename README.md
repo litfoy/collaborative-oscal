@@ -4,17 +4,17 @@
 
 [Deutsch](README.de.md) · [Architecture](docs/architecture/overview.md) · [AI Governance demo](docs/architecture/ai-governance-demo-seed.md)
 
-Collaborative OSCAL is an open-source, self-hosted proof of concept for collaborative governance, risk and compliance (GRC), built on [NIST OSCAL (Open Security Controls Assessment Language)](https://pages.nist.gov/OSCAL/).
+Collaborative OSCAL is an independent, open-source, self-hosted GRC platform for collaborative governance, risk and compliance. It is in alpha development and built around [NIST OSCAL (Open Security Controls Assessment Language)](https://pages.nist.gov/OSCAL/) as a native common information foundation.
 
-It explores how information security, data protection, AI governance, risk management, compliance, system owners and auditors can work with shared information while retaining their distinct requirements, responsibilities and assessment judgments.
+It is designed to reduce redundant governance and compliance work across data protection, information security, AI safety, AI governance and other governance domains. Shared system information, safeguards and implementation data can be reused across those domains while each domain retains its own requirements, responsibilities and assessment judgments.
 
 The central idea is to **document implementation once where appropriate, reuse information across frameworks, and assess it independently in each relevant context**. OSCAL provides the common machine-readable data foundation rather than merely an export format.
 
 ![Collaborative OSCAL](./assets/Collaborative%20OSCAL%20Governance%20Architecture.png)
 
-*Conceptual overview: shared measures and system information, separate assessments. Independent findings are supported at the data-model level; a shared evidence library and fine-grained stakeholder authorization remain future work.*
+*Conceptual overview: shared safeguards and system information, separate assessments. Independent findings are supported at the data-model level; shared evidence management and fine-grained stakeholder authorization remain future work.*
 
-> **Status: Experimental proof of concept.** Not intended for production use, confidential data or authoritative compliance decisions. The implementation demonstrates the approach but does not yet enforce full separation of stakeholder duties.
+> **Alpha status:** not yet intended for production use, confidential data or authoritative compliance decisions. The implementation does not yet provide complete fine-grained separation of duties, lifecycle coverage or operational hardening.
 
 ## Why Collaborative OSCAL?
 
@@ -38,7 +38,7 @@ In the future, both could explicitly reuse the same suitable, versioned configur
 
 ## Quick start
 
-With Docker and Docker Compose installed, run from the repository root:
+With Docker Compose v2 or newer installed, run from the repository root:
 
 ```bash
 docker compose up --build -d credentials db db-init api web
@@ -70,24 +70,30 @@ See the [scenario and seed documentation](docs/architecture/ai-governance-demo-s
 
 ## Current capabilities
 
-All implemented features are experimental.
+All implemented features are experimental and remain alpha quality.
 
 | Area | Capabilities | Status |
 | --- | --- | --- |
-| Catalogs | Import, hierarchical browsing, immutable source revisions | Implemented |
+| Catalogs | Import, hierarchical browsing and immutable source revisions | Implemented |
 | Profiles | Explicit control selection across catalog revisions | Implemented; full resolution deferred |
 | Control mappings | Explicit cross-catalog relationships; no automatic compliance inference | Implemented |
-| Component definitions | Reusable measures and controls | Implemented |
-| Implementation register | Requirement-specific contributions and responsibilities | Implemented |
+| Component definitions | Reusable safeguards and controls | Implemented |
+| Implementation register | Requirement-specific implementation contributions | Implemented |
 | Systems | Concrete system components | Implemented |
-| System Security Plans (SSPs) | Catalog-based SSPs, validation, immutable document versions | Implemented |
-| Assessment plans (APs) | Scope, objectives, subjects, activities, tasks, roles, pinned SSP versions | Implemented |
-| Assessment results (ARs) | Reviewed controls, observations, evidence references, findings, pinned AP versions | Implemented |
-| Independent assessments | Separate plans, results and findings in their respective contexts | Implemented at data-model level; fine-grained authorization pending |
-| Shared assessment evidence | Versioned evidence library and reuse across assessments | Planned |
+| System Security Plans (SSPs) | Catalog-based SSPs, validation and immutable document versions | Implemented |
+| Assessment plans (APs) | Scope, objectives, subjects, activities, tasks, roles and pinned SSP/SSP-version context | Implemented |
+| Assessment results (ARs) | Human-authored or imported reviewed controls, observations, evidence references, findings and pinned AP versions | Implemented |
+| Automated assessment integration | Tenant-scoped REST submission of native OSCAL 1.2.1 Assessment Results JSON into the Assessment Results lifecycle | Implemented |
+| Human and automated assessments | Both enter the same working-state, publication, validation and historical snapshot model | Implemented |
+| Historical integrity | Imported catalog revisions and published document snapshots remain immutable; imported Assessment Results working states remain editable until publication, when they are frozen as historical snapshots. Historical references remain pinned to the original document state. | Implemented |
+| Optimistic concurrency | Implemented for Assessment Plans, Assessment Results, SSPs, Profiles, and Mapping Collections. Independently reviewed and verified only for Assessment Plans and Assessment Results | Implementation complete for these aggregates; independent review status differs |
+| CI supply-chain visibility | Automated CycloneDX SBOM generation for API and web runtime/development dependencies | Implemented in CI |
+| Shared assessment evidence | Managed, versioned evidence library and cross-assessment reuse | Longer-term plan |
 | Risks and POA&M | Risk treatment, remediation and tracking | Planned |
 
-Additional capabilities include OIDC authentication, tenant-scoped authorization, English and German UI, and OSCAL JSON import and/or export as supported by each document model. Assessment Results evidence currently consists of references, not managed evidence file storage.
+The authenticated REST API accepts native OSCAL Assessment Results JSON for automated assessment submission. Import reuses the same aggregate, validation, pinned Assessment Plan context and publication lifecycle as the human authoring workspace. See [Assessment Results REST Import](docs/assessment-result-import.md). Evidence in this import is currently represented by OSCAL evidence references, not managed evidence file storage.
+
+Additional capabilities include OIDC authentication, tenant-scoped authorization, English and German UI, and OSCAL JSON import and/or export as supported by each document model. Document validation uses maintained OSCAL models and version-specific official NIST schemas where applicable, together with application integrity checks.
 
 ## Architecture
 
@@ -95,7 +101,7 @@ The application is a modular monolith with a Next.js / TypeScript web frontend, 
 
 Key design decisions:
 
-- Imported catalog revisions and published SSP, AP and AR document versions are immutable. Historical references remain pinned to the original document state.
+- Imported catalog revisions and published SSP, AP and AR document snapshots are immutable. Imported Assessment Results working states remain editable until publication, when they are frozen as historical snapshots. Historical references remain pinned to the original document state.
 - Reusable measures, concrete components and requirement-specific implementation contributions remain separate. Control mappings do not transfer implementation or assessment status automatically.
 - PostgreSQL combines authoritative OSCAL JSONB snapshots with relational identities, tenant boundaries and explicit references. Working records support editing before document version creation.
 - OSCAL processing follows a Trestle-first approach, supplemented by official version-specific NIST JSON Schemas and application-level reference and integrity checks. This is not exhaustive OSCAL semantic validation.
@@ -113,21 +119,35 @@ Collaborative OSCAL explores a complementary approach: a browser-based, database
 
 ## Known limitations and roadmap
 
-The POC demonstrates a catalog-to-assessment workflow, not a complete compliance management lifecycle. In particular:
+Alpha limitations include incomplete semantic validation, fine-grained stakeholder authorization and separation of duties, incomplete workflow coverage and further operational hardening. Optimistic concurrency is implemented for Assessment Plans, Assessment Results, SSPs, Profiles and Mapping Collections; independent review and verification evidence is currently established only for Assessment Plans and Assessment Results.
 
-- Semantic validation needs improvement: recursive recognition of normative assessment objectives and statements, local assessment method representation, stable assessment-step identities and reviewed objective scope are areas for correction or extension.
-- Fine-grained stakeholder authorization, separation of duties, formal approvals and robust concurrent editing are not yet implemented. Existing tenant-level access controls must not be mistaken for independent assessment authority.
-- Shared, versioned evidence management, structured evidence provenance and risk/POA&M workflows remain future work.
-- Full profile resolution was intentionally deferred following compatibility testing. SSPs currently reference a catalog revision directly. Parameter authoring and resolution need further work.
-- Structured custom catalog authoring, portable document bundles, human-readable reporting and broader interoperability testing are planned or require further development.
+### Near-term priorities
 
-Schema-valid OSCAL documents do not establish regulatory compliance or guarantee interoperability with every OSCAL tool. See the [catalog import guide](docs/catalog-import.md), [profile resolution decision](docs/adr/0016-defer-profile-resolution.md) and [AI Governance interoperability findings](docs/architecture/ai-governance-demo-interoperability-findings-2026-11-17.md).
+- Complete independent contention and verification review for SSPs, Profiles, and Mapping Collections to match the established Assessment Plan and Assessment Result coverage.
+- Add shared Parties, Roles and Responsibilities management.
+- Implement native OSCAL Inventory Items and extend assessment subjects.
+- Add a shared system and inventory overview.
+- Provide editable custom catalog authoring.
+- Expand catalog selection and deliver a cross-domain governance demonstration.
+- Consolidate frontend UX and UI workflows.
+- Improve security, CI/CD and release hardening.
+
+### Longer-term plans
+
+- Add shared, versioned assessment evidence and cross-assessment reuse.
+- Add risk management and POA&M workflows.
+
+Schema-valid OSCAL documents do not establish regulatory compliance or guarantee interoperability with every OSCAL tool. They describe data and assessment context; they do not determine an organization's independent assessment conclusion. See the [catalog import guide](docs/catalog-import.md), [profile resolution decision](docs/adr/0016-defer-profile-resolution.md) and [AI Governance interoperability findings](docs/architecture/ai-governance-demo-interoperability-findings-2026-11-17.md).
 
 ## Development and verification
 
-Very large parts of the software were created through agentic coding, primarily with GitHub Copilot, using iterative prompt refinement and increasingly precise task specifications. ChatGPT supported design, specification and critical review. Human decisions, review and approval, documented architecture decisions and reproducible tests remain essential parts of the development process. AI-generated explanations and code are not treated as verified merely because they appear plausible.
+Development is human-led and AI-assisted, with substantial use of agentic software engineering. Human founders and maintainers lead product and architecture decisions; AI tools assist implementation, specification and technical review. Reviews are performed by the human founder and maintainer together with AI-assisted reviews. The human maintainer retains responsibility for acceptance decisions and releases. Automated testing and Architecture Decision Records support verification, but no claim is made that all generated code has been manually reviewed or independently audited.
 
 The repository includes backend and frontend tests, PostgreSQL integration coverage, CI configuration, and compatibility and regression probes. The [Assessment Results compatibility notes](docs/architecture/assessment-results-compatibility-probes-2026-11-17.md) document additional checks performed during development. Test results from earlier development snapshots are not a release certification; run the current test suites and manual workflows as described in the [development guide](docs/development.md).
+
+## Project governance and contribution
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations, [MAINTAINERS.md](MAINTAINERS.md) for maintainer responsibilities and [SECURITY.md](SECURITY.md) for coordinated vulnerability reporting. Development transparency and AI-assistance expectations are documented in [AI_USAGE.md](AI_USAGE.md).
 
 ## Acknowledgements
 

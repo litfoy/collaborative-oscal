@@ -28,12 +28,17 @@ The repository now needs one architectural standard for optimistic concurrency a
 
 ## Scope and implementation coverage
 
-- **Current verified reference implementations:**
-  - Assessment Plans (`apps/api/app/application/assessment_plans.py` and related API/frontend tests)
-  - Assessment Results (`apps/api/app/application/assessment_results.py` and related API/frontend tests)
-- **Not yet implemented for other mutable aggregates:** coverage will be extended incrementally in Tasks 09c-09g.
+- **Implemented aggregates:**
+  - Assessment Plans
+  - Assessment Results
+  - System Security Plans (SSPs)
+  - Profiles
+  - Mapping Collections
+- **Independent implementation review and verification status:**
+  - Assessment Plans and Assessment Results have established independent review and verified contention/reference coverage.
+  - SSPs, Profiles, and Mapping Collections have implemented concurrency paths, but do not yet have the same independent review and verification status.
 - Operation-specific requirements apply only where those operations exist for an aggregate (for example: publication, idempotent publication, immutable snapshots, deletion endpoints, or nested authored structures).
-- This ADR defines the standard now; implementation rollout remains explicit per aggregate.
+- This ADR defines the standard now; rollout remains explicit per aggregate.
 
 ## Consequences
 
@@ -42,5 +47,3 @@ The repository now needs one architectural standard for optimistic concurrency a
   - architectural requirements (this ADR), and
   - concrete implementation and verification procedures (`docs/architecture/optimistic-concurrency.md`).
 - Concurrency guarantees are now a cross-aggregate architecture concern, but implementation status remains aggregate-specific until verified.
-
-

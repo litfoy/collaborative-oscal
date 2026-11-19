@@ -14,9 +14,13 @@
   follow this convention from the beginning wherever supported.
 - Keep tenant identity explicit in authorization and data access designs. Never rely on client-provided tenant IDs
   without an authorization check.
-- Authentication currently validates configured OIDC access tokens, persists external identities and tenant memberships,
-  and exposes only `/api/v1/me`; do not imply that tenant-scoped GRC APIs, catalog management, workflows, or evidence
-  storage are implemented.
+- Authentication validates configured OIDC access tokens, persists external identities and tenant memberships, and provides
+  trusted tenant context and catalog:read/catalog:write authorization. Catalog browsing, Profiles, implementation registers,
+  Systems, SSP/AP/AR workflows, native Assessment Results REST import, and optimistic concurrency implementations for
+  Assessment Plans, Assessment Results, SSPs, Profiles, and Mapping Collections are implemented. Independent contention and
+  verification review coverage is currently established only for Assessment Plans and Assessment Results.
+  Do not imply that unimplemented GRC areas such as catalog editing, managed evidence, risk/POA&M, or fine-grained Party/Role
+  governance are complete.
 
 ## Implementation standards
 
@@ -34,13 +38,15 @@
 
 ## Current scope
 
-The API exposes public `/health`, bearer-protected `GET /api/v1/me`, `GET /api/v1/tenants`, and read-only tenant-scoped
-catalog endpoints requiring `catalog:read`. OIDC access-token verification, identity/membership persistence,
-tenant-scoped roles, and trusted tenant-context dependencies are implemented. The Next.js app is an OIDC
-Backend-for-Frontend (openid-client, encrypted HttpOnly cookie session; tokens never reach the browser) hosting the
-read-only Catalog Explorer. Catalog import has no public endpoint (use `python -m app.cli`). GRC routes, catalog
-editing, profiles, public user management, and machine identities are not implemented. Control references use
-`catalog_id + revision_id + oscal_control_id`. See ADR 0007.
+The API exposes public `/health`, bearer-protected identity/tenant endpoints, tenant-scoped catalog read endpoints,
+Catalog/Component/implementation/System/SSP/AP/AR workflows, and native Assessment Results REST import where implemented.
+OIDC access-token verification, identity/membership persistence, tenant-scoped roles, trusted tenant-context dependencies,
+and the authenticated BFF are implemented. The Next.js app is an OIDC Backend-for-Frontend (openid-client, encrypted
+HttpOnly cookie session; tokens never reach the browser). Catalog import also remains available through
+`python -m app.cli`. Catalog editing, managed evidence, shared Parties/Roles/Responsibilities, risk/POA&M, public user
+management, and machine identities are not complete. Control references use `catalog_id + revision_id + oscal_control_id`.
+See ADR 0007. Optimistic concurrency implementations exist for Assessment Plans, Assessment Results, SSPs, Profiles, and Mapping Collections;
+independent contention and verification coverage is currently established only for Assessment Plans and Assessment Results.
 
 ### Domain-Oriented User Experience
 
