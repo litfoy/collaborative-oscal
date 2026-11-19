@@ -390,6 +390,7 @@ def test_ssp_publish_rejects_stale_token_under_concurrent_transactions(
     )
     token = int(included["concurrency_version"])
 
+    release = threading.Barrier(3)
     winner_holding_lock = threading.Event()
     gate_release = threading.Event()
     state_lock = threading.Lock()
@@ -720,7 +721,6 @@ def test_implementation_update_and_association_contention_preserves_winner_state
     token = int(implementation.concurrency_version)
     plan_token = int(context["plan"]["concurrency_version"])
 
-    release = threading.Barrier(3)
     winner_holding_lock = threading.Event()
     gate_release = threading.Event()
     backend_pids: dict[str, int] = {}

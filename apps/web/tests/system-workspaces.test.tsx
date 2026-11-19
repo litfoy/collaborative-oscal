@@ -588,7 +588,19 @@ describe("Systems workspaces", () => {
       if (url.endsWith("/system-security-plans/plan") && init?.method === "PUT") {
         const body = JSON.parse((init.body as string) ?? "{}");
         expect(body.expected_version).toBe(3);
-        return jsonResponse({ ...unassignedPlan, title: body.title, concurrency_version: 6 });
+        return jsonResponse({
+          ...unassignedPlan,
+          included_implementations: [
+            {
+              implementation_id: implementation.id,
+              oscal_control_id: implementation.oscal_control_id,
+              system_component_id: component.id,
+            },
+          ],
+          documented_control_count: 1,
+          title: body.title,
+          concurrency_version: 6,
+        });
       }
       return jsonResponse(validation);
     });
@@ -629,18 +641,15 @@ describe("Systems workspaces", () => {
     await user.click(screen.getByRole("button", { name: "Save working state" }));
     await screen.findByText("SSP working state saved.");
 
-    await user.click(screen.getByRole("button", { name: "Add contribution" }));
-    await user.selectOptions(
-      screen.getByLabelText("Requirement contribution from the exact pinned baseline"),
-      "implementation",
-    );
-    await user.selectOptions(screen.getByLabelText("Actual system component"), "component");
+    await user.click(screen.getByRole("button", { name: "Edit contribution" }));
+    await user.clear(screen.getByLabelText("Requirement-specific implementation description"));
+    await user.type(screen.getByLabelText("Requirement-specific implementation description"), "Updated again");
     await user.selectOptions(
       screen.getByLabelText("OSCAL implementation status (separate from application workflow status)"),
       "implemented",
     );
-    await user.click(screen.getByRole("button", { name: "Update record and include in SSP" }));
-    await screen.findByText("The requirement contribution was explicitly added to this SSP.");
+    await user.click(screen.getByRole("button", { name: "Save requirement contribution changes" }));
+    await screen.findByText("Requirement contribution: Updated again");
   });
 
   it("reports partial success for stale association and preserves unsaved inputs", async () => {

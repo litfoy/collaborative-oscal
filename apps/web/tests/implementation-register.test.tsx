@@ -199,7 +199,7 @@ it("preserves local draft and token when conflict reload is canceled or fails", 
 it("uses refreshed token after successful conflict reload and blocks list actions while save is pending", async () => {
   const user = userEvent.setup();
   const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-  let resolveSave: ((value: Implementation) => void) | null = null;
+  let resolveSave!: (value: Implementation) => void;
   const savePromise = new Promise<Implementation>((resolve) => {
     resolveSave = resolve;
   });
@@ -255,7 +255,7 @@ it("uses refreshed token after successful conflict reload and blocks list action
   expect(screen.getByRole("button", { name: "Create implementation" })).toBeDisabled();
   expect(screen.getByRole("button", { name: /ac-2 · implemented/ })).toBeDisabled();
 
-  resolveSave?.({ ...saved, description: "Pending save", concurrency_version: 4 });
+  resolveSave({ ...saved, description: "Pending save", concurrency_version: 4 });
   await waitFor(() => expect(screen.getByLabelText("Implementation description")).toHaveValue("Pending save"));
 
   await user.click(screen.getByRole("button", { name: "Save implementation" }));
