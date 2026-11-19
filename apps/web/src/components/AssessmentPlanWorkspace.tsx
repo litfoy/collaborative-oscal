@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { MappingControlPicker } from "@/components/MappingControlPicker";
 import { bffGet, bffWrite } from "@/lib/bff-client";
+import { ApiError } from "@/lib/errors";
 import { useI18n } from "@/lib/i18n/provider";
 import type {
   AssessmentActivity,
@@ -70,6 +71,7 @@ export function AssessmentPlanWorkspace({
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [controlTitles, setControlTitles] = useState<Record<string, string>>({});
+  const [conflict, setConflict] = useState<{ currentVersion: number } | null>(null);
 
   const [editingLocalObjective, setEditingLocalObjective] = useState<number | null>(null);
   const [localObjectiveDraft, setLocalObjectiveDraft] =
@@ -134,11 +136,13 @@ export function AssessmentPlanWorkspace({
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (busy) return;
     await run(async () => {
       const updated = await bffWrite<AssessmentPlan>(
         "PUT",
         `tenants/${tenantId}/assessment-plans/${plan.id}`,
         {
+          expected_version: plan.concurrency_version,
           title: plan.title,
           description: plan.description,
           control_ids: plan.control_ids,
@@ -160,6 +164,7 @@ export function AssessmentPlanWorkspace({
   }
 
   async function validatePlan() {
+    if (busy) return;
     if (dirty) {
       setNotice(t("assessmentPlans.validationSaveFirst"));
       return;
@@ -177,12 +182,18 @@ export function AssessmentPlanWorkspace({
   }
 
   async function createVersion() {
+    if (busy) return;
     await run(async () => {
       const version = await bffWrite<AssessmentPlanVersion>(
         "POST",
         `tenants/${tenantId}/assessment-plans/${plan.id}/versions`,
-        {},
+        { expected_version: plan.concurrency_version },
       );
+      if (typeof version.concurrency_version === "number") {
+        const nextVersion = version.concurrency_version;
+        setPlan((current) => ({ ...current, concurrency_version: nextVersion }));
+        setSavedPlan((current) => ({ ...current, concurrency_version: nextVersion }));
+      }
       setVersions((current) => [
         version,
         ...current.filter((item) => item.id !== version.id),
@@ -194,11 +205,58 @@ export function AssessmentPlanWorkspace({
   }
 
   async function run(action: () => Promise<string>) {
+    if (busy) return;
     setBusy(true);
     setError("");
     setNotice("");
     try {
       setNotice(await action());
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.kind === "stale_update") {
+        const detail = reason.detail as { current_version?: number } | undefined;
+        setConflict({
+          currentVersion: detail?.current_version ?? plan.concurrency_version,
+        });
+        setError("");
+        return;
+      }
+      setError(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reloadAfterConflict() {
+    if (!conflict) return;
+    if (busy) return;
+    if (!window.confirm(t("assessmentPlans.confirmConflictReload"))) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const [refreshed, refreshedVersions, refreshedValidation] = await Promise.all([
+        bffGet<AssessmentPlan>(`tenants/${tenantId}/assessment-plans/${plan.id}`),
+        bffGet<AssessmentPlanVersion[]>(`tenants/${tenantId}/assessment-plans/${plan.id}/versions`),
+        bffGet<AssessmentPlanValidation>(
+          `tenants/${tenantId}/assessment-plans/${plan.id}/validation`,
+        ),
+      ]);
+      setPlan(refreshed);
+      setSavedPlan(refreshed);
+      setVersions(refreshedVersions);
+      setValidation(refreshedValidation);
+      setValidationStale(false);
+      setEditingLocalObjective(null);
+      setLocalObjectiveDraft(null);
+      setEditingActivity(null);
+      setActivityDraft(null);
+      setEditingTask(null);
+      setTaskDraft(null);
+      setEditingRole(null);
+      setRoleDraft(null);
+      setEditingParty(null);
+      setPartyDraft(null);
+      setConflict(null);
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -605,11 +663,11 @@ export function AssessmentPlanWorkspace({
           {localObjectiveDraft ? (
             <div className="panel stack">
               <h3>{editingLocalObjective === null ? t("assessmentPlans.addLocalObjective") : t("assessmentPlans.editLocalObjective")}</h3>
-              <label className="field">{t("assessmentPlans.objectiveIdentifier")}<input value={localObjectiveDraft.objective_id} onChange={(event) => setLocalObjectiveDraft({ ...localObjectiveDraft, objective_id: event.target.value })} /></label>
-              <label className="field">{t("assessmentPlans.objectiveForRequirement")}<select value={localObjectiveDraft.control_id} onChange={(event) => setLocalObjectiveDraft({ ...localObjectiveDraft, control_id: event.target.value })}>{plan.control_ids.map((id) => <option key={id} value={id}>{id}{controlTitles[id] ? ` - ${controlTitles[id]}` : ""}</option>)}</select></label>
-              <label className="field">{t("assessmentPlans.objectiveDescription")}<textarea value={localObjectiveDraft.description} onChange={(event) => setLocalObjectiveDraft({ ...localObjectiveDraft, description: event.target.value })} /></label>
-              <fieldset className="repeatable-fields"><legend>{t("assessmentPlans.objectiveMethods")}</legend>{METHODS.map((method) => <label key={method}><input type="checkbox" checked={localObjectiveDraft.methods.includes(method)} onChange={(event) => setLocalObjectiveDraft({ ...localObjectiveDraft, methods: event.target.checked ? [...localObjectiveDraft.methods, method] : localObjectiveDraft.methods.filter((item) => item !== method) })} /> {methodLabel(method, t)}</label>)}</fieldset>
-              <div className="workspace-actions"><button type="button" onClick={saveLocalObjective}>{t("systems.saveWorkingState")}</button><button type="button" className="secondary" onClick={() => setLocalObjectiveDraft(null)}>{t("assessmentPlans.cancel")}</button></div>
+              <label className="field">{t("assessmentPlans.objectiveIdentifier")}<input disabled={busy} value={localObjectiveDraft.objective_id} onChange={(event) => setLocalObjectiveDraft({ ...localObjectiveDraft, objective_id: event.target.value })} /></label>
+              <label className="field">{t("assessmentPlans.objectiveForRequirement")}<select disabled={busy} value={localObjectiveDraft.control_id} onChange={(event) => setLocalObjectiveDraft({ ...localObjectiveDraft, control_id: event.target.value })}>{plan.control_ids.map((id) => <option key={id} value={id}>{id}{controlTitles[id] ? ` - ${controlTitles[id]}` : ""}</option>)}</select></label>
+              <label className="field">{t("assessmentPlans.objectiveDescription")}<textarea disabled={busy} value={localObjectiveDraft.description} onChange={(event) => setLocalObjectiveDraft({ ...localObjectiveDraft, description: event.target.value })} /></label>
+              <fieldset className="repeatable-fields"><legend>{t("assessmentPlans.objectiveMethods")}</legend>{METHODS.map((method) => <label key={method}><input disabled={busy} type="checkbox" checked={localObjectiveDraft.methods.includes(method)} onChange={(event) => setLocalObjectiveDraft({ ...localObjectiveDraft, methods: event.target.checked ? [...localObjectiveDraft.methods, method] : localObjectiveDraft.methods.filter((item) => item !== method) })} /> {methodLabel(method, t)}</label>)}</fieldset>
+              <div className="workspace-actions"><button type="button" disabled={!canWrite || busy} onClick={saveLocalObjective}>{t("systems.saveWorkingState")}</button><button type="button" disabled={busy} className="secondary" onClick={() => setLocalObjectiveDraft(null)}>{t("assessmentPlans.cancel")}</button></div>
             </div>
           ) : null}
         </section>
@@ -635,8 +693,8 @@ export function AssessmentPlanWorkspace({
           </div>
           {plan.roles.length ? <ul className="profile-list">{plan.roles.map((role, index) => <li key={role.role_id}><strong>{role.title}</strong> · <span className="mono">{role.role_id}</span><p className="muted">{role.party_uuids.length} {t("assessmentPlans.subjects")}</p><div className="workspace-actions"><button type="button" className="secondary" disabled={!canWrite || busy} onClick={() => startRole(index)}>{t("assessmentPlans.edit")}</button><button type="button" className="secondary" disabled={!canWrite || busy} onClick={() => removeRole(role.role_id)}>{t("assessmentPlans.remove")}</button></div></li>)}</ul> : <p className="muted">{t("assessmentPlans.noRoles")}</p>}
           {plan.parties.length ? <ul className="profile-list">{plan.parties.map((party, index) => <li key={party.uuid}><strong>{party.name}</strong> · {party.party_type}<div className="workspace-actions"><button type="button" className="secondary" disabled={!canWrite || busy} onClick={() => startParty(index)}>{t("assessmentPlans.edit")}</button><button type="button" className="secondary" disabled={!canWrite || busy} onClick={() => removeParty(party.uuid)}>{t("assessmentPlans.remove")}</button></div></li>)}</ul> : <p className="muted">{t("assessmentPlans.noParties")}</p>}
-          {roleDraft ? <RoleEditor draft={roleDraft} setDraft={setRoleDraft} parties={plan.parties} onSave={saveRole} onCancel={() => setRoleDraft(null)} t={t} /> : null}
-          {partyDraft ? <PartyEditor draft={partyDraft} setDraft={setPartyDraft} onSave={saveParty} onCancel={() => setPartyDraft(null)} t={t} /> : null}
+          {roleDraft ? <RoleEditor draft={roleDraft} setDraft={setRoleDraft} parties={plan.parties} busy={busy} onSave={saveRole} onCancel={() => setRoleDraft(null)} t={t} /> : null}
+          {partyDraft ? <PartyEditor draft={partyDraft} setDraft={setPartyDraft} busy={busy} onSave={saveParty} onCancel={() => setPartyDraft(null)} t={t} /> : null}
         </section>
 
         <section className="panel" hidden={tab !== "validation"}>
@@ -654,6 +712,16 @@ export function AssessmentPlanWorkspace({
           <h3>{t("systems.versions")}</h3>
           {versions.length ? <ul className="profile-list">{versions.map((version) => <li key={version.id}><strong>{t("common.version")} {version.document_version}</strong><p className="muted">OSCAL {version.oscal_version} · {date(version.created_at)}</p><a href={`/bff/tenants/${tenantId}/assessment-plans/${plan.id}/versions/${version.id}/export`}>{t("systems.exportStoredOscalJson")}</a></li>)}</ul> : <p className="muted">{t("systems.noImmutableVersions")}</p>}
         </section>
+
+        {conflict ? (
+          <div role="alert" className="panel">
+            <p>{t("assessmentPlans.conflictDetected", { version: conflict.currentVersion })}</p>
+            <p className="muted">{t("assessmentPlans.conflictPreserved")}</p>
+            <button type="button" className="danger-action" disabled={busy} onClick={() => void reloadAfterConflict()}>
+              {t("assessmentPlans.reloadConfirmedState")}
+            </button>
+          </div>
+        ) : null}
 
         {canWrite ? <button disabled={busy}>{t("assessmentPlans.save")}</button> : null}
       </form>
@@ -682,7 +750,7 @@ function ActivityEditor({
   onCancel: () => void;
   t: (key: never, values?: Record<string, string | number>) => string;
 }) {
-  return <div className="panel stack"><label className="field">{t("assessmentPlans.activityTitle" as never)}<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label><label className="field">{t("assessmentPlans.activityDescription" as never)}<textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.activityMethods" as never)}</legend>{METHODS.map((method) => <label key={method}><input type="checkbox" checked={draft.methods.includes(method)} onChange={(event) => setDraft({ ...draft, methods: event.target.checked ? [...draft.methods, method] : draft.methods.filter((item) => item !== method) })} /> {methodLabel(method, t as never)}</label>)}</fieldset><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.scopeRequirements" as never)}</legend>{controlIds.map((id) => <label key={id}><input type="checkbox" checked={draft.control_ids.includes(id)} onChange={(event) => setDraft({ ...draft, control_ids: event.target.checked ? [...draft.control_ids, id] : draft.control_ids.filter((item) => item !== id) })} /> {id}</label>)}</fieldset><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.scopeObjectives" as never)}</legend>{objectiveIds.map((id) => <label key={id}><input type="checkbox" checked={draft.objective_ids.includes(id)} onChange={(event) => setDraft({ ...draft, objective_ids: event.target.checked ? [...draft.objective_ids, id] : draft.objective_ids.filter((item) => item !== id) })} /> {id}</label>)}</fieldset><label className="field">{t("assessmentPlans.activityPlannedEvidence" as never)}<textarea value={draft.planned_evidence ?? ""} onChange={(event) => setDraft({ ...draft, planned_evidence: event.target.value || null })} /></label><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.activityProcedureSteps" as never)}</legend>{draft.steps.map((step, index) => <div key={step.id} className="repeatable-row"><label className="field">{t("assessmentPlans.stepTitle" as never)}<input value={step.title} onChange={(event) => setDraft({ ...draft, steps: draft.steps.map((item, stepIndex) => stepIndex === index ? { ...item, title: event.target.value } : item) })} /></label><label className="field">{t("assessmentPlans.stepDescription" as never)}<input value={step.description} onChange={(event) => setDraft({ ...draft, steps: draft.steps.map((item, stepIndex) => stepIndex === index ? { ...item, description: event.target.value } : item) })} /></label><button type="button" className="secondary" onClick={() => setDraft({ ...draft, steps: draft.steps.filter((_, stepIndex) => stepIndex !== index) })}>{t("assessmentPlans.remove" as never)}</button></div>)}<button type="button" className="secondary" onClick={() => setDraft({ ...draft, steps: [...draft.steps, { id: generateId(), title: "", description: "" }] })}>{t("assessmentPlans.addStep" as never)}</button></fieldset><div className="workspace-actions"><button type="button" disabled={!canWrite || busy || !draft.title || !draft.description || draft.methods.length === 0} onClick={onSave}>{t("systems.saveWorkingState" as never)}</button><button type="button" className="secondary" onClick={onCancel}>{t("assessmentPlans.cancel" as never)}</button></div></div>;
+  return <div className="panel stack"><label className="field">{t("assessmentPlans.activityTitle" as never)}<input disabled={busy} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label><label className="field">{t("assessmentPlans.activityDescription" as never)}<textarea disabled={busy} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.activityMethods" as never)}</legend>{METHODS.map((method) => <label key={method}><input disabled={busy} type="checkbox" checked={draft.methods.includes(method)} onChange={(event) => setDraft({ ...draft, methods: event.target.checked ? [...draft.methods, method] : draft.methods.filter((item) => item !== method) })} /> {methodLabel(method, t as never)}</label>)}</fieldset><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.scopeRequirements" as never)}</legend>{controlIds.map((id) => <label key={id}><input disabled={busy} type="checkbox" checked={draft.control_ids.includes(id)} onChange={(event) => setDraft({ ...draft, control_ids: event.target.checked ? [...draft.control_ids, id] : draft.control_ids.filter((item) => item !== id) })} /> {id}</label>)}</fieldset><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.scopeObjectives" as never)}</legend>{objectiveIds.map((id) => <label key={id}><input disabled={busy} type="checkbox" checked={draft.objective_ids.includes(id)} onChange={(event) => setDraft({ ...draft, objective_ids: event.target.checked ? [...draft.objective_ids, id] : draft.objective_ids.filter((item) => item !== id) })} /> {id}</label>)}</fieldset><label className="field">{t("assessmentPlans.activityPlannedEvidence" as never)}<textarea disabled={busy} value={draft.planned_evidence ?? ""} onChange={(event) => setDraft({ ...draft, planned_evidence: event.target.value || null })} /></label><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.activityProcedureSteps" as never)}</legend>{draft.steps.map((step, index) => <div key={step.id} className="repeatable-row"><label className="field">{t("assessmentPlans.stepTitle" as never)}<input disabled={busy} value={step.title} onChange={(event) => setDraft({ ...draft, steps: draft.steps.map((item, stepIndex) => stepIndex === index ? { ...item, title: event.target.value } : item) })} /></label><label className="field">{t("assessmentPlans.stepDescription" as never)}<input disabled={busy} value={step.description} onChange={(event) => setDraft({ ...draft, steps: draft.steps.map((item, stepIndex) => stepIndex === index ? { ...item, description: event.target.value } : item) })} /></label><button type="button" className="secondary" disabled={busy} onClick={() => setDraft({ ...draft, steps: draft.steps.filter((_, stepIndex) => stepIndex !== index) })}>{t("assessmentPlans.remove" as never)}</button></div>)}<button type="button" className="secondary" disabled={busy} onClick={() => setDraft({ ...draft, steps: [...draft.steps, { id: generateId(), title: "", description: "" }] })}>{t("assessmentPlans.addStep" as never)}</button></fieldset><div className="workspace-actions"><button type="button" disabled={!canWrite || busy || !draft.title || !draft.description || draft.methods.length === 0} onClick={onSave}>{t("systems.saveWorkingState" as never)}</button><button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t("assessmentPlans.cancel" as never)}</button></div></div>;
 }
 
 function TaskEditor({
@@ -709,13 +777,14 @@ function TaskEditor({
   t: (key: never, values?: Record<string, string | number>) => string;
 }) {
   const mode = draft.on_date ? "single" : draft.start || draft.end ? "range" : "single";
-  return <div className="panel stack"><label className="field">{t("assessmentPlans.taskTitle" as never)}<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label><label className="field">{t("assessmentPlans.taskDescription" as never)}<textarea value={draft.description ?? ""} onChange={(event) => setDraft({ ...draft, description: event.target.value || null })} /></label><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.taskActivities" as never)}</legend>{activities.map((activity) => <label key={activity.id}><input type="checkbox" checked={draft.activity_ids.includes(activity.id)} onChange={(event) => setDraft({ ...draft, activity_ids: event.target.checked ? [...draft.activity_ids, activity.id] : draft.activity_ids.filter((item) => item !== activity.id) })} /> {activity.title}</label>)}</fieldset><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.taskSubjects" as never)}</legend>{selectedSubjects.map((subject) => <label key={subject.uuid}><input type="checkbox" checked={draft.subject_uuids.includes(subject.uuid)} onChange={(event) => setDraft({ ...draft, subject_uuids: event.target.checked ? [...draft.subject_uuids, subject.uuid] : draft.subject_uuids.filter((item) => item !== subject.uuid) })} /> {subject.title}</label>)}</fieldset><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.taskRoles" as never)}</legend>{roles.map((role) => <label key={role.role_id}><input type="checkbox" checked={draft.role_ids.includes(role.role_id)} onChange={(event) => setDraft({ ...draft, role_ids: event.target.checked ? [...draft.role_ids, role.role_id] : draft.role_ids.filter((item) => item !== role.role_id) })} /> {role.title}</label>)}</fieldset><label className="field">{t("assessmentPlans.taskDateSingle" as never)}<input type="datetime-local" value={mode === "single" ? toLocalInput(draft.on_date) : ""} onChange={(event) => setDraft({ ...draft, on_date: toIsoInput(event.target.value), start: null, end: null })} /></label><label className="field">{t("assessmentPlans.taskDateRangeStart" as never)}<input type="datetime-local" value={mode === "range" ? toLocalInput(draft.start) : ""} onChange={(event) => setDraft({ ...draft, on_date: null, start: toIsoInput(event.target.value), end: draft.end })} /></label><label className="field">{t("assessmentPlans.taskDateRangeEnd" as never)}<input type="datetime-local" value={mode === "range" ? toLocalInput(draft.end) : ""} onChange={(event) => setDraft({ ...draft, on_date: null, start: draft.start, end: toIsoInput(event.target.value) })} /></label><div className="workspace-actions"><button type="button" disabled={!canWrite || busy || !draft.title} onClick={onSave}>{t("systems.saveWorkingState" as never)}</button><button type="button" className="secondary" onClick={onCancel}>{t("assessmentPlans.cancel" as never)}</button></div></div>;
+  return <div className="panel stack"><label className="field">{t("assessmentPlans.taskTitle" as never)}<input disabled={busy} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label><label className="field">{t("assessmentPlans.taskDescription" as never)}<textarea disabled={busy} value={draft.description ?? ""} onChange={(event) => setDraft({ ...draft, description: event.target.value || null })} /></label><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.taskActivities" as never)}</legend>{activities.map((activity) => <label key={activity.id}><input disabled={busy} type="checkbox" checked={draft.activity_ids.includes(activity.id)} onChange={(event) => setDraft({ ...draft, activity_ids: event.target.checked ? [...draft.activity_ids, activity.id] : draft.activity_ids.filter((item) => item !== activity.id) })} /> {activity.title}</label>)}</fieldset><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.taskSubjects" as never)}</legend>{selectedSubjects.map((subject) => <label key={subject.uuid}><input disabled={busy} type="checkbox" checked={draft.subject_uuids.includes(subject.uuid)} onChange={(event) => setDraft({ ...draft, subject_uuids: event.target.checked ? [...draft.subject_uuids, subject.uuid] : draft.subject_uuids.filter((item) => item !== subject.uuid) })} /> {subject.title}</label>)}</fieldset><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.taskRoles" as never)}</legend>{roles.map((role) => <label key={role.role_id}><input disabled={busy} type="checkbox" checked={draft.role_ids.includes(role.role_id)} onChange={(event) => setDraft({ ...draft, role_ids: event.target.checked ? [...draft.role_ids, role.role_id] : draft.role_ids.filter((item) => item !== role.role_id) })} /> {role.title}</label>)}</fieldset><label className="field">{t("assessmentPlans.taskDateSingle" as never)}<input disabled={busy} type="datetime-local" value={mode === "single" ? toLocalInput(draft.on_date) : ""} onChange={(event) => setDraft({ ...draft, on_date: toIsoInput(event.target.value), start: null, end: null })} /></label><label className="field">{t("assessmentPlans.taskDateRangeStart" as never)}<input disabled={busy} type="datetime-local" value={mode === "range" ? toLocalInput(draft.start) : ""} onChange={(event) => setDraft({ ...draft, on_date: null, start: toIsoInput(event.target.value), end: draft.end })} /></label><label className="field">{t("assessmentPlans.taskDateRangeEnd" as never)}<input disabled={busy} type="datetime-local" value={mode === "range" ? toLocalInput(draft.end) : ""} onChange={(event) => setDraft({ ...draft, on_date: null, start: draft.start, end: toIsoInput(event.target.value) })} /></label><div className="workspace-actions"><button type="button" disabled={!canWrite || busy || !draft.title} onClick={onSave}>{t("systems.saveWorkingState" as never)}</button><button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t("assessmentPlans.cancel" as never)}</button></div></div>;
 }
 
 function RoleEditor({
   draft,
   setDraft,
   parties,
+  busy,
   onSave,
   onCancel,
   t,
@@ -723,27 +792,30 @@ function RoleEditor({
   draft: AssessmentRole;
   setDraft: (draft: AssessmentRole) => void;
   parties: AssessmentParty[];
+  busy: boolean;
   onSave: () => void;
   onCancel: () => void;
   t: (key: never, values?: Record<string, string | number>) => string;
 }) {
-  return <div className="panel stack"><label className="field">{t("assessmentPlans.roleId" as never)}<input value={draft.role_id} onChange={(event) => setDraft({ ...draft, role_id: event.target.value })} /></label><label className="field">{t("assessmentPlans.roleTitle" as never)}<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label><label className="field">{t("assessmentPlans.roleDescription" as never)}<textarea value={draft.description ?? ""} onChange={(event) => setDraft({ ...draft, description: event.target.value || null })} /></label><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.roleParties" as never)}</legend>{parties.map((party) => <label key={party.uuid}><input type="checkbox" checked={draft.party_uuids.includes(party.uuid)} onChange={(event) => setDraft({ ...draft, party_uuids: event.target.checked ? [...draft.party_uuids, party.uuid] : draft.party_uuids.filter((item) => item !== party.uuid) })} /> {party.name}</label>)}</fieldset><div className="workspace-actions"><button type="button" onClick={onSave}>{t("systems.saveWorkingState" as never)}</button><button type="button" className="secondary" onClick={onCancel}>{t("assessmentPlans.cancel" as never)}</button></div></div>;
+  return <div className="panel stack"><label className="field">{t("assessmentPlans.roleId" as never)}<input disabled={busy} value={draft.role_id} onChange={(event) => setDraft({ ...draft, role_id: event.target.value })} /></label><label className="field">{t("assessmentPlans.roleTitle" as never)}<input disabled={busy} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label><label className="field">{t("assessmentPlans.roleDescription" as never)}<textarea disabled={busy} value={draft.description ?? ""} onChange={(event) => setDraft({ ...draft, description: event.target.value || null })} /></label><fieldset className="repeatable-fields"><legend>{t("assessmentPlans.roleParties" as never)}</legend>{parties.map((party) => <label key={party.uuid}><input disabled={busy} type="checkbox" checked={draft.party_uuids.includes(party.uuid)} onChange={(event) => setDraft({ ...draft, party_uuids: event.target.checked ? [...draft.party_uuids, party.uuid] : draft.party_uuids.filter((item) => item !== party.uuid) })} /> {party.name}</label>)}</fieldset><div className="workspace-actions"><button type="button" disabled={busy} onClick={onSave}>{t("systems.saveWorkingState" as never)}</button><button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t("assessmentPlans.cancel" as never)}</button></div></div>;
 }
 
 function PartyEditor({
   draft,
   setDraft,
+  busy,
   onSave,
   onCancel,
   t,
 }: {
   draft: AssessmentParty;
   setDraft: (draft: AssessmentParty) => void;
+  busy: boolean;
   onSave: () => void;
   onCancel: () => void;
   t: (key: never, values?: Record<string, string | number>) => string;
 }) {
-  return <div className="panel stack"><label className="field">{t("assessmentPlans.partyType" as never)}<select value={draft.party_type} onChange={(event) => setDraft({ ...draft, party_type: event.target.value as AssessmentParty["party_type"] })}><option value="person">{t("assessmentPlans.partyPerson" as never)}</option><option value="organization">{t("assessmentPlans.partyOrganization" as never)}</option></select></label><label className="field">{t("assessmentPlans.partyName" as never)}<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><div className="workspace-actions"><button type="button" onClick={onSave}>{t("systems.saveWorkingState" as never)}</button><button type="button" className="secondary" onClick={onCancel}>{t("assessmentPlans.cancel" as never)}</button></div></div>;
+  return <div className="panel stack"><label className="field">{t("assessmentPlans.partyType" as never)}<select disabled={busy} value={draft.party_type} onChange={(event) => setDraft({ ...draft, party_type: event.target.value as AssessmentParty["party_type"] })}><option value="person">{t("assessmentPlans.partyPerson" as never)}</option><option value="organization">{t("assessmentPlans.partyOrganization" as never)}</option></select></label><label className="field">{t("assessmentPlans.partyName" as never)}<input disabled={busy} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><div className="workspace-actions"><button type="button" disabled={busy} onClick={onSave}>{t("systems.saveWorkingState" as never)}</button><button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t("assessmentPlans.cancel" as never)}</button></div></div>;
 }
 
 function nextLocalObjectiveId(items: AssessmentLocalObjective[], controlId: string): string {
@@ -833,7 +905,3 @@ function toIsoInput(value: string): string | null {
 function generateId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
-
-
-
-

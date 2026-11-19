@@ -211,7 +211,7 @@ describe("BFF proxy", () => {
     expect(mocks.backendFetch).toHaveBeenCalledWith(
       session,
       `/api/v1/${path.join("/")}`,
-      undefined,
+      new URLSearchParams(),
       { method: "POST", body: JSON.stringify({ title: "Allowed" }) },
     );
 

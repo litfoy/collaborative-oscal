@@ -46,6 +46,7 @@ class AssessmentResultFindingInput(BaseModel):
 class AssessmentResultWorkingInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    expected_version: int = Field(ge=1)
     title: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=10000)
     reviewed_control_ids: list[str] = Field(default_factory=list, max_length=1000)
@@ -70,6 +71,12 @@ class AssessmentResultCreateInput(BaseModel):
     assessment_plan_version_id: UUID
     title: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=10000)
+
+
+class AssessmentResultPublishInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=1)
 
 
 class AssessmentResultEvidence(BaseModel):
@@ -136,6 +143,7 @@ class AssessmentResultResponse(BaseModel):
     end: datetime | None
     created_at: datetime
     updated_at: datetime
+    concurrency_version: int
 
 
 class AssessmentResultValidationResponse(BaseModel):
@@ -160,5 +168,6 @@ class AssessmentResultVersionResponse(BaseModel):
     diagnostics: list[dict]
     created_at: datetime
     created: bool = False
+    concurrency_version: int | None = None
 
 

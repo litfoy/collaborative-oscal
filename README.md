@@ -129,9 +129,16 @@ Very large parts of the software were created through agentic coding, primarily 
 
 The repository includes backend and frontend tests, PostgreSQL integration coverage, CI configuration, and compatibility and regression probes. The [Assessment Results compatibility notes](docs/architecture/assessment-results-compatibility-probes-2026-11-17.md) document additional checks performed during development. Test results from earlier development snapshots are not a release certification; run the current test suites and manual workflows as described in the [development guide](docs/development.md).
 
-## Acknowledgments and community
+## Acknowledgements
 
-Collaborative OSCAL is an independent personal open-source project. It is not an official OSCAL Compass, CNCF, LF AI & Data or NIST project.
+- Collaborative OSCAL builds on the work of several open-source projects and communities:
+- NIST OSCAL – the open standard underlying this project.
+- OSCAL Compass – an ecosystem of tools and resources for OSCAL-based compliance.
+- Compliance Trestle – OSCAL document processing and validation.
+- OSCAL Compass Content – reusable OSCAL content, including the NIST AI RMF Generative AI catalog used in our demonstration.
+- Thanks to the maintainers and contributors of these projects and the many open-source libraries that make Collaborative OSCAL possible.
+- The project also benefits from the exchange of ideas within the LF AI & Data Security & Compliance Working Group.
+- Collaborative OSCAL is an independent project and is not officially affiliated with or endorsed by NIST, OSCAL Compass or the Linux Foundation.
 
 ## License
 

@@ -16,11 +16,16 @@ from app.api.mapping_schemas import (
     MappingCollectionInput,
     MappingCollectionListResponse,
     MappingCollectionResponse,
+    MappingCollectionUpdateInput,
     RelatedControlResponse,
     RelatedMappingListResponse,
     RelatedMappingResponse,
 )
-from app.application.mappings import InvalidMapping, MappingService
+from app.application.mappings import (
+    InvalidMapping,
+    MappingService,
+    StaleMappingCollectionUpdate,
+)
 from app.config import get_settings
 from app.domain.errors import EntityNotFoundError
 from app.domain.identity.models import AuthorizedTenantContext, Permission, UserIdentity
@@ -68,6 +73,18 @@ def _page_params(
 
 def _not_found(error: EntityNotFoundError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
+
+
+def _stale(error: StaleMappingCollectionUpdate) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "stale_update",
+            "collection_id": str(error.collection_id),
+            "expected_version": error.expected_version,
+            "current_version": error.current_version,
+        },
+    )
 
 
 def _specs(request: MappingCollectionInput) -> list[MappingPairSpec]:
@@ -185,12 +202,13 @@ def update_mapping_collection(
     identity: Identity,
     service: Service,
     collection_id: CollectionId,
-    request: MappingCollectionInput,
+    request: MappingCollectionUpdateInput,
 ) -> MappingCollectionResponse:
     try:
         collection = service.update(
             context.tenant_id,
             collection_id,
+            request.expected_version,
             identity,
             request.title,
             request.description,
@@ -198,6 +216,8 @@ def update_mapping_collection(
         )
     except EntityNotFoundError as error:
         raise _not_found(error) from error
+    except StaleMappingCollectionUpdate as error:
+        raise _stale(error) from error
     except (InvalidMapping, MappingDocumentValidationError) as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
@@ -213,12 +233,17 @@ def update_mapping_collection(
     summary="Delete a Control Mapping collection",
 )
 def delete_mapping_collection(
-    context: WriteContext, service: Service, collection_id: CollectionId
+    context: WriteContext,
+    service: Service,
+    collection_id: CollectionId,
+    expected_version: int = Query(ge=1),
 ) -> Response:
     try:
-        service.delete(context.tenant_id, collection_id)
+        service.delete(context.tenant_id, collection_id, expected_version=expected_version)
     except EntityNotFoundError as error:
         raise _not_found(error) from error
+    except StaleMappingCollectionUpdate as error:
+        raise _stale(error) from error
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

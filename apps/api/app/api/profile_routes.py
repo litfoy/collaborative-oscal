@@ -17,7 +17,11 @@ from app.api.profile_schemas import (
     ProfileUpdateRequest,
     ProfileValidationErrorResponse,
 )
-from app.application.profiles import InvalidProfileSelection, ProfileService
+from app.application.profiles import (
+    InvalidProfileSelection,
+    ProfileService,
+    StaleProfileUpdate,
+)
 from app.config import get_settings
 from app.domain.errors import EntityNotFoundError
 from app.domain.identity.models import AuthorizedTenantContext, Permission
@@ -64,6 +68,18 @@ def _not_found(error: EntityNotFoundError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
 
 
+def _stale(error: StaleProfileUpdate) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "stale_update",
+            "profile_id": str(error.profile_id),
+            "expected_version": error.expected_version,
+            "current_version": error.current_version,
+        },
+    )
+
+
 @router.get(
     "/tenants/{tenant_id}/profiles",
     response_model=ProfileListResponse,
@@ -94,6 +110,7 @@ def list_profiles(
     responses={
         **AUTH_ERRORS,
         **NOT_FOUND,
+        409: {"model": ErrorResponse, "description": "Profile changed after it was loaded."},
         422: {"model": ProfileValidationErrorResponse, "description": "Invalid profile input."},
     },
     tags=["profiles"],
@@ -187,6 +204,7 @@ def update_profile(
         profile = service.update(
             context.tenant_id,
             profile_id,
+            request.expected_version,
             request.title,
             request.control_ids,
             request.description,
@@ -201,6 +219,8 @@ def update_profile(
         )
     except EntityNotFoundError as error:
         raise _not_found(error) from error
+    except StaleProfileUpdate as error:
+        raise _stale(error) from error
     except (InvalidProfileSelection, ProfileDocumentValidationError) as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)

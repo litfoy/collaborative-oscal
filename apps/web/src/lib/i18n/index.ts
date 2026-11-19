@@ -1,4 +1,4 @@
-import { ApiError, ERROR_MESSAGES } from "@/lib/errors";
+import { ApiError, ERROR_MESSAGES, ERROR_TRANSLATION_KEYS } from "@/lib/errors";
 
 import * as common from "./common";
 import * as assessmentPlans from "./assessment-plans";
@@ -51,7 +51,7 @@ export function createI18n(locale: Locale) {
     },
     errorMessage: (error: unknown) => {
       if (error instanceof ApiError) {
-        const context = t(`errors.${error.kind}`);
+        const context = t(ERROR_TRANSLATION_KEYS[error.kind]);
         return !error.message || error.message === ERROR_MESSAGES[error.kind]
           ? context
           : `${context} ${t("errors.diagnostic", { detail: error.message })}`;

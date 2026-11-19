@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.api.assessment_plan_schemas import (
     AssessmentPlanCreateInput,
+    AssessmentPlanPublishInput,
     AssessmentPlanResponse,
     AssessmentPlanValidationResponse,
     AssessmentPlanVersionResponse,
@@ -16,6 +17,7 @@ from app.api.dependencies import require_tenant_permission
 from app.application.assessment_plans import (
     AssessmentPlanService,
     InvalidAssessmentPlan,
+    StaleAssessmentPlanUpdate,
 )
 from app.domain.errors import EntityNotFoundError
 from app.domain.identity.models import AuthorizedTenantContext, Permission
@@ -45,9 +47,19 @@ def _handle_invalid(error: InvalidAssessmentPlan) -> HTTPException:
     return HTTPException(status_code=422, detail={"diagnostics": error.diagnostics})
 
 
-@router.get(
-    "/systems/{system_id}/assessment-plans", response_model=list[AssessmentPlanResponse]
-)
+def _handle_stale(error: StaleAssessmentPlanUpdate) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "stale_update",
+            "plan_id": str(error.plan_id),
+            "expected_version": error.expected_version,
+            "current_version": error.current_version,
+        },
+    )
+
+
+@router.get("/systems/{system_id}/assessment-plans", response_model=list[AssessmentPlanResponse])
 def list_assessment_plans(
     context: ReadContext, service: Service, system_id: UUID
 ) -> list[AssessmentPlanResponse]:
@@ -110,14 +122,19 @@ def update_assessment_plan(
             context.tenant_id,
             context.membership.user_id,
             plan_id,
+            expected_version=request.expected_version,
             title=request.title,
             description=request.description,
-            working_data=request.model_dump(mode="json", exclude={"title", "description"}),
+            working_data=request.model_dump(
+                mode="json", exclude={"expected_version", "title", "description"}
+            ),
         )
     except EntityNotFoundError as error:
         raise _handle_not_found(error) from error
     except InvalidAssessmentPlan as error:
         raise _handle_invalid(error) from error
+    except StaleAssessmentPlanUpdate as error:
+        raise _handle_stale(error) from error
     return AssessmentPlanResponse.model_validate(result)
 
 
@@ -158,14 +175,25 @@ def list_assessment_plan_versions(
     status_code=201,
 )
 def create_assessment_plan_version(
-    context: WriteContext, service: Service, plan_id: UUID, response: Response
+    context: WriteContext,
+    service: Service,
+    plan_id: UUID,
+    request: AssessmentPlanPublishInput,
+    response: Response,
 ) -> AssessmentPlanVersionResponse:
     try:
-        result = service.create_version(context.tenant_id, context.membership.user_id, plan_id)
+        result = service.create_version(
+            context.tenant_id,
+            context.membership.user_id,
+            plan_id,
+            expected_version=request.expected_version,
+        )
     except EntityNotFoundError as error:
         raise _handle_not_found(error) from error
     except InvalidAssessmentPlan as error:
         raise _handle_invalid(error) from error
+    except StaleAssessmentPlanUpdate as error:
+        raise _handle_stale(error) from error
     if not result["created"]:
         response.status_code = 200
     return AssessmentPlanVersionResponse.model_validate(result)
@@ -196,4 +224,3 @@ def export_assessment_plan_version(
         return service.export_version(context.tenant_id, plan_id, version_id)
     except EntityNotFoundError as error:
         raise _handle_not_found(error) from error
-

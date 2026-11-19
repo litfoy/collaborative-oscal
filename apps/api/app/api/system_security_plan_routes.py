@@ -1,13 +1,14 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.api.dependencies import require_tenant_permission
 from app.api.system_security_plan_schemas import (
     ComponentAdoptionInput,
     IncludedImplementationResponse,
     IncludeImplementationInput,
+    MutationTokenResponse,
     SystemComponentInput,
     SystemComponentResponse,
     SystemComponentUpdate,
@@ -18,10 +19,12 @@ from app.api.system_security_plan_schemas import (
     SystemSecurityPlanResponse,
     SystemSecurityPlanUpdate,
     SystemSecurityPlanValidationResponse,
+    SystemSecurityPlanVersionInput,
     SystemSecurityPlanVersionResponse,
 )
 from app.application.system_security_plans import (
     InvalidSystemSecurityPlan,
+    StaleSystemSecurityPlanUpdate,
     SystemSecurityPlanService,
 )
 from app.domain.errors import EntityNotFoundError
@@ -50,6 +53,18 @@ def _handle_not_found(error: EntityNotFoundError) -> HTTPException:
 
 def _handle_invalid(error: InvalidSystemSecurityPlan) -> HTTPException:
     return HTTPException(status_code=422, detail={"diagnostics": error.diagnostics})
+
+
+def _handle_stale(error: StaleSystemSecurityPlanUpdate) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "stale_update",
+            "plan_id": str(error.plan_id),
+            "expected_version": error.expected_version,
+            "current_version": error.current_version,
+        },
+    )
 
 
 @router.get("/systems", response_model=list[SystemResponse])
@@ -303,6 +318,7 @@ def update_system_plan(
             context.tenant_id,
             context.membership.user_id,
             plan_id,
+            expected_version=request.expected_version,
             title=request.title,
             control_implementation_description=request.control_implementation_description,
         )
@@ -310,6 +326,8 @@ def update_system_plan(
         raise _handle_not_found(error) from error
     except InvalidSystemSecurityPlan as error:
         raise _handle_invalid(error) from error
+    except StaleSystemSecurityPlanUpdate as error:
+        raise _handle_stale(error) from error
     return SystemSecurityPlanResponse.model_validate(result)
 
 
@@ -332,29 +350,41 @@ def include_implementation(
             plan_id,
             implementation_id,
             request.system_component_id,
+            expected_version=request.expected_version,
         )
     except EntityNotFoundError as error:
         raise _handle_not_found(error) from error
     except InvalidSystemSecurityPlan as error:
         raise _handle_invalid(error) from error
+    except StaleSystemSecurityPlanUpdate as error:
+        raise _handle_stale(error) from error
     return IncludedImplementationResponse.model_validate(result)
 
 
 @router.delete(
     "/system-security-plans/{plan_id}/implementations/{implementation_id}",
-    status_code=204,
+    response_model=MutationTokenResponse,
 )
 def remove_implementation(
     context: WriteContext,
     service: Service,
     plan_id: UUID,
     implementation_id: UUID,
-) -> Response:
+    expected_version: int = Query(ge=1),
+) -> MutationTokenResponse:
     try:
-        service.remove_implementation(context.tenant_id, plan_id, implementation_id)
+        token = service.remove_implementation(
+            context.tenant_id,
+            context.membership.user_id,
+            plan_id,
+            implementation_id,
+            expected_version=expected_version,
+        )
     except EntityNotFoundError as error:
         raise _handle_not_found(error) from error
-    return Response(status_code=204)
+    except StaleSystemSecurityPlanUpdate as error:
+        raise _handle_stale(error) from error
+    return MutationTokenResponse.model_validate(token)
 
 
 @router.get(
@@ -394,14 +424,25 @@ def list_plan_versions(
     status_code=201,
 )
 def create_plan_version(
-    context: WriteContext, service: Service, plan_id: UUID, response: Response
+    context: WriteContext,
+    service: Service,
+    plan_id: UUID,
+    request: SystemSecurityPlanVersionInput,
+    response: Response,
 ) -> SystemSecurityPlanVersionResponse:
     try:
-        result = service.create_version(context.tenant_id, context.membership.user_id, plan_id)
+        result = service.create_version(
+            context.tenant_id,
+            context.membership.user_id,
+            plan_id,
+            expected_version=request.expected_version,
+        )
     except EntityNotFoundError as error:
         raise _handle_not_found(error) from error
     except InvalidSystemSecurityPlan as error:
         raise _handle_invalid(error) from error
+    except StaleSystemSecurityPlanUpdate as error:
+        raise _handle_stale(error) from error
     if not result["created"]:
         response.status_code = 200
     return SystemSecurityPlanVersionResponse.model_validate(result)

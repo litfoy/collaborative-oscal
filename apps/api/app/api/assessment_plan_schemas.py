@@ -90,6 +90,7 @@ class AssessmentPartyInput(BaseModel):
 class AssessmentPlanWorkingInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    expected_version: int = Field(ge=1)
     title: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=10000)
     control_ids: list[str] = Field(default_factory=list, max_length=1000)
@@ -113,6 +114,12 @@ class AssessmentPlanCreateInput(BaseModel):
     ssp_version_id: UUID
     title: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=10000)
+
+
+class AssessmentPlanPublishInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=1)
 
 
 class AssessmentSourceObjective(BaseModel):
@@ -191,6 +198,7 @@ class AssessmentPlanResponse(BaseModel):
     ssp_oscal_version: str
     created_at: datetime
     updated_at: datetime
+    concurrency_version: int
 
 
 class AssessmentSourceObjectiveCatalogItem(BaseModel):
@@ -219,6 +227,4 @@ class AssessmentPlanVersionResponse(BaseModel):
     diagnostics: list[dict]
     created_at: datetime
     created: bool = False
-
-
-
+    concurrency_version: int | None = None

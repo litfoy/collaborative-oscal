@@ -12,6 +12,7 @@ vi.mock("@/lib/bff-client", () => mocks);
 const profile: Profile = {
   id: "profile", tenant_id: TENANT, catalog_id: CATALOG, revision_id: REVISION,
   title: "Baseline", control_ids: ["ac-1"], created_at: "2026-01-01", updated_at: "2026-01-01",
+  concurrency_version: 1,
 };
 const saved: Implementation = {
   id: "implementation", tenant_id: TENANT, organization_id: null, profile_id: profile.id,

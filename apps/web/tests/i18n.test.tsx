@@ -138,7 +138,8 @@ describe("localized workspaces preserve source data", () => {
 
   it("submits original implementation values and authored text with German labels", async () => {
     const profile: Profile = { id: "profile", tenant_id: TENANT, catalog_id: CATALOG, revision_id: REVISION,
-      title: "Original Baseline", control_ids: ["ac-1"], created_at: "2026-01-01", updated_at: "2026-01-01" };
+      title: "Original Baseline", control_ids: ["ac-1"], created_at: "2026-01-01", updated_at: "2026-01-01",
+      concurrency_version: 1 };
     mocks.bffGet.mockImplementation(async (path: string) => {
       if (path.endsWith("implementation-options")) return { organizations: [], people: [] };
       if (path.includes("/controls/") || path.endsWith("/control")) return control();

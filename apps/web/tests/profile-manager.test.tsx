@@ -4,6 +4,7 @@ import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProfileManager } from "@/components/ProfileManager";
+import { ApiError } from "@/lib/errors";
 import { LocaleProvider } from "@/lib/i18n/provider";
 import { createI18n } from "@/lib/i18n";
 import type { Profile, ProfileBrowserNode } from "@/lib/types";
@@ -18,6 +19,7 @@ const profile: Profile = {
   title: "Access baseline", description: "Scope for the annual review", control_ids: ["ac-1"],
   oscal_version: "1.1.3",
   created_at: "2026-11-10T00:00:00Z", updated_at: "2026-11-10T00:00:00Z",
+  concurrency_version: 1,
 };
 const root = "/catalog/groups/0";
 const parent = `${root}/controls/0`;
@@ -319,6 +321,7 @@ describe("Profile Builder", () => {
     mocks.bffWrite.mockImplementation(() => new Promise<Profile>((_resolve, reject) => { rejectSave = reject; }));
     await user.click(screen.getByRole("button", { name: "Save profile" }));
     expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "ac-1 Access policy" })).toBeDisabled();
     expect(screen.getByText("Saving…", { selector: "[role=status]" })).toBeInTheDocument();
     expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
     await act(async () => rejectSave(new Error("network")));
@@ -327,6 +330,55 @@ describe("Profile Builder", () => {
     expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "ac-1 Access policy" })).toBeChecked();
     expect(screen.queryByRole("link", { name: "Export OSCAL JSON" })).not.toBeInTheDocument();
+  });
+
+  it("preserves unsaved profile edits when conflict reload is canceled", async () => {
+    const user = userEvent.setup();
+    renderManager([profile]);
+    await user.click(screen.getByRole("button", { name: "Edit profile" }));
+    await user.click(screen.getByRole("tab", { name: "Profile Settings" }));
+    const title = screen.getByRole("textbox", { name: "Profile title" });
+    await user.clear(title);
+    await user.type(title, "Canceled reload draft");
+
+    mocks.bffWrite.mockRejectedValueOnce(
+      new ApiError("stale_update", 409, "stale", { current_version: 4 }),
+    );
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+    expect(await screen.findByText(/changed in another session/i)).toBeInTheDocument();
+
+    mocks.bffGet.mockClear();
+    vi.mocked(window.confirm).mockReturnValue(false);
+    await user.click(screen.getByRole("button", { name: "Reload latest profile" }));
+
+    expect(window.confirm).toHaveBeenCalled();
+    expect(mocks.bffGet).not.toHaveBeenCalled();
+    expect(title).toHaveValue("Canceled reload draft");
+  });
+
+  it("preserves unsaved profile edits when save conflicts and reload fails", async () => {
+    const user = userEvent.setup();
+    renderManager([profile]);
+    await user.click(screen.getByRole("button", { name: "Edit profile" }));
+    await user.click(screen.getByRole("tab", { name: "Profile Settings" }));
+    const title = screen.getByRole("textbox", { name: "Profile title" });
+    await user.clear(title);
+    await user.type(title, "Conflicting draft");
+
+    mocks.bffWrite.mockRejectedValueOnce(
+      new ApiError("stale_update", 409, "stale", { current_version: 3 }),
+    );
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(await screen.findByText(/changed in another session/i)).toBeInTheDocument();
+    expect(title).toHaveValue("Conflicting draft");
+
+    mocks.bffGet.mockRejectedValueOnce(new Error("reload failed"));
+    vi.mocked(window.confirm).mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: "Reload latest profile" }));
+
+    expect(await screen.findByText(/reload failed/i)).toBeInTheDocument();
+    expect(title).toHaveValue("Conflicting draft");
   });
 
   it("shows catalog loading errors and can retry", async () => {

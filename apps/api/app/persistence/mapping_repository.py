@@ -17,6 +17,7 @@ def _collection(record: MappingCollectionRecord) -> MappingCollection:
         record.updated_by,
         record.created_at,
         record.updated_at,
+        record.concurrency_version,
     )
 
 
@@ -38,6 +39,7 @@ class SQLMappingRepository:
                 updated_by=collection.updated_by,
                 created_at=collection.created_at,
                 updated_at=collection.updated_at,
+                concurrency_version=collection.concurrency_version,
             )
         )
         self._session.flush()

@@ -131,6 +131,7 @@ def seed_ai_governance_demo(
             join_transaction_mode="create_savepoint",
             expire_on_commit=False,
         )
+
         def begin_scope():
             return scoped_factory.begin()
 
@@ -526,17 +527,24 @@ def seed_ai_governance_demo(
                     oscal_status_explanation=status_explanation,
                 ),
             )
-            ssp.associate_implementation(
+            included = ssp.associate_implementation(
                 tenant_id,
                 actor_id,
                 ssp_plan["id"],
                 record.id,
                 component_id,
+                expected_version=ssp_plan["concurrency_version"],
             )
+            ssp_plan["concurrency_version"] = included["concurrency_version"]
 
         if not ssp.validate_plan(tenant_id, ssp_plan["id"])["valid"]:
             raise RuntimeError("Generated SSP draft did not pass validation.")
-        ssp_version = ssp.create_version(tenant_id, actor_id, ssp_plan["id"])
+        ssp_version = ssp.create_version(
+            tenant_id,
+            actor_id,
+            ssp_plan["id"],
+            expected_version=ssp_plan["concurrency_version"],
+        )
 
         assessment_plan = assessment_plans.create_plan(
             tenant_id,
@@ -558,10 +566,11 @@ def seed_ai_governance_demo(
         governance_activity_id = str(uuid4())
         red_team_activity_id = str(uuid4())
         assessor_party_uuid = str(uuid4())
-        assessment_plans.update_plan(
+        assessment_plan = assessment_plans.update_plan(
             tenant_id,
             actor_id,
             assessment_plan["id"],
+            expected_version=assessment_plan["concurrency_version"],
             title=assessment_plan["title"],
             description=assessment_plan["description"],
             working_data={
@@ -759,6 +768,7 @@ def seed_ai_governance_demo(
             tenant_id,
             actor_id,
             assessment_plan["id"],
+            expected_version=assessment_plan["concurrency_version"],
         )
 
         assessment_result = assessment_results.create_result(
@@ -776,10 +786,11 @@ def seed_ai_governance_demo(
             ),
         )
         observation_id = str(uuid4())
-        assessment_results.update_result(
+        assessment_result = assessment_results.update_result(
             tenant_id,
             actor_id,
             assessment_result["id"],
+            expected_version=assessment_result["concurrency_version"],
             title=assessment_result["title"],
             description=assessment_result["description"],
             working_data={
@@ -861,6 +872,7 @@ def seed_ai_governance_demo(
             tenant_id,
             actor_id,
             assessment_result["id"],
+            expected_version=assessment_result["concurrency_version"],
         )
 
         _validate_historical_chain(

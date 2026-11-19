@@ -385,7 +385,11 @@ def test_profiles_reference_catalogs_and_select_controls_without_mutating_source
     updated = client.put(
         profiles_path + f"/{profile['id']}",
         headers=world.headers("editor"),
-        json={"title": "Updated access profile", "control_ids": ["ac-2"]},
+        json={
+            "expected_version": profile["concurrency_version"],
+            "title": "Updated access profile",
+            "control_ids": ["ac-2"],
+        },
     )
     assert updated.status_code == 200
     updated_document = client.get(export_path, headers=world.headers("alice")).json()
@@ -465,9 +469,14 @@ def test_multi_import_profile_retains_provenance_and_implementation(
     updated = client.put(
         profile_path,
         headers=editor,
-        json={"title": "Multiple updated", "imports": profile["imports"]},
+        json={
+            "expected_version": profile["concurrency_version"],
+            "title": "Multiple updated",
+            "imports": profile["imports"],
+        },
     )
     assert updated.status_code == 200
+    profile = updated.json()
     updated_export = client.get(profile_path + "/export", headers=reader).json()["profile"]
     assert updated_export["metadata"]["oscal-version"] == oscal_version
     impl_path = f"/api/v1/tenants/{tenant}/implementations"
@@ -492,11 +501,13 @@ def test_multi_import_profile_retains_provenance_and_implementation(
         profile_path,
         headers=editor,
         json={
+            "expected_version": profile["concurrency_version"],
             "title": "Reordered",
             "imports": [repeated, first],
         },
     )
     assert update_response.status_code == 200, update_response.text
+    profile = update_response.json()
     assert update_response.json()["imports"] == [repeated, first]
     assert client.get(profile_path, headers=reader).json()["imports"] == [repeated, first]
     assert client.get(f"{impl_path}/{record['id']}", headers=reader).json() == record
@@ -518,6 +529,7 @@ def test_multi_import_profile_retains_provenance_and_implementation(
             profile_path,
             headers=editor,
             json={
+                "expected_version": profile["concurrency_version"],
                 "title": "Changed source",
                 "imports": [
                     {
@@ -540,6 +552,7 @@ def test_multi_import_profile_retains_provenance_and_implementation(
             profile_path,
             headers=editor,
             json={
+                "expected_version": profile["concurrency_version"],
                 "title": "Legacy",
                 "control_ids": ["ac-1"],
             },
@@ -557,6 +570,7 @@ def test_multi_import_profile_retains_provenance_and_implementation(
             profile_path,
             headers=editor,
             json={
+                "expected_version": profile["concurrency_version"],
                 "title": "Foreign",
                 "imports": [first, unauthorized],
             },
@@ -726,6 +740,7 @@ def test_new_profile_reference_locks_revision_against_concurrent_mutation(
             service.update(
                 tenant,
                 UUID(initial["id"]),
+                int(initial["concurrency_version"]),
                 "Lock test",
                 None,
                 imports=[
@@ -839,6 +854,7 @@ def test_waiting_revision_update_observes_committed_import(client, world, sessio
                 service.update(
                     tenant,
                     UUID(existing["id"]),
+                    int(existing["concurrency_version"]),
                     "Concurrent update",
                     None,
                     imports=[
@@ -1087,11 +1103,13 @@ def test_implementation_register_preserves_original_revision_and_scope(
     control = client.get(f"{path}/{first['id']}/control", headers=reader).json()
     assert control["title"] == "Access Policy"
     assert control["reference"]["revision_id"] == str(world.security.revision.id)
+    current_profile = client.get(f"{profiles}/{profile['id']}", headers=reader).json()
     assert (
         client.put(
             f"{profiles}/{profile['id']}",
             headers=editor,
             json={
+                "expected_version": current_profile["concurrency_version"],
                 "title": "Changed selection",
                 "control_ids": ["ac-2"],
             },

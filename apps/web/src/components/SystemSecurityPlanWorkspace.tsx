@@ -3,6 +3,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 
 import { ControlBrowser } from "@/components/ControlBrowser";
+import { ApiError } from "@/lib/errors";
 import { useI18n } from "@/lib/i18n/provider";
 import type { Translate } from "@/lib/i18n";
 import type {
@@ -25,6 +26,16 @@ const OSCAL_STATUSES = [
   "alternative",
   "not-applicable",
 ] as const;
+
+class PartialAssociationError extends Error {
+  constructor(
+    message: string,
+    readonly staleDetail?: { current_version?: number },
+  ) {
+    super(message);
+    this.name = "PartialAssociationError";
+  }
+}
 
 export function SystemSecurityPlanWorkspace({
   tenantId,
@@ -54,6 +65,7 @@ export function SystemSecurityPlanWorkspace({
   const [editingContribution, setEditingContribution] = useState(false);
   const [contributionQuery, setContributionQuery] = useState("");
   const [implementations, setImplementations] = useState(initialImplementations);
+  const [systemComponents, setSystemComponents] = useState(components);
   const [versions, setVersions] = useState(initialVersions);
   const [validation, setValidation] = useState<SystemSecurityPlanValidation | null>(null);
   const [selectedId, setSelectedId] = useState("");
@@ -64,6 +76,7 @@ export function SystemSecurityPlanWorkspace({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [conflict, setConflict] = useState<{ currentVersion: number } | null>(null);
 
   const candidates = useMemo(
     () =>
@@ -77,14 +90,14 @@ export function SystemSecurityPlanWorkspace({
   );
   const selected = candidates.find((item) => item.id === selectedId);
   const includedIds = new Set(plan.included_implementations.map((item) => item.implementation_id));
-  const availableComponents = components;
+  const availableComponents = systemComponents;
   const dirtyPlan = plan.title !== savedPlan.title || plan.control_implementation_description !== savedPlan.control_implementation_description;
   const pendingContribution = !!selectedId;
   const validationStale = Boolean(validation && (dirtyPlan || pendingContribution));
   const undocumentedControlCount = Math.max(plan.baseline_control_count - plan.documented_control_count, 0);
   const contributionGroups = useMemo(() => {
     const implementationById = new Map(implementations.map((item) => [item.id, item] as const));
-    const componentById = new Map(components.map((item) => [item.id, item] as const));
+    const componentById = new Map(systemComponents.map((item) => [item.id, item] as const));
     const groups = new Map<string, {
       oscalControlId: string;
       entries: Array<{
@@ -108,7 +121,7 @@ export function SystemSecurityPlanWorkspace({
     return [...groups.values()]
       .map((group) => ({ ...group, entries: group.entries.sort((left, right) => (left.implementation?.description ?? "").localeCompare(right.implementation?.description ?? "")) }))
       .sort((left, right) => left.oscalControlId.localeCompare(right.oscalControlId));
-  }, [components, implementations, plan.included_implementations]);
+  }, [systemComponents, implementations, plan.included_implementations]);
   const filteredGroups = contributionGroups.filter((group) => {
     const haystack = [
       group.oscalControlId,
@@ -127,6 +140,7 @@ export function SystemSecurityPlanWorkspace({
         `/bff/tenants/${tenantId}/system-security-plans/${plan.id}`,
         "PUT",
         {
+          expected_version: plan.concurrency_version,
           title: plan.title,
           control_implementation_description: plan.control_implementation_description,
         },
@@ -136,6 +150,7 @@ export function SystemSecurityPlanWorkspace({
       setPlan(saved);
       setSavedPlan(saved);
       setValidation(null);
+      setConflict(null);
       return t("systems.sspWorkingStateSaved");
     });
   }
@@ -165,23 +180,52 @@ export function SystemSecurityPlanWorkspace({
       const alreadyIncluded = includedIds.has(updated.id);
       if (!alreadyIncluded) {
         try {
-          await request(
+          const included = await request<IncludedImplementationResponse>(
             `/bff/tenants/${tenantId}/system-security-plans/${plan.id}/implementations/${updated.id}`,
             "POST",
-            { system_component_id: componentId },
+            {
+              expected_version: plan.concurrency_version,
+              system_component_id: componentId,
+            },
             t,
             errorMessage,
           );
+          applyMembershipMutation(
+            (current) => [
+              ...current,
+              {
+                implementation_id: included.implementation_id,
+                oscal_control_id: included.oscal_control_id,
+                system_component_id: included.system_component_id,
+              },
+            ],
+            included.concurrency_version,
+          );
         } catch (reason) {
-          throw new Error(t("systems.recordSavedButNotIncluded", { reason: reason instanceof Error ? errorMessage(reason) : t("systems.requestFailedSentence") }));
+          if (reason instanceof ApiError && reason.kind === "stale_update") {
+            throw new PartialAssociationError(
+              t("systems.recordSavedButNotIncluded", {
+                reason: errorMessage(reason),
+              }),
+              reason.detail as { current_version?: number } | undefined,
+            );
+          }
+          throw new PartialAssociationError(
+            t("systems.recordSavedButNotIncluded", {
+              reason:
+                reason instanceof Error
+                  ? errorMessage(reason)
+                  : t("systems.requestFailedSentence"),
+            }),
+          );
         }
-        await refreshPlan(t, errorMessage);
       }
       setSelectedId("");
       setDescription("");
       setOscalStatus("");
       setStatusExplanation("");
       setEditingContribution(false);
+      setConflict(null);
       return alreadyIncluded
         ? t("systems.contributionUpdatedNotice")
         : t("systems.contributionAddedNotice");
@@ -190,15 +234,19 @@ export function SystemSecurityPlanWorkspace({
 
   async function removeImplementation(implementationId: string) {
     await run(async () => {
-      await request(
-        `/bff/tenants/${tenantId}/system-security-plans/${plan.id}/implementations/${implementationId}`,
+      const token = await request<{ concurrency_version: number }>(
+        `/bff/tenants/${tenantId}/system-security-plans/${plan.id}/implementations/${implementationId}?expected_version=${plan.concurrency_version}`,
         "DELETE",
         undefined,
         t,
         errorMessage,
       );
-      await refreshPlan(t, errorMessage);
+      applyMembershipMutation(
+        (current) => current.filter((item) => item.implementation_id !== implementationId),
+        token.concurrency_version,
+      );
       setValidation(null);
+      setConflict(null);
       return t("systems.contributionRemovedNotice");
     });
   }
@@ -220,28 +268,101 @@ export function SystemSecurityPlanWorkspace({
       const version = await request<SystemSecurityPlanVersion>(
         `/bff/tenants/${tenantId}/system-security-plans/${plan.id}/versions`,
         "POST",
-        {},
+        { expected_version: plan.concurrency_version },
         t,
         errorMessage,
       );
+      if (typeof version.concurrency_version === "number") {
+        setPlan((current) => ({ ...current, concurrency_version: version.concurrency_version as number }));
+        setSavedPlan((current) => ({ ...current, concurrency_version: version.concurrency_version as number }));
+      }
       setVersions((current) => [
         version,
         ...current.filter((item) => item.id !== version.id),
       ]);
+      setConflict(null);
       return version.created
         ? t("systems.createdImmutableVersion", { version: version.document_version })
         : t("systems.workingContentUnchanged");
     });
   }
 
-  async function refreshPlan(t: Translate, errorMessage: (error: unknown) => string) {
-    const updated = await getJson<SystemSecurityPlan>(
-      `/bff/tenants/${tenantId}/system-security-plans/${plan.id}`,
-      t,
-      errorMessage,
-    );
-    setPlan((current) => ({ ...updated, title: current.title, control_implementation_description: current.control_implementation_description }));
-    setSavedPlan(updated);
+  function applyMembershipMutation(
+    mutate: (current: SystemSecurityPlan["included_implementations"]) => SystemSecurityPlan["included_implementations"],
+    concurrencyVersion: number,
+  ) {
+    setPlan((current) => {
+      const included = mutate(current.included_implementations);
+      return {
+        ...current,
+        included_implementations: included,
+        documented_control_count: new Set(included.map((item) => item.oscal_control_id)).size,
+        concurrency_version: concurrencyVersion,
+      };
+    });
+    setSavedPlan((current) => {
+      const included = mutate(current.included_implementations);
+      return {
+        ...current,
+        included_implementations: included,
+        documented_control_count: new Set(included.map((item) => item.oscal_control_id)).size,
+        concurrency_version: concurrencyVersion,
+      };
+    });
+  }
+
+  async function reloadAfterConflict() {
+    if (!conflict || busy) return;
+    if (!window.confirm(t("systems.confirmSspConflictReload"))) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const [refreshedPlan, refreshedVersions, refreshedValidation, refreshedImplementations, refreshedComponents] = await Promise.all([
+        getJson<SystemSecurityPlan>(
+          `/bff/tenants/${tenantId}/system-security-plans/${plan.id}`,
+          t,
+          errorMessage,
+        ),
+        getJson<SystemSecurityPlanVersion[]>(
+          `/bff/tenants/${tenantId}/system-security-plans/${plan.id}/versions`,
+          t,
+          errorMessage,
+        ),
+        getJson<SystemSecurityPlanValidation>(
+          `/bff/tenants/${tenantId}/system-security-plans/${plan.id}/validation`,
+          t,
+          errorMessage,
+        ),
+        getJson<Paged<Implementation>>(
+          `/bff/tenants/${tenantId}/implementations?limit=100&offset=0&tenant_scope=true`,
+          t,
+          errorMessage,
+        ),
+        getJson<SystemComponent[]>(
+          `/bff/tenants/${tenantId}/systems/${system.id}/components`,
+          t,
+          errorMessage,
+        ),
+      ]);
+      setPlan(refreshedPlan);
+      setSavedPlan(refreshedPlan);
+      setVersions(refreshedVersions);
+      setValidation(refreshedValidation);
+      setImplementations(refreshedImplementations.items);
+      setSystemComponents(refreshedComponents);
+      setEditingContribution(false);
+      setSelectedId("");
+      setComponentId("");
+      setDescription("");
+      setOscalStatus("");
+      setStatusExplanation("");
+      setConflict(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? errorMessage(reason) : t("systems.requestFailed"));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function run(action: () => Promise<string>) {
@@ -251,6 +372,21 @@ export function SystemSecurityPlanWorkspace({
     try {
       setNotice(await action());
     } catch (reason) {
+      if (reason instanceof PartialAssociationError) {
+        if (reason.staleDetail) {
+          setConflict({
+            currentVersion: reason.staleDetail.current_version ?? plan.concurrency_version,
+          });
+        }
+        setError(reason.message);
+        return;
+      }
+      if (reason instanceof ApiError && reason.kind === "stale_update") {
+        const detail = reason.detail as { current_version?: number } | undefined;
+        setConflict({ currentVersion: detail?.current_version ?? plan.concurrency_version });
+        setError("");
+        return;
+      }
       setError(reason instanceof Error ? errorMessage(reason) : t("systems.requestFailed"));
     } finally {
       setBusy(false);
@@ -291,6 +427,15 @@ export function SystemSecurityPlanWorkspace({
       {notice ? <p role="status">{notice}</p> : null}
       {dirtyPlan ? <p role="status">{t("systems.unsavedWorkingChanges")}</p> : null}
       {pendingContribution ? <p role="status">{t("systems.pendingContribution")}</p> : null}
+      {conflict ? (
+        <div role="alert" className="panel">
+          <p>{t("systems.sspConflictDetected", { version: conflict.currentVersion })}</p>
+          <p className="muted">{t("systems.sspConflictPreserved")}</p>
+          <button type="button" className="danger-action" disabled={busy} onClick={() => void reloadAfterConflict()}>
+            {t("systems.sspReloadConfirmedState")}
+          </button>
+        </div>
+      ) : null}
       <nav className="workspace-tabs" aria-label={t("systems.sspSections")}>
         {([["baseline", t("systems.baseline")], ["implementation", t("systems.controlImplementation")], ["validation", t("systems.validation")], ["versions", t("systems.versions")]] as const).map(([id, label]) => (
           <button type="button" key={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>{label}</button>
@@ -416,7 +561,7 @@ export function SystemSecurityPlanWorkspace({
             ) : (
               <p className="muted">{t("systems.noImplementationRecords")}</p>
             )}
-            {canWrite && !editingContribution ? <button type="button" onClick={() => setEditingContribution(true)}>{selectedId ? t("systems.resumeContribution") : t("systems.addContribution")}</button> : null}
+            {canWrite && !editingContribution ? <button type="button" disabled={busy} onClick={() => setEditingContribution(true)}>{selectedId ? t("systems.resumeContribution") : t("systems.addContribution")}</button> : null}
           </div>
           {canWrite && editingContribution ? (
             <aside className="panel system-component-editor" aria-live="polite">
@@ -424,7 +569,7 @@ export function SystemSecurityPlanWorkspace({
             <h3>{t("systems.includeExistingRegisterRecord")}</h3>
             <label className="field">
               {t("systems.pinnedBaselineContribution")}
-              <select value={selectedId} onChange={(event) => chooseImplementation(event.target.value)}>
+              <select value={selectedId} disabled={busy} onChange={(event) => chooseImplementation(event.target.value)}>
                 <option value="">{t("systems.selectRequirementContribution")}</option>
                 {candidates.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -436,7 +581,7 @@ export function SystemSecurityPlanWorkspace({
             </label>
             <label className="field">
               {t("systems.actualSystemComponent")}
-              <select value={componentId} disabled={!!selected && includedIds.has(selected.id)} onChange={(event) => setComponentId(event.target.value)}>
+              <select value={componentId} disabled={busy || (!!selected && includedIds.has(selected.id))} onChange={(event) => setComponentId(event.target.value)}>
                 <option value="">{t("systems.selectComponent")}</option>
                 {availableComponents.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -447,11 +592,11 @@ export function SystemSecurityPlanWorkspace({
             </label>
             <label className="field">
               {t("systems.requirementImplementationDescription")}
-              <textarea value={description} onChange={(event) => setDescription(event.target.value)} />
+              <textarea value={description} disabled={busy} onChange={(event) => setDescription(event.target.value)} />
             </label>
             <label className="field">
               {t("systems.oscalImplementationStatus")}
-              <select value={oscalStatus} onChange={(event) => setOscalStatus(event.target.value)}>
+              <select value={oscalStatus} disabled={busy} onChange={(event) => setOscalStatus(event.target.value)}>
                 <option value="">{t("systems.selectOscalStatus")}</option>
                 {OSCAL_STATUSES.map((status) => <option key={status} value={status}>{enumLabel(status)}</option>)}
               </select>
@@ -459,7 +604,7 @@ export function SystemSecurityPlanWorkspace({
             {["planned", "alternative", "not-applicable"].includes(oscalStatus) ? (
               <label className="field">
                 {t("systems.explanationRequired")}
-                <textarea value={statusExplanation} onChange={(event) => setStatusExplanation(event.target.value)} />
+                <textarea value={statusExplanation} disabled={busy} onChange={(event) => setStatusExplanation(event.target.value)} />
               </label>
             ) : null}
             <button disabled={busy || !selected || !componentId || !oscalStatus}>
@@ -467,8 +612,8 @@ export function SystemSecurityPlanWorkspace({
                 ? t("systems.saveContributionChanges")
                 : t("systems.updateAndInclude")}
             </button>
-            <button type="button" className="secondary" onClick={() => setEditingContribution(false)}>{t("systems.close")}</button>
-            <button type="button" className="secondary" onClick={() => { setSelectedId(""); setComponentId(""); setDescription(""); setOscalStatus(""); setStatusExplanation(""); setEditingContribution(false); }}>{t("systems.discardDraft")}</button>
+            <button type="button" className="secondary" disabled={busy} onClick={() => setEditingContribution(false)}>{t("systems.close")}</button>
+            <button type="button" className="secondary" disabled={busy} onClick={() => { setSelectedId(""); setComponentId(""); setDescription(""); setOscalStatus(""); setStatusExplanation(""); setEditingContribution(false); }}>{t("systems.discardDraft")}</button>
           </form>
                 {selected ? (
                   <div className="workspace-actions">
@@ -594,14 +739,38 @@ async function request<T>(
   });
   const result: unknown =
     response.status === 204 ? null : await response.json().catch(() => null);
-  if (!response.ok) throw new Error(readError(result, t, errorMessage));
+  if (!response.ok) {
+    if (
+      response.status === 409 &&
+      typeof result === "object" &&
+      result !== null &&
+      "detail" in result &&
+      typeof (result as { detail?: unknown }).detail === "object" &&
+      (result as { detail?: { code?: string } }).detail?.code === "stale_update"
+    ) {
+      throw new ApiError("stale_update", 409, t("errors.stale_update"), (result as { detail: unknown }).detail);
+    }
+    throw new Error(readError(result, t, errorMessage));
+  }
   return result as T;
 }
 
 async function getJson<T>(path: string, t: Translate, errorMessage: (error: unknown) => string): Promise<T> {
   const response = await fetch(path, { cache: "no-store" });
   const result: unknown = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(readError(result, t, errorMessage));
+  if (!response.ok) {
+    if (
+      response.status === 409 &&
+      typeof result === "object" &&
+      result !== null &&
+      "detail" in result &&
+      typeof (result as { detail?: unknown }).detail === "object" &&
+      (result as { detail?: { code?: string } }).detail?.code === "stale_update"
+    ) {
+      throw new ApiError("stale_update", 409, t("errors.stale_update"), (result as { detail: unknown }).detail);
+    }
+    throw new Error(readError(result, t, errorMessage));
+  }
   return result as T;
 }
 
@@ -616,3 +785,10 @@ function readError(body: unknown, t: Translate, errorMessage: (error: unknown) =
   }
   return errorMessage(body) || t("systems.requestFailed");
 }
+
+type IncludedImplementationResponse = {
+  implementation_id: string;
+  system_component_id: string;
+  oscal_control_id: string;
+  concurrency_version: number;
+};

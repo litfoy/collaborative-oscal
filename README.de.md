@@ -129,8 +129,16 @@ Sehr große Teile der Software sind durch agentische Softwareentwicklung (Agenti
 
 Das Repository enthält Backend- und Frontend-Tests, PostgreSQL-Integrationstests, eine CI-Konfiguration sowie Kompatibilitäts- und Regressionstests. Die [Kompatibilitätsnotizen zu Prüfergebnissen](docs/architecture/assessment-results-compatibility-probes-2026-11-17.md) dokumentieren weitere während der Entwicklung durchgeführte Prüfungen. Testergebnisse früherer Entwicklungsstände stellen keine Release-Zertifizierung dar; die aktuellen Testsuiten und manuellen Workflows sollten entsprechend dem [Entwicklerleitfaden](docs/development.md) ausgeführt werden.
 
-## Danksagung und Community
-Collaborative OSCAL ist ein unabhängiges persönliches Open-Source-Projekt. Es ist kein offizielles Projekt von OSCAL Compass, CNCF, LF AI & Data oder NIST. Eine Unterstützung durch diese Organisationen  wird damit nicht behauptet.
+## Danksagung
+
+Collaborative OSCAL baut auf der Arbeit verschiedener Open-Source-Projekte und Communities auf:
+- [NIST OSCAL](https://pages.nist.gov/OSCAL/) – der offene Standard, auf dem dieses Projekt basiert.
+- [OSCAL Compass](https://github.com/oscal-compass) – ein Ökosystem von Werkzeugen und Ressourcen für OSCAL-basiertes Compliance-Management.
+- [Compliance Trestle](https://github.com/oscal-compass/compliance-trestle) – Verarbeitung und Validierung von OSCAL-Dokumenten.
+- [OSCAL Compass Content](https://github.com/oscal-compass/oscal-content) – wiederverwendbare OSCAL-Inhalte, darunter der in unserer Demo verwendete NIST AI RMF Generative AI-Katalog.
+- Unser Dank gilt den Maintainern und Contributors dieser Projekte sowie der zahlreichen Open-Source-Bibliotheken, die Collaborative OSCAL ermöglichen.
+- Das Projekt profitiert außerdem vom fachlichen Austausch innerhalb der LF AI & Data Security & Compliance Working Group.
+- Collaborative OSCAL ist ein unabhängiges Projekt und weder offiziell mit NIST, OSCAL Compass oder der Linux Foundation verbunden noch von diesen Organisationen offiziell unterstützt.
 
 ## Lizenz
 

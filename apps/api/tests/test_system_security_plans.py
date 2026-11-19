@@ -237,16 +237,42 @@ def test_system_ssp_shared_components_explicit_memberships_and_immutable_version
         ),
     )
 
-    ssp.associate_implementation(tenant.id, actor, plan_one["id"], legacy.id, concrete["id"])
-    ssp.associate_implementation(
-        tenant.id, actor, plan_one["id"], first_other_component.id, adopted["id"]
+    include_one = ssp.associate_implementation(
+        tenant.id,
+        actor,
+        plan_one["id"],
+        legacy.id,
+        concrete["id"],
+        expected_version=plan_one["concurrency_version"],
     )
-    ssp.associate_implementation(
-        tenant.id, actor, plan_one["id"], second_requirement.id, concrete["id"]
+    plan_one["concurrency_version"] = include_one["concurrency_version"]
+    include_two = ssp.associate_implementation(
+        tenant.id,
+        actor,
+        plan_one["id"],
+        first_other_component.id,
+        adopted["id"],
+        expected_version=plan_one["concurrency_version"],
     )
-    ssp.associate_implementation(
-        tenant.id, actor, plan_two["id"], different_baseline.id, concrete["id"]
+    plan_one["concurrency_version"] = include_two["concurrency_version"]
+    include_three = ssp.associate_implementation(
+        tenant.id,
+        actor,
+        plan_one["id"],
+        second_requirement.id,
+        concrete["id"],
+        expected_version=plan_one["concurrency_version"],
     )
+    plan_one["concurrency_version"] = include_three["concurrency_version"]
+    include_four = ssp.associate_implementation(
+        tenant.id,
+        actor,
+        plan_two["id"],
+        different_baseline.id,
+        concrete["id"],
+        expected_version=plan_two["concurrency_version"],
+    )
+    plan_two["concurrency_version"] = include_four["concurrency_version"]
     assert ssp.get_system(tenant.id, system["id"])["id"] == system["id"]
     assert len(ssp.get_plan(tenant.id, plan_one["id"])["included_implementations"]) == 3
     assert len(ssp.get_plan(tenant.id, plan_two["id"])["included_implementations"]) == 1
@@ -264,7 +290,13 @@ def test_system_ssp_shared_components_explicit_memberships_and_immutable_version
     )
     assert ssp.validate_plan(tenant.id, plan_one["id"])["valid"]
 
-    version_one = ssp.create_version(tenant.id, actor, plan_one["id"])
+    version_one = ssp.create_version(
+        tenant.id,
+        actor,
+        plan_one["id"],
+        expected_version=plan_one["concurrency_version"],
+    )
+    plan_one["concurrency_version"] = version_one["concurrency_version"]
     assert version_one["created"]
     assert version_one["oscal_version"] == "1.2.1"
     exported_before = ssp.export_version(tenant.id, plan_one["id"], version_one["id"])
@@ -309,11 +341,22 @@ def test_system_ssp_shared_components_explicit_memberships_and_immutable_version
     )
     assert updated_legacy.id == legacy.id
     assert ssp.export_version(tenant.id, plan_one["id"], version_one["id"]) == exported_before
-    version_two = ssp.create_version(tenant.id, actor, plan_one["id"])
+    version_two = ssp.create_version(
+        tenant.id,
+        actor,
+        plan_one["id"],
+        expected_version=plan_one["concurrency_version"],
+    )
+    plan_one["concurrency_version"] = version_two["concurrency_version"]
     assert version_two["created"]
     assert version_two["id"] != version_one["id"]
     assert version_two["oscal_document_uuid"] != version_one["oscal_document_uuid"]
-    unchanged = ssp.create_version(tenant.id, actor, plan_one["id"])
+    unchanged = ssp.create_version(
+        tenant.id,
+        actor,
+        plan_one["id"],
+        expected_version=plan_one["concurrency_version"],
+    )
     assert unchanged["created"] is False
     assert unchanged["id"] == version_two["id"]
     assert ssp.export_version(tenant.id, plan_one["id"], version_one["id"]) == exported_before
@@ -330,7 +373,12 @@ def test_system_ssp_shared_components_explicit_memberships_and_immutable_version
         status_remarks=None,
     )
     assert ssp.export_version(tenant.id, plan_one["id"], version_one["id"]) == exported_before
-    version_three = ssp.create_version(tenant.id, actor, plan_one["id"])
+    version_three = ssp.create_version(
+        tenant.id,
+        actor,
+        plan_one["id"],
+        expected_version=plan_one["concurrency_version"],
+    )
     assert version_three["created"]
 
     historical_component = ssp.export_adopted_component(

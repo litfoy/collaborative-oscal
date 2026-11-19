@@ -38,6 +38,7 @@ const collection: MappingCollection = {
   updated_by: "user-1",
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
+  concurrency_version: 1,
 };
 const emptyCollection: MappingCollection = {
   ...collection,
@@ -217,6 +218,8 @@ describe("MappingWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     const savingButton = await screen.findByRole("button", { name: "Saving…" });
     expect(savingButton).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Relationship" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /AC-1 Access Control Policy/ })).toBeDisabled();
     await user.click(savingButton);
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
     if (!saveRequest.resolve) throw new Error("Save request was not started.");
@@ -224,5 +227,82 @@ describe("MappingWorkspace", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Unable to save mapping collection.");
     expect(title).toHaveValue("Revised mapping");
     expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+  });
+
+  it("preserves unsaved mapping edits when conflict reload is canceled", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "PUT") {
+        return jsonResponse(
+          { detail: { code: "stale_update", current_version: 2, expected_version: 1 } },
+          409,
+        );
+      }
+      if (url.includes("profile-browser")) return jsonResponse({ nodes: [] });
+      if (url.includes("/revisions?")) {
+        return jsonResponse({ items: [], total: 0, limit: 200, offset: 0 });
+      }
+      return jsonResponse({ items: [], total: 0, limit: 200, offset: 0 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<MappingWorkspace tenantId="tenant-1" catalogs={editableCatalogs} catalogTotal={2}
+      canWrite initialCollection={collection} />);
+
+    const title = screen.getByRole("textbox", { name: "Collection title" });
+    await user.clear(title);
+    await user.type(title, "Canceled mapping reload");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByText(/changed in another session/i)).toBeInTheDocument();
+
+    fetchMock.mockClear();
+    await user.click(screen.getByRole("button", { name: "Reload latest collection" }));
+
+    expect(window.confirm).toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(title).toHaveValue("Canceled mapping reload");
+  });
+
+  it("preserves unsaved mapping edits when save conflicts and reload fails", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "PUT") {
+        return jsonResponse(
+          { detail: { code: "stale_update", current_version: 2, expected_version: 1 } },
+          409,
+        );
+      }
+      if (url.includes("/bff/tenants/tenant-1/mapping-collections/collection-1")) {
+        return jsonResponse({ detail: "reload failed" }, 500);
+      }
+      if (url.includes("profile-browser")) {
+        return jsonResponse({ nodes: [] });
+      }
+      if (url.includes("/revisions?")) {
+        return jsonResponse({ items: [], total: 0, limit: 200, offset: 0 });
+      }
+      return jsonResponse({ items: [], total: 0, limit: 200, offset: 0 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<MappingWorkspace tenantId="tenant-1" catalogs={editableCatalogs} catalogTotal={2}
+      canWrite initialCollection={collection} />);
+
+    const title = screen.getByRole("textbox", { name: "Collection title" });
+    await user.clear(title);
+    await user.type(title, "Conflicting mapping draft");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByText(/changed in another session/i)).toBeInTheDocument();
+    expect(title).toHaveValue("Conflicting mapping draft");
+
+    await user.click(screen.getByRole("button", { name: "Reload latest collection" }));
+
+    expect(await screen.findByText(/reload failed/i)).toBeInTheDocument();
+    expect(title).toHaveValue("Conflicting mapping draft");
   });
 });

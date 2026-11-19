@@ -52,6 +52,7 @@ const plan: AssessmentPlan = {
   ssp_oscal_version: "1.2.1",
   created_at: "",
   updated_at: "",
+  concurrency_version: 1,
 };
 
 const result: AssessmentResult = {
@@ -79,6 +80,7 @@ const result: AssessmentResult = {
   end: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
+  concurrency_version: 1,
 };
 
 const validation: AssessmentResultValidation = {
@@ -145,6 +147,7 @@ describe("AssessmentResultWorkspace", () => {
     expect(body).toHaveProperty("observations");
     expect(body).toHaveProperty("findings");
     expect(body).toHaveProperty("reviewed_control_ids");
+    expect(body.expected_version).toBe(1);
     expect(body).not.toHaveProperty("oscal_candidate");
     expect(body.observations[0].id).toBeTruthy();
     expect(body.findings[0].id).toBeTruthy();
@@ -468,6 +471,271 @@ describe("AssessmentResultWorkspace", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Validation path: $.findings[0].target_id",
     );
+  });
+
+  it("synchronizes the publication token so a subsequent save does not conflict", async () => {
+    const user = userEvent.setup();
+    const published: AssessmentResultVersion = {
+      id: "ar-version-1",
+      assessment_result_id: result.id,
+      assessment_plan_version_id: result.assessment_plan_version_id,
+      oscal_document_uuid: "11111111-1111-4111-8111-111111111111",
+      oscal_version: "1.2.1",
+      document_version: "1.0",
+      last_modified: "2026-01-02T00:00:00Z",
+      content_sha256: "hash",
+      diagnostics: [],
+      created_at: "2026-01-02T00:00:00Z",
+      created: true,
+      concurrency_version: 2,
+    };
+    const saved: AssessmentResult = {
+      ...result,
+      title: "Results Alpha updated",
+      concurrency_version: 3,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(published))
+      .mockResolvedValueOnce(jsonResponse(saved));
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWorkspace();
+    await user.click(screen.getByRole("button", { name: "Validation & Versions" }));
+    await user.click(screen.getByRole("button", { name: "Create immutable version" }));
+    await user.click(screen.getByRole("button", { name: "Overview" }));
+    await user.clear(screen.getByRole("textbox", { name: "Assessment Results title" }));
+    await user.type(screen.getByRole("textbox", { name: "Assessment Results title" }), "Results Alpha updated");
+    await user.click(screen.getByRole("button", { name: "Save working state" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const secondCall = (fetchMock.mock.calls as unknown[][])[1];
+    const secondInit = (secondCall?.[1] ?? undefined) as RequestInit | undefined;
+    const secondBody = JSON.parse(String(secondInit?.body ?? "{}"));
+    expect(secondBody.expected_version).toBe(2);
+  });
+
+  it("shows stale save conflicts and preserves unsaved edits until reload is confirmed", async () => {
+    const user = userEvent.setup();
+    const refreshed: AssessmentResult = {
+      ...result,
+      title: "Server copy",
+      concurrency_version: 4,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            detail: {
+              code: "stale_update",
+              result_id: result.id,
+              expected_version: 1,
+              current_version: 4,
+            },
+          },
+          409,
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse(refreshed))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse(validation));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderWorkspace();
+    const title = screen.getByRole("textbox", { name: "Assessment Results title" });
+    await user.clear(title);
+    await user.type(title, "Results Draft");
+    await user.click(screen.getByRole("button", { name: "Save working state" }));
+
+    expect(await screen.findByText(/Current server version: 4\./)).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Results Draft" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Discard edits and reload" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    expect(screen.getByRole("heading", { name: "Server copy" })).toBeVisible();
+  });
+
+  it("disables editor inputs and mutation actions while save is in progress", async () => {
+    const user = userEvent.setup();
+    let resolveSave!: (value: Response) => void;
+    const savePending = new Promise<Response>((resolve) => {
+      resolveSave = resolve;
+    });
+    const fetchMock = vi.fn().mockReturnValueOnce(savePending);
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWorkspace();
+    await user.type(screen.getByRole("textbox", { name: "Assessment Results title" }), " edited");
+    await user.click(screen.getByRole("button", { name: "Observations" }));
+    await user.click(screen.getByRole("button", { name: "Add observation" }));
+    await user.click(screen.getByRole("button", { name: "Save working state" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    expect(screen.getByRole("textbox", { name: "Observation title" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add observation" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save working state" })).toBeDisabled();
+
+    resolveSave(jsonResponse({ ...result, title: "Results Alpha edited", concurrency_version: 2 }));
+    expect(await screen.findByText("Assessment Results working state saved.")).toBeVisible();
+  });
+
+  it("disables editor inputs and mutation actions while publication is in progress", async () => {
+    const user = userEvent.setup();
+    let resolvePublish!: (value: Response) => void;
+    const publishPending = new Promise<Response>((resolve) => {
+      resolvePublish = resolve;
+    });
+    const fetchMock = vi.fn().mockReturnValueOnce(publishPending);
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWorkspace();
+    await user.click(screen.getByRole("button", { name: "Validation & Versions" }));
+    await user.click(screen.getByRole("button", { name: "Create immutable version" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    expect(screen.getByRole("button", { name: "Create immutable version" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Overview" }));
+    expect(screen.getByRole("textbox", { name: "Assessment Results title" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save working state" })).toBeDisabled();
+
+    resolvePublish(
+      jsonResponse({
+        id: "ar-version-1",
+        assessment_result_id: result.id,
+        assessment_plan_version_id: result.assessment_plan_version_id,
+        oscal_document_uuid: "11111111-1111-4111-8111-111111111111",
+        oscal_version: "1.2.1",
+        document_version: "1.0",
+        last_modified: "2026-01-02T00:00:00Z",
+        content_sha256: "hash",
+        diagnostics: [],
+        created_at: "2026-01-02T00:00:00Z",
+        created: true,
+        concurrency_version: 2,
+      }),
+    );
+    expect(await screen.findByText("Created immutable Assessment Results version 1.0.")).toBeVisible();
+  });
+
+  it("keeps unsaved edits when conflict reload is canceled", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse(
+        {
+          detail: {
+            code: "stale_update",
+            result_id: result.id,
+            expected_version: 1,
+            current_version: 4,
+          },
+        },
+        409,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    renderWorkspace();
+    const title = screen.getByRole("textbox", { name: "Assessment Results title" });
+    await user.clear(title);
+    await user.type(title, "Results Draft");
+    await user.click(screen.getByRole("button", { name: "Save working state" }));
+    expect(await screen.findByText(/Current server version: 4\./)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Discard edits and reload" }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("heading", { name: "Results Draft" })).toBeVisible();
+    expect(screen.getByText(/Current server version: 4\./)).toBeVisible();
+  });
+
+  it("keeps unsaved edits when conflict reload fails", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            detail: {
+              code: "stale_update",
+              result_id: result.id,
+              expected_version: 1,
+              current_version: 4,
+            },
+          },
+          409,
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse({ detail: "reload failed" }, 500))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse(validation));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderWorkspace();
+    const title = screen.getByRole("textbox", { name: "Assessment Results title" });
+    await user.clear(title);
+    await user.type(title, "Results Draft");
+    await user.click(screen.getByRole("button", { name: "Save working state" }));
+    expect(await screen.findByText(/Current server version: 4\./)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Discard edits and reload" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+
+    expect(screen.getByRole("heading", { name: "Results Draft" })).toBeVisible();
+    expect(screen.getByText(/Current server version: 4\./)).toBeVisible();
+  });
+
+  it("disables reload action and editor inputs while conflict reload is in progress", async () => {
+    const user = userEvent.setup();
+    let resolveResult!: (value: Response) => void;
+    let resolveVersions!: (value: Response) => void;
+    let resolveValidation!: (value: Response) => void;
+    const resultPending = new Promise<Response>((resolve) => {
+      resolveResult = resolve;
+    });
+    const versionsPending = new Promise<Response>((resolve) => {
+      resolveVersions = resolve;
+    });
+    const validationPending = new Promise<Response>((resolve) => {
+      resolveValidation = resolve;
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            detail: {
+              code: "stale_update",
+              result_id: result.id,
+              expected_version: 1,
+              current_version: 2,
+            },
+          },
+          409,
+        ),
+      )
+      .mockReturnValueOnce(resultPending)
+      .mockReturnValueOnce(versionsPending)
+      .mockReturnValueOnce(validationPending);
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderWorkspace();
+    await user.type(screen.getByRole("textbox", { name: "Assessment Results title" }), " edited");
+    await user.click(screen.getByRole("button", { name: "Save working state" }));
+    expect(await screen.findByText(/Current server version: 2\./)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Discard edits and reload" }));
+    expect(screen.getByRole("button", { name: "Discard edits and reload" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Assessment Results title" })).toBeDisabled();
+
+    resolveResult(jsonResponse({ ...result, title: "Server state", concurrency_version: 2 }));
+    resolveVersions(jsonResponse([]));
+    resolveValidation(jsonResponse(validation));
+    await waitFor(() => expect(screen.queryByText(/Current server version: 2\./)).not.toBeInTheDocument());
   });
 });
 

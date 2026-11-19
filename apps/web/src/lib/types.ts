@@ -60,6 +60,7 @@ export interface Profile {
   imports?: ProfileImport[];
   created_at: string;
   updated_at: string;
+  concurrency_version: number;
 }
 
 export interface ComponentRequirement {
@@ -149,6 +150,7 @@ export interface MappingCollection {
   updated_by: string;
   created_at: string;
   updated_at: string;
+  concurrency_version: number;
 }
 
 export interface MappingEntryInput {
@@ -303,6 +305,7 @@ export interface SystemSecurityPlan {
   documented_control_count: number;
   created_at: string;
   updated_at: string;
+  concurrency_version: number;
 }
 
 export interface SystemSecurityPlanDiagnostic {
@@ -333,6 +336,7 @@ export interface SystemSecurityPlanVersion {
   diagnostics: SystemSecurityPlanDiagnostic[];
   created_at: string;
   created?: boolean;
+  concurrency_version?: number | null;
 }
 
 export type AssessmentMethod = "EXAMINE" | "INTERVIEW" | "TEST";
@@ -413,6 +417,7 @@ export interface AssessmentPlan {
   ssp_oscal_version: string;
   created_at: string;
   updated_at: string;
+  concurrency_version: number;
 }
 
 export interface AssessmentSourceObjectiveCatalogItem {
@@ -441,6 +446,7 @@ export interface AssessmentPlanVersion {
   diagnostics: SystemSecurityPlanDiagnostic[];
   created_at: string;
   created?: boolean;
+  concurrency_version?: number | null;
 }
 
 export type AssessmentResultTargetType = "statement-id" | "objective-id";
@@ -509,6 +515,7 @@ export interface AssessmentResult {
   end: string | null;
   created_at: string;
   updated_at: string;
+  concurrency_version: number;
 }
 
 export interface AssessmentResultValidation {
@@ -533,6 +540,7 @@ export interface AssessmentResultVersion {
   diagnostics: SystemSecurityPlanDiagnostic[];
   created_at: string;
   created?: boolean;
+  concurrency_version?: number | null;
 }
 
 export interface ProfileBrowserNode {
