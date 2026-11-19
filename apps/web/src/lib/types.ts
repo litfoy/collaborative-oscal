@@ -94,6 +94,7 @@ export interface ComponentDefinition {
   updated_by: string;
   created_at: string;
   updated_at: string;
+  concurrency_version: number;
 }
 
 export interface ComponentRequirementInput {
@@ -112,6 +113,7 @@ export interface ReusableComponentInput {
 }
 
 export interface ComponentDefinitionInput {
+  expected_version?: number;
   title: string;
   components: ReusableComponentInput[];
 }

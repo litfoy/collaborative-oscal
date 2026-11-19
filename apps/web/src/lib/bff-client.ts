@@ -38,8 +38,9 @@ export async function bffGet<T>(
   return (await response.json()) as T;
 }
 
-export function bffWrite<T>(method: "POST" | "PUT", path: string, body: unknown): Promise<T>;
 export function bffWrite(method: "DELETE", path: string, body: unknown): Promise<void>;
+export function bffWrite<T>(method: "DELETE", path: string, body: unknown): Promise<T>;
+export function bffWrite<T>(method: "POST" | "PUT", path: string, body: unknown): Promise<T>;
 export async function bffWrite<T>(
   method: "POST" | "PUT" | "DELETE",
   path: string,

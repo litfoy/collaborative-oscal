@@ -16,6 +16,7 @@ from collaborative_oscal_oscal.component_definition import (
 )
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.domain.catalogs.read_models import Page
 from app.domain.component_definitions import (
@@ -37,6 +38,21 @@ SessionScope = Callable[[], AbstractContextManager[Session]]
 
 class InvalidComponentDefinition(ValueError):
     pass
+
+
+class StaleComponentDefinitionUpdate(ValueError):
+    def __init__(self, document_id: UUID, expected_version: int, current_version: int) -> None:
+        self.document_id = document_id
+        self.expected_version = expected_version
+        self.current_version = current_version
+        super().__init__("The Component Definition changed after it was loaded.")
+
+
+class _StaleComponentDefinitionFlush(RuntimeError):
+    def __init__(self, document_id: UUID, expected_version: int) -> None:
+        self.document_id = document_id
+        self.expected_version = expected_version
+        super().__init__("Component Definition flush detected stale mapper version.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +168,7 @@ class ComponentDefinitionService:
         tenant_id: UUID,
         actor: UUID,
         document_id: UUID,
+        expected_version: int,
         title: str,
         components: Sequence[ComponentInput],
     ) -> ComponentDefinition:
@@ -161,136 +178,236 @@ class ComponentDefinitionService:
             raise InvalidComponentDefinition(
                 "A document must contain uniquely identified components."
             )
-        with self._session_scope() as session:
-            record = self._get_record(session, tenant_id, document_id, lock=True)
-            current = self._to_domain(session, record)
-            current_by_id = {component.id: component for component in current.components}
-            supplied_ids = {component.id for component in components if component.id is not None}
-            if supplied_ids - current_by_id.keys():
-                raise InvalidComponentDefinition(
-                    "A component identity does not belong to this document."
-                )
-            all_requirements = [
-                requirement for component in components for requirement in component.requirements
-            ]
-            self._lock_and_validate_sources(session, tenant_id, all_requirements)
-
-            old_identity_records = {
-                row.id: row
-                for row in session.scalars(
-                    select(ComponentDefinitionComponentRecord).where(
-                        ComponentDefinitionComponentRecord.tenant_id == tenant_id,
-                        ComponentDefinitionComponentRecord.document_id == document_id,
+        try:
+            with self._session_scope() as session:
+                record = self._get_record(session, tenant_id, document_id, lock=True)
+                if record.concurrency_version != expected_version:
+                    raise StaleComponentDefinitionUpdate(
+                        record.id,
+                        expected_version,
+                        record.concurrency_version,
                     )
-                )
-            }
-            generated: list[tuple[UUID, UUID, dict, list[tuple]]] = []
-            for item in components:
-                old_component = current_by_id.get(item.id) if item.id else None
-                component_id = item.id or uuid4()
-                component_uuid = (
-                    old_component.oscal_uuid if old_component is not None else uuid4()
-                )
-                old_source_refs = self._old_source_refs(session, tenant_id, component_id)
-                component_json, sources = self._build_component(
-                    tenant_id, component_uuid, item, old_source_refs
-                )
-                generated.append((component_id, component_uuid, component_json, sources))
+                current = self._to_domain(session, record)
+                current_by_id = {component.id: component for component in current.components}
+                supplied_ids = {
+                    component.id for component in components if component.id is not None
+                }
+                if supplied_ids - current_by_id.keys():
+                    raise InvalidComponentDefinition(
+                        "A component identity does not belong to this document."
+                    )
+                all_requirements = [
+                    requirement
+                    for component in components
+                    for requirement in component.requirements
+                ]
+                self._lock_and_validate_sources(session, tenant_id, all_requirements)
 
-            old_json = record.document["component-definition"]
-            component_jsons = [item[2] for item in generated]
-            if title == old_json["metadata"]["title"] and component_jsons == old_json["components"]:
-                return current
+                old_identity_records = {
+                    row.id: row
+                    for row in session.scalars(
+                        select(ComponentDefinitionComponentRecord).where(
+                            ComponentDefinitionComponentRecord.tenant_id == tenant_id,
+                            ComponentDefinitionComponentRecord.document_id == document_id,
+                        )
+                    )
+                }
+                generated: list[tuple[UUID, UUID, dict, list[tuple]]] = []
+                for item in components:
+                    old_component = current_by_id.get(item.id) if item.id else None
+                    component_id = item.id or uuid4()
+                    component_uuid = (
+                        old_component.oscal_uuid if old_component is not None else uuid4()
+                    )
+                    old_source_refs = self._old_source_refs(session, tenant_id, component_id)
+                    component_json, sources = self._build_component(
+                        tenant_id, component_uuid, item, old_source_refs
+                    )
+                    generated.append((component_id, component_uuid, component_json, sources))
 
-            now = datetime.now(UTC)
-            document = build_component_definition_document(
-                document_uuid=uuid4(),
-                title=title,
-                components=component_jsons,
-                last_modified=_next_modified(old_json["metadata"]["last-modified"], now),
-                version=_next_version(old_json["metadata"]["version"]),
-                oscal_version=old_json["metadata"]["oscal-version"],
-            )
-            record.document = document
-            record.updated_by = actor
-            record.updated_at = now
+                old_json = record.document["component-definition"]
+                component_jsons = [item[2] for item in generated]
+                if (
+                    title == old_json["metadata"]["title"]
+                    and component_jsons == old_json["components"]
+                ):
+                    return current
 
-            active_ids = {item[0] for item in generated}
-            removed_ids = set(old_identity_records) - active_ids
-            if removed_ids:
+                now = datetime.now(UTC)
+                document = build_component_definition_document(
+                    document_uuid=uuid4(),
+                    title=title,
+                    components=component_jsons,
+                    last_modified=_next_modified(old_json["metadata"]["last-modified"], now),
+                    version=_next_version(old_json["metadata"]["version"]),
+                    oscal_version=old_json["metadata"]["oscal-version"],
+                )
+                record.document = document
+                record.updated_by = actor
+                record.updated_at = now
+
+                active_ids = {item[0] for item in generated}
+                removed_ids = set(old_identity_records) - active_ids
+                if removed_ids:
+                    session.execute(
+                        delete(ComponentDefinitionComponentRecord).where(
+                            ComponentDefinitionComponentRecord.tenant_id == tenant_id,
+                            ComponentDefinitionComponentRecord.document_id == document_id,
+                            ComponentDefinitionComponentRecord.id.in_(removed_ids),
+                        )
+                    )
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleComponentDefinitionFlush(document_id, expected_version) from error
+                for component_id, component_uuid, _component_json, sources in generated:
+                    identity = old_identity_records.get(component_id)
+                    if identity is None:
+                        session.add(
+                            ComponentDefinitionComponentRecord(
+                                id=component_id,
+                                tenant_id=tenant_id,
+                                document_id=document_id,
+                                oscal_component_uuid=component_uuid,
+                            )
+                        )
+                    source_rows = self._source_records(
+                        tenant_id, document_id, component_id, sources
+                    )
+                    session.execute(
+                        delete(ComponentDefinitionSourceRecord).where(
+                            ComponentDefinitionSourceRecord.tenant_id == tenant_id,
+                            ComponentDefinitionSourceRecord.document_id == document_id,
+                            ComponentDefinitionSourceRecord.component_id == component_id,
+                        )
+                    )
+                    try:
+                        session.flush()
+                    except StaleDataError as error:
+                        raise _StaleComponentDefinitionFlush(
+                            document_id, expected_version
+                        ) from error
+                    session.add_all(source_rows)
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleComponentDefinitionFlush(document_id, expected_version) from error
+                return self._to_domain(session, record)
+        except _StaleComponentDefinitionFlush as stale:
+            current = self._current_document_version(tenant_id, stale.document_id)
+            raise StaleComponentDefinitionUpdate(
+                stale.document_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
+
+    def delete_component(
+        self,
+        tenant_id: UUID,
+        actor: UUID,
+        document_id: UUID,
+        component_id: UUID,
+        *,
+        expected_version: int,
+    ) -> ComponentDefinition | None:
+        try:
+            with self._session_scope() as session:
+                record = self._get_record(session, tenant_id, document_id, lock=True)
+                if record.concurrency_version != expected_version:
+                    raise StaleComponentDefinitionUpdate(
+                        record.id,
+                        expected_version,
+                        record.concurrency_version,
+                    )
+                current = self._to_domain(session, record)
+                component = next(
+                    (item for item in current.components if item.id == component_id),
+                    None,
+                )
+                if component is None:
+                    raise EntityNotFoundError("Component not found.")
+                if len(current.components) == 1:
+                    session.delete(record)
+                    try:
+                        session.flush()
+                    except StaleDataError as error:
+                        raise _StaleComponentDefinitionFlush(
+                            document_id, expected_version
+                        ) from error
+                    return None
+                remaining_json = [
+                    item
+                    for item in record.document["component-definition"]["components"]
+                    if UUID(item["uuid"]) != component.oscal_uuid
+                ]
+                now = datetime.now(UTC)
+                body = record.document["component-definition"]
+                record.document = build_component_definition_document(
+                    document_uuid=uuid4(),
+                    title=body["metadata"]["title"],
+                    components=remaining_json,
+                    last_modified=_next_modified(body["metadata"]["last-modified"], now),
+                    version=_next_version(body["metadata"]["version"]),
+                    oscal_version=body["metadata"]["oscal-version"],
+                )
+                record.updated_by = actor
+                record.updated_at = now
                 session.execute(
                     delete(ComponentDefinitionComponentRecord).where(
                         ComponentDefinitionComponentRecord.tenant_id == tenant_id,
                         ComponentDefinitionComponentRecord.document_id == document_id,
-                        ComponentDefinitionComponentRecord.id.in_(removed_ids),
+                        ComponentDefinitionComponentRecord.id == component_id,
                     )
                 )
-            session.flush()
-            for component_id, component_uuid, _component_json, sources in generated:
-                identity = old_identity_records.get(component_id)
-                if identity is None:
-                    session.add(
-                        ComponentDefinitionComponentRecord(
-                            id=component_id,
-                            tenant_id=tenant_id,
-                            document_id=document_id,
-                            oscal_component_uuid=component_uuid,
-                        )
-                    )
-                source_rows = self._source_records(
-                    tenant_id, document_id, component_id, sources
-                )
-                session.execute(
-                    delete(ComponentDefinitionSourceRecord).where(
-                        ComponentDefinitionSourceRecord.tenant_id == tenant_id,
-                        ComponentDefinitionSourceRecord.document_id == document_id,
-                        ComponentDefinitionSourceRecord.component_id == component_id,
-                    )
-                )
-                session.flush()
-                session.add_all(source_rows)
-            return self._to_domain(session, record)
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleComponentDefinitionFlush(
+                        document_id, expected_version
+                    ) from error
+                return self._to_domain(session, record)
+        except _StaleComponentDefinitionFlush as stale:
+            current = self._current_document_version(tenant_id, stale.document_id)
+            raise StaleComponentDefinitionUpdate(
+                stale.document_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
 
-    def delete_component(
-        self, tenant_id: UUID, actor: UUID, document_id: UUID, component_id: UUID
-    ) -> None:
-        with self._session_scope() as session:
-            record = self._get_record(session, tenant_id, document_id, lock=True)
-            current = self._to_domain(session, record)
-            component = next((item for item in current.components if item.id == component_id), None)
-            if component is None:
-                raise EntityNotFoundError("Component not found.")
-            if len(current.components) == 1:
+    def delete(self, tenant_id: UUID, document_id: UUID, *, expected_version: int) -> None:
+        try:
+            with self._session_scope() as session:
+                record = self._get_record(session, tenant_id, document_id, lock=True)
+                if record.concurrency_version != expected_version:
+                    raise StaleComponentDefinitionUpdate(
+                        record.id,
+                        expected_version,
+                        record.concurrency_version,
+                    )
                 session.delete(record)
-                return
-            remaining_json = [
-                item
-                for item in record.document["component-definition"]["components"]
-                if UUID(item["uuid"]) != component.oscal_uuid
-            ]
-            now = datetime.now(UTC)
-            body = record.document["component-definition"]
-            record.document = build_component_definition_document(
-                document_uuid=uuid4(),
-                title=body["metadata"]["title"],
-                components=remaining_json,
-                last_modified=_next_modified(body["metadata"]["last-modified"], now),
-                version=_next_version(body["metadata"]["version"]),
-                oscal_version=body["metadata"]["oscal-version"],
-            )
-            record.updated_by = actor
-            record.updated_at = now
-            session.execute(
-                delete(ComponentDefinitionComponentRecord).where(
-                    ComponentDefinitionComponentRecord.tenant_id == tenant_id,
-                    ComponentDefinitionComponentRecord.document_id == document_id,
-                    ComponentDefinitionComponentRecord.id == component_id,
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleComponentDefinitionFlush(document_id, expected_version) from error
+        except _StaleComponentDefinitionFlush as stale:
+            current = self._current_document_version(tenant_id, stale.document_id)
+            raise StaleComponentDefinitionUpdate(
+                stale.document_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
+
+    def _current_document_version(self, tenant_id: UUID, document_id: UUID) -> int:
+        with self._session_scope() as session:
+            current = session.scalar(
+                select(ComponentDefinitionRecord.concurrency_version).where(
+                    ComponentDefinitionRecord.tenant_id == tenant_id,
+                    ComponentDefinitionRecord.id == document_id,
                 )
             )
-
-    def delete(self, tenant_id: UUID, document_id: UUID) -> None:
-        with self._session_scope() as session:
-            session.delete(self._get_record(session, tenant_id, document_id, lock=True))
+            if current is None:
+                raise EntityNotFoundError("Component Definition not found.")
+            return int(current)
 
     @staticmethod
     def _build_component(
@@ -540,6 +657,7 @@ class ComponentDefinitionService:
             record.updated_by,
             record.created_at,
             record.updated_at,
+            record.concurrency_version,
         )
 
 

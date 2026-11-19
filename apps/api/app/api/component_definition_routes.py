@@ -24,6 +24,7 @@ from app.api.dependencies import require_tenant_permission
 from app.application.component_definitions import (
     ComponentDefinitionService,
     InvalidComponentDefinition,
+    StaleComponentDefinitionUpdate,
 )
 from app.config import get_settings
 from app.domain.errors import EntityNotFoundError
@@ -72,6 +73,18 @@ def _page_params(limit: int | None, offset: int) -> tuple[int, int]:
     return resolved, offset
 
 
+def _stale(error: StaleComponentDefinitionUpdate) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "stale_update",
+            "document_id": str(error.document_id),
+            "expected_version": error.expected_version,
+            "current_version": error.current_version,
+        },
+    )
+
+
 @router.get(
     "/tenants/{tenant_id}/component-definitions",
     response_model=ComponentDefinitionPage,
@@ -101,6 +114,7 @@ def list_component_definitions(
     responses={
         **AUTH_ERRORS,
         **NOT_FOUND,
+        409: {"model": ErrorResponse, "description": "Component Definition changed after load."},
         422: {
             "model": ComponentDefinitionValidationErrorResponse,
             "description": "Invalid Component Definition input.",
@@ -170,11 +184,14 @@ def update_component_definition(
             context.tenant_id,
             context.membership.user_id,
             document_id,
+            request.expected_version,
             request.title,
             [item.to_domain() for item in request.components],
         )
     except EntityNotFoundError as error:
         raise _not_found(error) from error
+    except StaleComponentDefinitionUpdate as error:
+        raise _stale(error) from error
     except (InvalidComponentDefinition, ComponentDefinitionValidationError) as error:
         logger.warning(
             "Component Definition update rejected tenant_id=%s document_id=%s reason=%s",
@@ -189,23 +206,42 @@ def update_component_definition(
 @router.delete(
     "/tenants/{tenant_id}/component-definitions/{document_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses={**AUTH_ERRORS, **NOT_FOUND},
+    responses={
+        **AUTH_ERRORS,
+        **NOT_FOUND,
+        409: {"model": ErrorResponse, "description": "Component Definition changed after load."},
+    },
     tags=["component-definitions"],
 )
 def delete_component_definition(
-    context: WriteContext, service: Service, document_id: DocumentId
+    context: WriteContext,
+    service: Service,
+    document_id: DocumentId,
+    expected_version: int = Query(ge=1),
 ) -> Response:
     try:
-        service.delete(context.tenant_id, document_id)
+        service.delete(
+            context.tenant_id,
+            document_id,
+            expected_version=expected_version,
+        )
     except EntityNotFoundError as error:
         raise _not_found(error) from error
+    except StaleComponentDefinitionUpdate as error:
+        raise _stale(error) from error
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete(
     "/tenants/{tenant_id}/component-definitions/{document_id}/components/{component_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    responses={**AUTH_ERRORS, **NOT_FOUND},
+    response_model=ComponentDefinitionResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        **AUTH_ERRORS,
+        **NOT_FOUND,
+        409: {"model": ErrorResponse, "description": "Component Definition changed after load."},
+        204: {"description": "The last component deleted the whole document."},
+    },
     tags=["component-definitions"],
 )
 def delete_component(
@@ -213,14 +249,23 @@ def delete_component(
     service: Service,
     document_id: DocumentId,
     component_id: ComponentId,
-) -> Response:
+    expected_version: int = Query(ge=1),
+) -> ComponentDefinitionResponse | Response:
     try:
-        service.delete_component(
-            context.tenant_id, context.membership.user_id, document_id, component_id
+        updated = service.delete_component(
+            context.tenant_id,
+            context.membership.user_id,
+            document_id,
+            component_id,
+            expected_version=expected_version,
         )
     except EntityNotFoundError as error:
         raise _not_found(error) from error
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except StaleComponentDefinitionUpdate as error:
+        raise _stale(error) from error
+    if updated is None:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return ComponentDefinitionResponse.from_definition(updated)
 
 
 @router.get(

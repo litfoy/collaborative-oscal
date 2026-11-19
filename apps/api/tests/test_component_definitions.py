@@ -173,6 +173,7 @@ def test_component_definition_sources_identity_and_deletion(
         tenant.id,
         actor.id,
         created.id,
+        created.concurrency_version,
         "MFA reusable measure",
         [
             ComponentInput(
@@ -205,6 +206,7 @@ def test_component_definition_sources_identity_and_deletion(
         ],
     )
     assert updated.id == created.id
+    assert updated.concurrency_version == created.concurrency_version + 1
     assert updated.components[0].id == created.components[0].id
     assert updated.components[0].oscal_uuid == created.components[0].oscal_uuid
     after = service.export(tenant.id, created.id)["component-definition"]
@@ -264,10 +266,23 @@ def test_component_definition_sources_identity_and_deletion(
         assert stored.updated_at == revisions[0].updated_at
     assert service.export(tenant.id, created.id)["component-definition"] == after
 
-    service.delete_component(tenant.id, actor.id, created.id, created.components[0].id)
-    remaining = service.get(tenant.id, created.id)
+    remaining = service.delete_component(
+        tenant.id,
+        actor.id,
+        created.id,
+        created.components[0].id,
+        expected_version=updated.concurrency_version,
+    )
+    assert remaining is not None
     assert len(remaining.components) == 1
-    service.delete_component(tenant.id, actor.id, created.id, remaining.components[0].id)
+    deleted = service.delete_component(
+        tenant.id,
+        actor.id,
+        created.id,
+        remaining.components[0].id,
+        expected_version=remaining.concurrency_version,
+    )
+    assert deleted is None
     with pytest.raises(EntityNotFoundError):
         service.get(tenant.id, created.id)
     still_present = ImplementationService(lambda: session_factory.begin()).get(
@@ -321,15 +336,36 @@ def test_same_second_component_changes_preserve_document_lifecycle(
         ComponentInput(created.components[0].id, "policy", "Policy", "Guidance", []),
         ComponentInput(None, "process-procedure", "Enrollment", "Process", []),
     ]
-    updated = service.update(tenant.id, actor.id, created.id, "Policies", inputs)
+    updated = service.update(
+        tenant.id,
+        actor.id,
+        created.id,
+        created.concurrency_version,
+        "Policies",
+        inputs,
+    )
     changed = service.export(tenant.id, created.id)
     inputs[1] = ComponentInput(
         updated.components[1].id, "process-procedure", "Enrollment", "Process", []
     )
-    service.update(tenant.id, actor.id, created.id, "Policies", inputs)
+    stable = service.update(
+        tenant.id,
+        actor.id,
+        created.id,
+        updated.concurrency_version,
+        "Policies",
+        inputs,
+    )
+    assert stable.concurrency_version == updated.concurrency_version
     assert service.export(tenant.id, created.id) == changed
 
-    service.delete_component(tenant.id, actor.id, created.id, updated.components[1].id)
+    service.delete_component(
+        tenant.id,
+        actor.id,
+        created.id,
+        updated.components[1].id,
+        expected_version=updated.concurrency_version,
+    )
     deleted = service.export(tenant.id, created.id)
     documents = [original, changed, deleted]
     assert len({doc["component-definition"]["uuid"] for doc in documents}) == 3

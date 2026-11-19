@@ -387,10 +387,11 @@ def test_system_ssp_shared_components_explicit_memberships_and_immutable_version
     historical_component = ssp.export_adopted_component(
         tenant.id, adopted["source_snapshot_id"], source_component.oscal_uuid
     )
-    definitions.update(
+    updated_definition = definitions.update(
         tenant.id,
         actor,
         definition.id,
+        definition.concurrency_version,
         "Updated reusable identity measure",
         [
             ComponentInput(
@@ -409,7 +410,11 @@ def test_system_ssp_shared_components_explicit_memberships_and_immutable_version
             )
         ],
     )
-    definitions.delete(tenant.id, definition.id)
+    definitions.delete(
+        tenant.id,
+        definition.id,
+        expected_version=updated_definition.concurrency_version,
+    )
     assert (
         ssp.export_adopted_component(
             tenant.id, adopted["source_snapshot_id"], source_component.oscal_uuid

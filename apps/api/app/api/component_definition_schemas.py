@@ -97,6 +97,7 @@ class ComponentDefinitionCreateRequest(BaseModel):
 class ComponentDefinitionUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    expected_version: int = Field(ge=1)
     title: str = Field(min_length=1, max_length=255)
     components: list[ComponentInputModel] = Field(min_length=1, max_length=1000)
 
@@ -139,6 +140,7 @@ class ComponentDefinitionResponse(BaseModel):
     updated_by: UUID
     created_at: datetime
     updated_at: datetime
+    concurrency_version: int
 
     @classmethod
     def from_definition(cls, definition: ComponentDefinition) -> ComponentDefinitionResponse:
@@ -172,6 +174,7 @@ class ComponentDefinitionResponse(BaseModel):
             updated_by=definition.updated_by,
             created_at=definition.created_at,
             updated_at=definition.updated_at,
+            concurrency_version=definition.concurrency_version,
         )
 
 

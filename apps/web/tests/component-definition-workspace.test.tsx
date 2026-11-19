@@ -7,6 +7,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 import { ComponentDefinitionWorkspace } from "@/components/ComponentDefinitionWorkspace";
 import { MeasureDetailWorkspace } from "@/components/MeasureDetailWorkspace";
+import { ApiError } from "@/lib/errors";
 import type { ComponentDefinition } from "@/lib/types";
 import { catalog, control, page, revision, TENANT } from "./fixtures";
 
@@ -33,6 +34,7 @@ const created: ComponentDefinition = {
   }],
   created_by: "88888888-8888-4888-8888-888888888888", updated_by: "88888888-8888-4888-8888-888888888888",
   created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+  concurrency_version: 1,
 };
 
 beforeEach(() => {
@@ -89,7 +91,7 @@ it("creates a measure and navigates to its component", async () => {
 });
 
 it("preserves selections across search, filters and revisions, edits guidance, and saves the document", async () => {
-  const saved = { ...created, components: [{ ...created.components[0], description: "Updated reusable guidance", requirements: [
+  const saved = { ...created, concurrency_version: 2, components: [{ ...created.components[0], description: "Updated reusable guidance", requirements: [
     { catalog_id: CATALOG, revision_id: REVISION, control_id: "ac-1", description: "Require MFA." },
     { catalog_id: CATALOG, revision_id: SECOND_REVISION, control_id: "ac-2", description: "Review accounts." },
   ] }, created.components[1]] };
@@ -130,6 +132,7 @@ it("preserves selections across search, filters and revisions, edits guidance, a
   expect(screen.getByLabelText("Reusable description")).toHaveValue("Updated reusable guidance");
   await user.click(screen.getByRole("button", { name: "Save changes" }));
   await waitFor(() => expect(mocks.bffWrite).toHaveBeenCalledWith("PUT", `tenants/${TENANT}/component-definitions/${DOCUMENT}`, {
+    expected_version: 1,
     title: "Security document", components: [
       { id: COMPONENT, type: "policy", title: "Multifactor authentication", description: "Updated reusable guidance", requirements: saved.components[0].requirements },
       { id: OTHER_COMPONENT, type: "software", title: "Audit logging", description: "Collect audit events.", requirements: [] },
@@ -182,7 +185,7 @@ it("confirms document deletion and warns that all components will be deleted", a
   await user.click(screen.getByRole("tab", { name: "OSCAL Details" }));
   await user.click(screen.getByRole("button", { name: "Delete document" }));
   expect(confirm).toHaveBeenCalledWith(expect.stringContaining("all 2 components"));
-  await waitFor(() => expect(mocks.bffWrite).toHaveBeenCalledWith("DELETE", `tenants/${TENANT}/component-definitions/${DOCUMENT}`, {}));
+  await waitFor(() => expect(mocks.bffWrite).toHaveBeenCalledWith("DELETE", `tenants/${TENANT}/component-definitions/${DOCUMENT}?expected_version=1`, {}));
   expect(mocks.push).toHaveBeenCalledWith(`/t/${TENANT}/measures`);
   confirm.mockRestore();
 });
@@ -200,6 +203,7 @@ it("adds a component without replacing other components in the document", async 
   await user.type(screen.getByLabelText("Reusable description"), "Third guidance");
   await user.click(screen.getByRole("button", { name: "Save changes" }));
   await waitFor(() => expect(mocks.bffWrite).toHaveBeenCalledWith("PUT", `tenants/${TENANT}/component-definitions/${DOCUMENT}`, {
+    expected_version: 1,
     title: "Security document", components: [
       { id: COMPONENT, type: "policy", title: "Multifactor authentication", description: "Protect privileged access.", requirements: [] },
       { id: OTHER_COMPONENT, type: "software", title: "Audit logging", description: "Collect audit events.", requirements: [] },
@@ -207,4 +211,48 @@ it("adds a component without replacing other components in the document", async 
     ],
   }));
   expect(screen.getByRole("heading", { name: "Third measure" })).toBeInTheDocument();
+});
+
+it("preserves local edits after stale conflicts and reloads on confirmation", async () => {
+  const stale = new ApiError("stale_update", 409, "stale", { current_version: 4 });
+  const refreshed = { ...created, title: "Server document", concurrency_version: 4 };
+  mocks.bffWrite.mockRejectedValue(stale);
+  mocks.bffGet.mockResolvedValue(refreshed);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const user = userEvent.setup();
+  render(<MeasureDetailWorkspace tenantId={TENANT} initialDocument={created} componentId={COMPONENT}
+    catalogs={[selectedCatalog]} catalogTotal={1} canWrite />);
+  await user.clear(screen.getByLabelText("Measure title"));
+  await user.type(screen.getByLabelText("Measure title"), "Local edit");
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+  expect(await screen.findByText(/changed in another session/i)).toBeInTheDocument();
+  expect(screen.getByLabelText("Measure title")).toHaveValue("Local edit");
+  await user.click(screen.getByRole("button", { name: "Reload latest document" }));
+  expect(confirm).toHaveBeenCalled();
+  expect(await screen.findByLabelText("Measure title")).toHaveValue("Multifactor authentication");
+  expect(screen.getByLabelText("Component Definition document title")).toHaveValue("Server document");
+  confirm.mockRestore();
+});
+
+it("deletes one component with token query and keeps editing remaining components", async () => {
+  const updated = {
+    ...created,
+    concurrency_version: 2,
+    components: [created.components[1]],
+  };
+  mocks.bffWrite.mockResolvedValue(updated);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const user = userEvent.setup();
+  render(<MeasureDetailWorkspace tenantId={TENANT} initialDocument={created} componentId={COMPONENT}
+    catalogs={[selectedCatalog]} catalogTotal={1} canWrite />);
+  await user.click(screen.getByRole("tab", { name: "OSCAL Details" }));
+  await user.click(screen.getByRole("button", { name: "Delete component" }));
+  await waitFor(() => expect(mocks.bffWrite).toHaveBeenCalledWith(
+    "DELETE",
+    `tenants/${TENANT}/component-definitions/${DOCUMENT}/components/${COMPONENT}?expected_version=1`,
+    {},
+  ));
+  expect(mocks.push).not.toHaveBeenCalled();
+  expect(await screen.findByRole("heading", { name: "Audit logging" })).toBeInTheDocument();
+  confirm.mockRestore();
 });

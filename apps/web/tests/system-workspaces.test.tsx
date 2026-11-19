@@ -41,6 +41,7 @@ const definition: ComponentDefinition = {
   id: "definition", tenant_id: TENANT, title: "Guidance", oscal_document_uuid: "doc", oscal_version: "1.2.3",
   version: "1", components: [{ id: "source", oscal_uuid: "source-uuid", type: "service", title: "Reusable service", description: "Generic guidance", requirements: [] }],
   created_by: "", updated_by: "", created_at: "", updated_at: "",
+  concurrency_version: 1,
 };
 const plan: SystemSecurityPlan = {
   id: "plan", tenant_id: TENANT, system_id: system.id, catalog_id: CATALOG, revision_id: REVISION,

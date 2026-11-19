@@ -10,6 +10,7 @@ import { COMPONENT_TYPES, componentTypeLabel } from "@/components/ComponentDefin
 import { MappingControlDetails } from "@/components/MappingControlPicker";
 import { MeasureRequirementPicker } from "@/components/MeasureRequirementPicker";
 import { bffGet, bffWrite } from "@/lib/bff-client";
+import { ApiError } from "@/lib/errors";
 import { useI18n } from "@/lib/i18n/provider";
 import type {
   Catalog, ComponentDefinition, ComponentDefinitionInput, ComponentRequirementInput, ProfileBrowserNode,
@@ -54,6 +55,7 @@ export function MeasureDetailWorkspace({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<{ currentVersion: number } | null>(null);
   const component = components.find((item) => item.clientId === activeId);
   const savedComponent = document.components.find((item) => item.id === component?.id);
   const dirty = snapshot(documentTitle, components) !== baseline;
@@ -98,30 +100,45 @@ export function MeasureDetailWorkspace({
     setStatus(null);
   }
 
+  function applySavedDocument(saved: ComponentDefinition, nextActiveId?: string) {
+    const savedComponents = draftComponents(saved);
+    const resolvedActive = nextActiveId && savedComponents.some((item) => item.clientId === nextActiveId)
+      ? nextActiveId
+      : savedComponents[0]?.clientId ?? "";
+    setDocument(saved);
+    setDocumentTitle(saved.title);
+    setComponents(savedComponents);
+    setBaseline(snapshot(saved.title, savedComponents));
+    setActiveId(resolvedActive);
+    if (resolvedActive) {
+      window.history.replaceState(null, "", `/t/${tenantId}/measures/${saved.id}/${resolvedActive}`);
+    }
+  }
+
   async function save() {
     if (!canWrite || !dirty || !valid || busy || picker) return;
     setBusy(true);
     setError(null);
     setStatus(null);
     const body: ComponentDefinitionInput = {
+      expected_version: document.concurrency_version,
       title: documentTitle.trim(),
       components: components.map(({ clientId: _clientId, ...item }) => item),
     };
     try {
       const saved = await bffWrite<ComponentDefinition>("PUT", `tenants/${tenantId}/component-definitions/${document.id}`, body);
       const activeIndex = components.findIndex((item) => item.clientId === activeId);
-      const savedComponents = draftComponents(saved);
       const savedActive = saved.components.find((item) => item.id === component?.id) ?? saved.components[activeIndex];
-      setDocument(saved);
-      setDocumentTitle(saved.title);
-      setComponents(savedComponents);
-      setBaseline(snapshot(saved.title, savedComponents));
-      if (savedActive) {
-        setActiveId(savedActive.id);
-        window.history.replaceState(null, "", `/t/${tenantId}/measures/${saved.id}/${savedActive.id}`);
-      }
+      applySavedDocument(saved, savedActive?.id);
+      setConflict(null);
       setStatus(t("measures.saved"));
     } catch (cause) {
+      if (cause instanceof ApiError && cause.kind === "stale_update") {
+        const detail = cause.detail as { current_version?: number } | undefined;
+        setConflict({ currentVersion: detail?.current_version ?? document.concurrency_version });
+        setError("");
+        return;
+      }
       setError(errorMessage(cause) || t("measures.saveError"));
     } finally {
       setBusy(false);
@@ -135,9 +152,20 @@ export function MeasureDetailWorkspace({
     setBusy(true);
     setError(null);
     try {
-      await bffWrite("DELETE", `tenants/${tenantId}/component-definitions/${document.id}`, {});
+      await bffWrite(
+        "DELETE",
+        `tenants/${tenantId}/component-definitions/${document.id}?expected_version=${document.concurrency_version}`,
+        {},
+      );
       router.push(`/t/${tenantId}/measures`);
     } catch (cause) {
+      if (cause instanceof ApiError && cause.kind === "stale_update") {
+        const detail = cause.detail as { current_version?: number } | undefined;
+        setConflict({ currentVersion: detail?.current_version ?? document.concurrency_version });
+        setError("");
+        setBusy(false);
+        return;
+      }
       setError(errorMessage(cause) || t("measures.deleteDocumentError"));
       setBusy(false);
     }
@@ -158,10 +186,47 @@ export function MeasureDetailWorkspace({
     setBusy(true);
     setError(null);
     try {
-      await bffWrite("DELETE", `tenants/${tenantId}/component-definitions/${document.id}/components/${component.id}`, {});
-      router.push(`/t/${tenantId}/measures`);
+      const removed = await bffWrite<ComponentDefinition>(
+        "DELETE",
+        `tenants/${tenantId}/component-definitions/${document.id}/components/${component.id}?expected_version=${document.concurrency_version}`,
+        {},
+      );
+      if (!removed) {
+        router.push(`/t/${tenantId}/measures`);
+        return;
+      }
+      const nextActive = removed.components.find((item) => item.id !== component.id)?.id;
+      applySavedDocument(removed, nextActive);
+      setConflict(null);
+      setStatus(t("measures.saved"));
+      setBusy(false);
     } catch (cause) {
+      if (cause instanceof ApiError && cause.kind === "stale_update") {
+        const detail = cause.detail as { current_version?: number } | undefined;
+        setConflict({ currentVersion: detail?.current_version ?? document.concurrency_version });
+        setError("");
+        setBusy(false);
+        return;
+      }
       setError(errorMessage(cause) || t("measures.deleteComponentError"));
+      setBusy(false);
+    }
+  }
+
+  async function reloadAfterConflict() {
+    if (!conflict || busy) return;
+    if (!window.confirm(t("measures.confirmConflictReload"))) return;
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const refreshed = await bffGet<ComponentDefinition>(`tenants/${tenantId}/component-definitions/${document.id}`);
+      const preserved = refreshed.components.find((item) => item.id === component?.id)?.id;
+      applySavedDocument(refreshed, preserved);
+      setConflict(null);
+    } catch (cause) {
+      setError(errorMessage(cause) || t("measures.saveError"));
+    } finally {
       setBusy(false);
     }
   }
@@ -191,6 +256,16 @@ export function MeasureDetailWorkspace({
       {components.some((item) => item.requirements.length > 1000) || components.length > 1000
         ? <p role="alert" className="alert">{t("measures.limitValidation")}</p> : null}
       {error ? <p role="alert" className="alert">{error}</p> : null}
+      {conflict ? <div role="alert" className="panel">
+        <p>{t("measures.conflictDetected", { version: conflict.currentVersion })}</p>
+        <p className="muted">{t("measures.conflictPreserved")}</p>
+        <div className="workspace-actions">
+          <button type="button" className="danger-action" disabled={busy}
+            onClick={() => void reloadAfterConflict()}>{t("measures.reloadConfirmedState")}</button>
+          <button type="button" className="secondary" disabled={busy}
+            onClick={() => setConflict(null)}>{t("measures.keepMyEdits")}</button>
+        </div>
+      </div> : null}
       {!picker ? <div className="workspace-tabs" role="tablist" aria-label={t("measures.workspaceViews")}>
         {TABS.map((name, index) => <button key={name} type="button" role="tab" id={`measure-tab-${index}`}
           aria-selected={tab === name} aria-controls={`measure-panel-${index}`} tabIndex={tab === name ? 0 : -1}
