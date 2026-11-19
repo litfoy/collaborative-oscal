@@ -282,6 +282,78 @@ def test_component_update_requires_expected_version(client, api_world) -> None:
     assert response.status_code == 422
 
 
+def test_implementation_update_requires_expected_version(client, api_world) -> None:
+    headers = _headers(api_world["subject"])
+    implementation_path = (
+        f"/api/v1/tenants/{api_world['tenant_id']}/implementations/{api_world['implementation_id']}"
+    )
+    current = client.get(implementation_path, headers=headers)
+    assert current.status_code == 200
+    implementation = current.json()
+
+    response = client.put(
+        implementation_path,
+        headers=headers,
+        json={
+            "description": implementation["description"],
+            "status": implementation["status"],
+            "evidence_references": implementation["evidence_references"],
+            "responsibilities": implementation["responsibilities"],
+            "oscal_implementation_status": implementation["oscal_implementation_status"],
+            "oscal_status_explanation": implementation["oscal_status_explanation"],
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_implementation_update_returns_stale_409(client, api_world) -> None:
+    headers = _headers(api_world["subject"])
+    implementation_path = (
+        f"/api/v1/tenants/{api_world['tenant_id']}/implementations/{api_world['implementation_id']}"
+    )
+    current = client.get(implementation_path, headers=headers)
+    assert current.status_code == 200
+    implementation = current.json()
+    token = int(implementation["concurrency_version"])
+
+    updated = client.put(
+        implementation_path,
+        headers=headers,
+        json={
+            "expected_version": token,
+            "description": "Updated once",
+            "status": implementation["status"],
+            "evidence_references": implementation["evidence_references"],
+            "responsibilities": implementation["responsibilities"],
+            "oscal_implementation_status": implementation["oscal_implementation_status"],
+            "oscal_status_explanation": implementation["oscal_status_explanation"],
+        },
+    )
+    assert updated.status_code == 200
+
+    stale = client.put(
+        implementation_path,
+        headers=headers,
+        json={
+            "expected_version": token,
+            "description": "Stale update",
+            "status": implementation["status"],
+            "evidence_references": implementation["evidence_references"],
+            "responsibilities": implementation["responsibilities"],
+            "oscal_implementation_status": implementation["oscal_implementation_status"],
+            "oscal_status_explanation": implementation["oscal_status_explanation"],
+        },
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"] == {
+        "code": "stale_update",
+        "implementation_id": str(api_world["implementation_id"]),
+        "expected_version": token,
+        "current_version": token + 1,
+    }
+
+
 def test_system_and_component_updates_return_stale_409(client, api_world) -> None:
     headers = _headers(api_world["subject"])
     system_base = _system_base(api_world["tenant_id"], api_world["system_id"])

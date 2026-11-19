@@ -112,12 +112,14 @@ export function ImplementationRegister({ tenantId, profile, canWrite, initialCon
   }
   function open(item: Implementation) {
     if (!canLeave()) return;
+    setConflict(null);
     setRecord(item); setCreating(false); setControl(null); setDetailError(null);
     const value = toDraft(item); setDraft(value); setOriginal(value); setError(null);
   }
   function newRecord() {
     if (!canLeave()) return;
     const value = emptyDraft(); setDraft(value); setOriginal(value);
+    setConflict(null);
     setRecord(null); setCreating(true); setControl(null); setDetailError(null); setError(null);
   }
   async function save() {
@@ -158,6 +160,7 @@ export function ImplementationRegister({ tenantId, profile, canWrite, initialCon
 
   async function reloadAfterConflict() {
     if (!conflict || busy) return;
+    if (!record || record.id !== conflict.implementationId) return;
     if (!window.confirm(t("register.confirmConflictReload"))) return;
     setBusy(true);
     setError(null);
@@ -188,7 +191,12 @@ export function ImplementationRegister({ tenantId, profile, canWrite, initialCon
       {conflict ? <div role="alert" className="panel">
         <p>{t("register.conflictDetected", { version: number(conflict.currentVersion) })}</p>
         <p className="muted">{t("register.conflictPreserved")}</p>
-        <button type="button" className="secondary" disabled={busy} onClick={() => void reloadAfterConflict()}>
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy || !record || record.id !== conflict.implementationId}
+          onClick={() => void reloadAfterConflict()}
+        >
           {t("register.reloadConfirmedState")}
         </button>
       </div> : null}
@@ -213,9 +221,10 @@ export function ImplementationRegister({ tenantId, profile, canWrite, initialCon
     {record || creating ? <section className="panel">
       <h3>{t("register.normativeRequirement")}</h3>
       {creating && imports.length > 1 ? <label className="field">{t("register.sourceImport")}
-        <select value={importId} onChange={(event) => {
+        <select value={importId} disabled={busy} onChange={(event) => {
           if (!canLeave()) return;
           const next = imports.find((item) => item.id === event.target.value);
+          setConflict(null);
           setImportId(event.target.value); setControlId(next?.control_ids[0] ?? "");
           setControl(null); setDetailError(null);
           const value = emptyDraft(); setDraft(value); setOriginal(value);
@@ -224,8 +233,9 @@ export function ImplementationRegister({ tenantId, profile, canWrite, initialCon
         </select>
       </label> : null}
       {creating ? <label className="field">{t("register.selectedRequirement")}
-        <select value={controlId} onChange={(event) => {
+        <select value={controlId} disabled={busy} onChange={(event) => {
           if (!canLeave()) return;
+          setConflict(null);
           setControlId(event.target.value); setControl(null); setDetailError(null);
           const value = emptyDraft(); setDraft(value); setOriginal(value);
         }}>

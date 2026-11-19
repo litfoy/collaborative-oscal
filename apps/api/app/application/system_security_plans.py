@@ -661,6 +661,13 @@ class SystemSecurityPlanService:
                         plan.id, expected_version, plan.concurrency_version
                     )
                 system = self._get_system(session, tenant_id, plan.system_id, lock=True)
+                self._get_component(
+                    session,
+                    tenant_id,
+                    plan.system_id,
+                    system_component_id,
+                    lock=True,
+                )
                 record = session.scalar(
                     select(ControlImplementationRecord)
                     .where(
@@ -677,15 +684,6 @@ class SystemSecurityPlanService:
                         expected_implementation_version,
                         int(record.concurrency_version),
                     )
-                component = session.scalar(
-                    select(SystemComponentRecord).where(
-                        SystemComponentRecord.tenant_id == tenant_id,
-                        SystemComponentRecord.system_id == plan.system_id,
-                        SystemComponentRecord.id == system_component_id,
-                    )
-                )
-                if component is None:
-                    raise EntityNotFoundError("System component not found.")
                 if record.catalog_id != plan.catalog_id or record.revision_id != plan.revision_id:
                     raise InvalidSystemSecurityPlan(
                         [
@@ -764,6 +762,7 @@ class SystemSecurityPlanService:
                     or record.system_component_id != system_component_id
                 )
                 if context_changed:
+                    record.concurrency_version = int(record.concurrency_version) + 1
                     record.system_id = plan.system_id
                     record.system_component_id = system_component_id
                     record.updated_by = actor
@@ -788,6 +787,7 @@ class SystemSecurityPlanService:
                     created_at=now,
                 )
                 session.add(association)
+                plan.concurrency_version = int(plan.concurrency_version) + 1
                 plan.updated_by = actor
                 plan.updated_at = now
                 try:
@@ -847,6 +847,7 @@ class SystemSecurityPlanService:
                 if association is None:
                     raise EntityNotFoundError("SSP implementation contribution not found.")
                 session.delete(association)
+                plan.concurrency_version = int(plan.concurrency_version) + 1
                 plan.updated_by = actor
                 plan.updated_at = datetime.now(UTC)
                 try:

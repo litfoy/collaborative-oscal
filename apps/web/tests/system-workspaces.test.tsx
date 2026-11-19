@@ -742,6 +742,80 @@ describe("Systems workspaces", () => {
     );
   });
 
+  it("warns in English that SSP conflict reload discards pending contribution edits", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/system-security-plans/plan") && init?.method === "PUT") {
+        return new Response(
+          JSON.stringify({
+            detail: {
+              code: "stale_update",
+              plan_id: plan.id,
+              expected_version: 1,
+              current_version: 3,
+            },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return jsonResponse(plan);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderPlan();
+    await user.click(screen.getByRole("button", { name: "Control implementation" }));
+    await user.click(screen.getByRole("button", { name: "Edit contribution" }));
+    await user.type(
+      screen.getByLabelText("Requirement-specific implementation description"),
+      " local",
+    );
+    await user.click(screen.getByRole("button", { name: "Save working state" }));
+    await screen.findByText(/Current server version: 3\./);
+
+    await user.click(screen.getByRole("button", { name: "Discard edits and reload" }));
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "Discard your unsaved SSP edits and pending contribution edits, then reload the server state?",
+    );
+  });
+
+  it("warns in German that SSP conflict reload discards pending contribution edits", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/system-security-plans/plan") && init?.method === "PUT") {
+        return new Response(
+          JSON.stringify({
+            detail: {
+              code: "stale_update",
+              plan_id: plan.id,
+              expected_version: 1,
+              current_version: 3,
+            },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return jsonResponse(plan);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderPlan("de");
+    await user.click(screen.getByRole("button", { name: "Maßnahmenumsetzung" }));
+    await user.click(screen.getByRole("button", { name: "Beitrag bearbeiten" }));
+    await user.type(
+      screen.getByLabelText("Beschreibung der anforderungsspezifischen Umsetzung"),
+      " lokal",
+    );
+    await user.click(screen.getByRole("button", { name: "Arbeitsstand speichern" }));
+    await screen.findByText(/Aktuelle Serverversion: 3\./);
+
+    await user.click(screen.getByRole("button", { name: "Änderungen verwerfen und neu laden" }));
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "Ihre nicht gespeicherten SSP-Änderungen und ausstehenden Beitragsentwürfe verwerfen und den Serverstatus neu laden?",
+    );
+  });
+
   it("keeps unsaved SSP and contribution drafts when conflict reload fails", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {

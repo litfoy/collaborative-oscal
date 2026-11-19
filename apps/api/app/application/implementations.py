@@ -249,6 +249,7 @@ class ImplementationService:
                 if self._is_noop(record, old, information):
                     return self._to_domain(record, old)
                 try:
+                    record.concurrency_version = int(record.concurrency_version) + 1
                     record.description = information.description
                     record.status = information.status.value
                     record.evidence_references = information.evidence_references
