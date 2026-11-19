@@ -39,6 +39,8 @@ from app.persistence.models import (
     CatalogRevisionRecord,
     DemoSeedRunRecord,
     InformationSystemRecord,
+    SystemSecurityPlanRecord,
+    SystemSecurityPlanVersionRecord,
     TenantMembershipRecord,
     TenantRecord,
 )
@@ -142,6 +144,7 @@ def seed_ai_governance_demo(
                 mapping_draft_path=mapping_draft_path,
                 nist_catalog=catalog,
                 nist_revision=revision,
+                core_seed_applied_in_this_run=False,
                 begin_scope=begin_scope,
                 unit_of_work_factory=unit_of_work_factory,
             )
@@ -928,6 +931,7 @@ def seed_ai_governance_demo(
             mapping_draft_path=mapping_draft_path,
             nist_catalog=catalog,
             nist_revision=revision,
+            core_seed_applied_in_this_run=True,
             begin_scope=begin_scope,
             unit_of_work_factory=unit_of_work_factory,
         )
@@ -1005,6 +1009,7 @@ def _seed_governance_coverage_extension(
     mapping_draft_path: Path,
     nist_catalog: CatalogRecord,
     nist_revision: CatalogRevisionRecord,
+    core_seed_applied_in_this_run: bool,
     begin_scope: Callable[[], AbstractContextManager[Session]],
     unit_of_work_factory: Callable[[], SQLAlchemyUnitOfWork],
 ) -> _GovernanceCoverageExtensionResult:
@@ -1031,12 +1036,21 @@ def _seed_governance_coverage_extension(
         unit_of_work_factory=unit_of_work_factory,
     )
 
+    target_catalog_id, target_revision_id = _resolve_mapping_target_catalog_revision(
+        session,
+        tenant_id=tenant_id,
+        fallback_catalog_id=nist_catalog.id,
+        fallback_revision_id=nist_revision.id,
+        core_seed_applied_in_this_run=core_seed_applied_in_this_run,
+        mapping_draft_path=mapping_draft_path,
+    )
+
     pairs = _mapping_pairs_from_draft(
         mapping_draft_path,
         source_catalog_id=eu_catalog.id,
         source_revision_id=eu_revision.id,
-        target_catalog_id=nist_catalog.id,
-        target_revision_id=nist_revision.id,
+        target_catalog_id=target_catalog_id,
+        target_revision_id=target_revision_id,
     )
 
     mappings = MappingService(begin_scope)
@@ -1122,6 +1136,158 @@ def _seed_governance_coverage_extension(
         system_id=system["id"],
         mapping_collection_id=collection.id,
     )
+
+
+def _resolve_mapping_target_catalog_revision(
+    session: Session,
+    *,
+    tenant_id: UUID,
+    fallback_catalog_id: UUID,
+    fallback_revision_id: UUID,
+    core_seed_applied_in_this_run: bool,
+    mapping_draft_path: Path,
+) -> tuple[UUID, UUID]:
+    required_target_controls = _mapping_target_control_ids(mapping_draft_path)
+    if core_seed_applied_in_this_run:
+        _ensure_revision_contains_controls(
+            session,
+            tenant_id=tenant_id,
+            revision_id=fallback_revision_id,
+            control_ids=required_target_controls,
+            reason="Enriched NIST revision cannot satisfy governance mapping targets",
+        )
+        return fallback_catalog_id, fallback_revision_id
+
+    pinned = _pinned_demo_nist_revision_from_historical_references(session, tenant_id=tenant_id)
+    if pinned is None:
+        raise RuntimeError(
+            "Cannot establish historical demo NIST revision from persisted SSP references. "
+            "Refusing to create cross-revision mappings."
+        )
+    _ensure_revision_contains_controls(
+        session,
+        tenant_id=tenant_id,
+        revision_id=pinned.id,
+        control_ids=required_target_controls,
+        reason=(
+            "Historical demo NIST revision does not contain all governance mapping targets; "
+            "refusing to infer cross-revision equivalence"
+        ),
+    )
+    return pinned.catalog_id, pinned.id
+
+
+def _mapping_target_control_ids(mapping_draft_path: Path) -> set[str]:
+    draft = json.loads(mapping_draft_path.read_bytes())
+    if not isinstance(draft, dict):
+        raise ValueError("Mapping draft payload must be a JSON object.")
+    mappings = draft.get("mappings")
+    if not isinstance(mappings, list) or not mappings:
+        raise ValueError("Mapping draft mappings payload must be a non-empty array.")
+    target_control_ids: set[str] = set()
+    for item in mappings:
+        if not isinstance(item, dict) or not isinstance(item.get("target_control_id"), str):
+            raise ValueError("Mapping draft entries must include target_control_id.")
+        target_control_ids.add(item["target_control_id"])
+    return target_control_ids
+
+
+def _ensure_revision_contains_controls(
+    session: Session,
+    *,
+    tenant_id: UUID,
+    revision_id: UUID,
+    control_ids: set[str],
+    reason: str,
+) -> None:
+    found = set(
+        session.scalars(
+            select(CatalogControlIndexRecord.oscal_control_id).where(
+                CatalogControlIndexRecord.tenant_id == tenant_id,
+                CatalogControlIndexRecord.catalog_revision_id == revision_id,
+                CatalogControlIndexRecord.oscal_control_id.in_(sorted(control_ids)),
+            )
+        )
+    )
+    missing = sorted(control_ids - found)
+    if missing:
+        raise RuntimeError(f"{reason}: missing controls {', '.join(missing)}")
+
+
+def _pinned_demo_nist_revision_from_historical_references(
+    session: Session, *, tenant_id: UUID
+) -> CatalogRevisionRecord | None:
+    ssp_version = session.scalar(
+        select(SystemSecurityPlanVersionRecord)
+        .join(
+            SystemSecurityPlanRecord,
+            (SystemSecurityPlanRecord.tenant_id == SystemSecurityPlanVersionRecord.tenant_id)
+            & (
+                SystemSecurityPlanRecord.id
+                == SystemSecurityPlanVersionRecord.system_security_plan_id
+            ),
+        )
+        .join(
+            InformationSystemRecord,
+            (InformationSystemRecord.tenant_id == SystemSecurityPlanRecord.tenant_id)
+            & (InformationSystemRecord.id == SystemSecurityPlanRecord.system_id),
+        )
+        .where(
+            SystemSecurityPlanVersionRecord.tenant_id == tenant_id,
+            InformationSystemRecord.name == SYSTEM_NAME,
+        )
+        .order_by(
+            SystemSecurityPlanVersionRecord.created_at.desc(),
+            SystemSecurityPlanVersionRecord.id.desc(),
+        )
+    )
+    if ssp_version is None:
+        return None
+
+    href = ssp_version.document["system-security-plan"]["import-profile"]["href"]
+    href_catalog_id, href_revision_id = _catalog_revision_from_catalog_export_href(
+        str(href), expected_tenant_id=tenant_id
+    )
+    if href_catalog_id != ssp_version.catalog_id or href_revision_id != ssp_version.revision_id:
+        raise RuntimeError(
+            "Persisted SSP baseline reference mismatch. Refusing to infer mapping target revision."
+        )
+    revision = session.scalar(
+        select(CatalogRevisionRecord).where(
+            CatalogRevisionRecord.tenant_id == tenant_id,
+            CatalogRevisionRecord.catalog_id == href_catalog_id,
+            CatalogRevisionRecord.id == href_revision_id,
+            CatalogRevisionRecord.oscal_document_uuid == UPSTREAM_CATALOG_UUID,
+        )
+    )
+    if revision is None:
+        raise RuntimeError(
+            "Historical SSP references a missing or non-NIST catalog revision. "
+            "Refusing to infer mapping target revision."
+        )
+    return revision
+
+
+def _catalog_revision_from_catalog_export_href(
+    href: str, *, expected_tenant_id: UUID
+) -> tuple[UUID, UUID]:
+    parts = href.strip("/").split("/")
+    if len(parts) != 9 or parts[0:3] != ["api", "v1", "tenants"]:
+        raise RuntimeError("Historical catalog reference does not use the expected export path.")
+    try:
+        tenant_id = UUID(parts[3])
+        catalog_id = UUID(parts[5])
+        revision_id = UUID(parts[7])
+    except ValueError as error:
+        raise RuntimeError("Historical catalog reference contains invalid UUIDs.") from error
+    if (
+        tenant_id != expected_tenant_id
+        or parts[4] != "catalogs"
+        or parts[6] != "revisions"
+        or parts[8] != "export"
+    ):
+        raise RuntimeError("Historical catalog reference does not match this tenant.")
+    return catalog_id, revision_id
 
 
 def _mapping_pairs_from_draft(

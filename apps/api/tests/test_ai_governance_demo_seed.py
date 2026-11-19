@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
@@ -19,7 +20,6 @@ from collaborative_oscal_oscal.system_security_plan import (
     validate_system_security_plan_document,
 )
 from sqlalchemy import func, select, text
-from sqlalchemy.dialects.postgresql import insert
 
 from app.application import ai_governance_demo as ai_demo_module
 from app.application.ai_governance_demo import (
@@ -35,7 +35,6 @@ from app.application.ai_governance_demo import (
     UPSTREAM_CATALOG_UUID,
     seed_ai_governance_demo,
 )
-from app.application.catalog_import import CatalogImportService
 from app.application.system_security_plans import SystemSecurityPlanService
 from app.persistence.identity import SQLIdentityRepository, SQLMembershipRepository
 from app.persistence.models import (
@@ -61,7 +60,6 @@ from app.persistence.models import (
     TenantMembershipRecord,
     UserIdentityRecord,
 )
-from app.persistence.repositories import SQLAlchemyUnitOfWork
 
 pytestmark = pytest.mark.integration
 CATALOG_PATH = (
@@ -87,16 +85,60 @@ MAPPING_DRAFT_PATH = (
 )
 
 
-def _seed_demo(session_factory, tenant_id: UUID, actor_id: UUID):
+def _seed_demo(
+    session_factory,
+    tenant_id: UUID,
+    actor_id: UUID,
+    *,
+    catalog_path: Path = CATALOG_PATH,
+    catalog_provenance_path: Path = CATALOG_PROVENANCE_PATH,
+    eu_ai_act_catalog_path: Path = EU_AI_ACT_CATALOG_PATH,
+    mapping_draft_path: Path = MAPPING_DRAFT_PATH,
+):
     return seed_ai_governance_demo(
         session_factory=session_factory,
         tenant_id=tenant_id,
         actor_id=actor_id,
-        catalog_path=CATALOG_PATH,
-        catalog_provenance_path=CATALOG_PROVENANCE_PATH,
-        eu_ai_act_catalog_path=EU_AI_ACT_CATALOG_PATH,
-        mapping_draft_path=MAPPING_DRAFT_PATH,
+        catalog_path=catalog_path,
+        catalog_provenance_path=catalog_provenance_path,
+        eu_ai_act_catalog_path=eu_ai_act_catalog_path,
+        mapping_draft_path=mapping_draft_path,
     )
+
+
+def _mapping_draft_entries() -> list[dict[str, str]]:
+    draft = json.loads(MAPPING_DRAFT_PATH.read_text(encoding="utf-8"))
+    mappings = draft["mappings"]
+    assert isinstance(mappings, list)
+    return mappings
+
+
+def _legacy_nist_inputs(tmp_path: Path) -> tuple[Path, Path]:
+    legacy_document = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+    # Simulate the pre-enrichment snapshot by removing local source classification metadata.
+    links = [
+        link
+        for link in legacy_document["catalog"]["metadata"].get("links", [])
+        if link.get("href") != "#72670f1a-0e8c-58b7-a9c5-47286a713987"
+    ]
+    if links:
+        legacy_document["catalog"]["metadata"]["links"] = links
+    else:
+        legacy_document["catalog"]["metadata"].pop("links", None)
+    resources = legacy_document["catalog"].get("back-matter", {}).get("resources", [])
+    for resource in resources:
+        if resource.get("uuid") == "72670f1a-0e8c-58b7-a9c5-47286a713987":
+            resource.pop("props", None)
+
+    legacy_catalog_path = tmp_path / "nist-ai-rmf-gen-ai-1.0.0-catalog-legacy.json"
+    legacy_catalog_bytes = json.dumps(legacy_document, ensure_ascii=False).encode("utf-8")
+    legacy_catalog_path.write_bytes(legacy_catalog_bytes)
+
+    provenance = json.loads(CATALOG_PROVENANCE_PATH.read_text(encoding="utf-8"))
+    provenance["sha256"] = hashlib.sha256(legacy_catalog_bytes).hexdigest()
+    legacy_provenance_path = tmp_path / "nist-ai-rmf-gen-ai-1.0.0-catalog-legacy.provenance.json"
+    legacy_provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+    return legacy_catalog_path, legacy_provenance_path
 
 
 def _actor(session_factory, tenant_id: UUID) -> UUID:
@@ -383,6 +425,7 @@ def test_ai_governance_coverage_extension_seeds_expected_demo_data(
     assert seeded.governance_coverage_system_id is not None
     assert seeded.governance_coverage_mapping_collection_id is not None
 
+    expected_entries = _mapping_draft_entries()
     with session_factory() as session:
         eu_revision = session.scalar(
             select(CatalogRevisionRecord).where(
@@ -429,6 +472,18 @@ def test_ai_governance_coverage_extension_seeds_expected_demo_data(
             )
         )
         assert mapping_collection is not None
+        member_rows = session.execute(
+            select(
+                MappingMemberRecord.side,
+                MappingMemberRecord.revision_id,
+                MappingMemberRecord.oscal_member_id,
+            )
+            .where(
+                MappingMemberRecord.tenant_id == tenant.id,
+                MappingMemberRecord.collection_id == mapping_collection.id,
+            )
+            .order_by(MappingMemberRecord.side, MappingMemberRecord.oscal_member_id)
+        ).all()
         member_count = session.scalar(
             select(func.count())
             .select_from(MappingMemberRecord)
@@ -456,7 +511,46 @@ def test_ai_governance_coverage_extension_seeds_expected_demo_data(
     mappings = mapping_collection.document["mapping-collection"]["mappings"]
     assert isinstance(mappings, list)
     assert len(mappings) == 1
-    assert len(mappings[0]["maps"]) == GOVERNANCE_COVERAGE_MAPPING_COUNT
+    mapping_doc = mappings[0]
+    assert len(mapping_doc["maps"]) == GOVERNANCE_COVERAGE_MAPPING_COUNT
+    assert mapping_doc["source-resource"]["href"].endswith(
+        f"/catalogs/{eu_revision.catalog_id}/revisions/{eu_revision.id}/export"
+    )
+    assert mapping_doc["target-resource"]["href"].endswith(
+        f"/catalogs/{nist_revision.catalog_id}/revisions/{nist_revision.id}/export"
+    )
+
+    expected_by_source = {
+        item["source_control_id"]: item for item in expected_entries
+    }
+    for entry in mapping_doc["maps"]:
+        sources = [item["id-ref"] for item in entry["sources"]]
+        targets = [item["id-ref"] for item in entry["targets"]]
+        assert len(sources) == 1
+        assert len(targets) == 1
+        source_control = sources[0]
+        expected = expected_by_source[source_control]
+        assert targets[0] == expected["target_control_id"]
+        assert entry["relationship"] == expected["relationship"]
+        assert entry["matching-rationale"] == expected["matching_rationale"]
+        assert entry["remarks"] == expected["justification"]
+
+    expected_source_controls = sorted(item["source_control_id"] for item in expected_entries)
+    expected_target_controls = sorted(item["target_control_id"] for item in expected_entries)
+    actual_source_members = sorted(
+        member_id for side, _, member_id in member_rows if side == "source"
+    )
+    actual_target_members = sorted(
+        member_id for side, _, member_id in member_rows if side == "target"
+    )
+    assert actual_source_members == expected_source_controls
+    assert actual_target_members == expected_target_controls
+    assert {
+        revision_id for side, revision_id, _ in member_rows if side == "source"
+    } == {eu_revision.id}
+    assert {
+        revision_id for side, revision_id, _ in member_rows if side == "target"
+    } == {nist_revision.id}
 
     repeated = _seed_demo(session_factory, tenant.id, actor_id)
     assert repeated.applied is False
@@ -482,27 +576,119 @@ def test_ai_governance_coverage_extension_seeds_expected_demo_data(
         )
 
 
-def test_governance_coverage_extension_applies_to_existing_demo_marker(
-    grc_service, session_factory
+def test_governance_coverage_extension_aligns_to_historical_nist_revision(
+    grc_service, session_factory, monkeypatch, tmp_path
 ) -> None:
     tenant = grc_service.create_tenant("AI Governance Existing Demo", f"ai-existing-{uuid4().hex}")
     actor_id = _actor(session_factory, tenant.id)
+    legacy_catalog_path, legacy_provenance_path = _legacy_nist_inputs(tmp_path)
 
-    importer = CatalogImportService(lambda: SQLAlchemyUnitOfWork(session_factory))
-    importer.import_catalog(tenant.id, CATALOG_PATH.read_bytes())
-
-    with session_factory.begin() as session:
-        session.execute(
-            insert(DemoSeedRunRecord)
-            .values(tenant_id=tenant.id, seed_name=SEED_NAME)
-            .on_conflict_do_nothing(index_elements=["tenant_id", "seed_name"])
+    def _skip_extension(*args, **kwargs):  # noqa: ANN002, ANN003
+        return ai_demo_module._GovernanceCoverageExtensionResult(
+            applied=False,
+            system_id=None,
+            mapping_collection_id=None,
         )
 
-    result = _seed_demo(session_factory, tenant.id, actor_id)
-    assert result.applied is True
-    assert result.system_id is None
-    assert result.governance_coverage_system_id is not None
-    assert result.governance_coverage_mapping_collection_id is not None
+    monkeypatch.setattr(ai_demo_module, "_seed_governance_coverage_extension", _skip_extension)
+    legacy_seeded = _seed_demo(
+        session_factory,
+        tenant.id,
+        actor_id,
+        catalog_path=legacy_catalog_path,
+        catalog_provenance_path=legacy_provenance_path,
+    )
+    monkeypatch.undo()
+
+    assert legacy_seeded.applied is True
+    assert legacy_seeded.system_id is not None
+    assert legacy_seeded.governance_coverage_system_id is None
+    assert legacy_seeded.governance_coverage_mapping_collection_id is None
+    legacy_chain = _published_chain(session_factory, tenant.id, legacy_seeded)
+
+    with session_factory() as session:
+        implementation_revision_ids = {
+            item
+            for item in session.scalars(
+                select(ControlImplementationRecord.revision_id).where(
+                    ControlImplementationRecord.tenant_id == tenant.id,
+                    ControlImplementationRecord.system_id == legacy_seeded.system_id,
+                )
+            )
+        }
+    assert implementation_revision_ids == {legacy_seeded.revision_id}
+
+    upgraded = _seed_demo(session_factory, tenant.id, actor_id)
+    assert upgraded.applied is True
+    assert upgraded.system_id is None
+    assert upgraded.governance_coverage_mapping_collection_id is not None
+    assert upgraded.revision_id != legacy_seeded.revision_id
+
+    with session_factory() as session:
+        nist_revisions = session.scalars(
+            select(CatalogRevisionRecord)
+            .where(
+                CatalogRevisionRecord.tenant_id == tenant.id,
+                CatalogRevisionRecord.oscal_document_uuid == UPSTREAM_CATALOG_UUID,
+            )
+            .order_by(CatalogRevisionRecord.revision_number)
+        ).all()
+        assert len(nist_revisions) == 2
+        assert {item.id for item in nist_revisions} == {
+            legacy_seeded.revision_id,
+            upgraded.revision_id,
+        }
+
+        mapping_collection = session.scalar(
+            select(MappingCollectionRecord).where(
+                MappingCollectionRecord.tenant_id == tenant.id,
+                MappingCollectionRecord.id == upgraded.governance_coverage_mapping_collection_id,
+            )
+        )
+        assert mapping_collection is not None
+        mapping_doc = mapping_collection.document["mapping-collection"]["mappings"][0]
+        assert mapping_doc["target-resource"]["href"].endswith(
+            f"/revisions/{legacy_seeded.revision_id}/export"
+        )
+        member_target_revision_ids = {
+            item
+            for item in session.scalars(
+                select(MappingMemberRecord.revision_id).where(
+                    MappingMemberRecord.tenant_id == tenant.id,
+                    MappingMemberRecord.collection_id == mapping_collection.id,
+                    MappingMemberRecord.side == "target",
+                )
+            )
+        }
+        assert member_target_revision_ids == {legacy_seeded.revision_id}
+
+        implementation_revision_ids_after = {
+            item
+            for item in session.scalars(
+                select(ControlImplementationRecord.revision_id).where(
+                    ControlImplementationRecord.tenant_id == tenant.id,
+                    ControlImplementationRecord.system_id == legacy_seeded.system_id,
+                )
+            )
+        }
+        assert implementation_revision_ids_after == {legacy_seeded.revision_id}
+
+    after_chain = _published_chain(session_factory, tenant.id, legacy_seeded)
+    for key in ("ssp_version", "plan_version", "result_version"):
+        assert after_chain[key].content_sha256 == legacy_chain[key].content_sha256
+        assert after_chain[key].document == legacy_chain[key].document
+
+    rerun = _seed_demo(session_factory, tenant.id, actor_id)
+    assert rerun.applied is False
+    with session_factory() as session:
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(MappingCollectionRecord)
+                .where(MappingCollectionRecord.tenant_id == tenant.id)
+            )
+            == 1
+        )
 
 
 def test_governance_coverage_extension_rolls_back_on_invalid_mapping_reference(

@@ -46,6 +46,7 @@ NIST_CATALOG_PATH = Path(__file__).parent / "fixtures" / "NIST_SP-800-53_rev5_ca
 BSI_CATALOG_PATH = (
     Path(__file__).parents[3] / "examples" / "catalogs" / "Grundschutz++-resolved_catalog.json"
 )
+OSCAL_STANDARD_NAMESPACE = "http://csrc.nist.gov/ns/oscal"
 
 
 def _catalog_document(oscal_version: str = "1.2.1") -> dict:
@@ -132,6 +133,50 @@ def test_real_bsi_catalog_validates_as_oscal_1_1_3_without_data_loss() -> None:
     assert len(controls) == 1000
     assert all(control.group_path is not None for control in controls)
     assert any(group.parent_path is not None for group in groups)
+
+
+@pytest.mark.parametrize(
+    ("path", "expected_classification"),
+    [
+        (
+            Path(__file__).parents[3] / "examples" / "catalogs" / "eu_ai_act_catalog.json",
+            "regulation",
+        ),
+        (
+            Path(__file__).parents[3]
+            / "examples"
+            / "catalogs"
+            / "nist-ai-rmf-gen-ai-1.0.0-catalog.json",
+            "external-guidance",
+        ),
+    ],
+)
+def test_bundled_governance_catalogs_validate_with_official_oscal_1_1_2_schema(
+    path: Path, expected_classification: str
+) -> None:
+    content = path.read_bytes()
+
+    outcome = validate_catalog_bytes(content)
+
+    assert outcome.result.valid, outcome.result.errors
+    assert outcome.result.declared_oscal_version == "1.1.2"
+    assert outcome.result.validator_name == "jsonschema"
+    assert outcome.result.validation_schema_version == "OSCAL 1.1.2"
+    assert outcome.document is not None
+    _OSCAL_DRAFT7_VALIDATOR(
+        load_oscal_schema(OscalDocumentModel.CATALOG, "1.1.2"),
+        format_checker=Draft7Validator.FORMAT_CHECKER,
+    ).validate(outcome.document)
+
+    resources = outcome.document["catalog"].get("back-matter", {}).get("resources", [])
+    typed_resources = [
+        prop
+        for resource in resources
+        for prop in resource.get("props", [])
+        if prop.get("name") == "type" and prop.get("ns") == OSCAL_STANDARD_NAMESPACE
+    ]
+    assert typed_resources
+    assert expected_classification in {prop.get("value") for prop in typed_resources}
 
 
 @pytest.mark.parametrize("oscal_version", OSCAL_VERSION_ORDER)
