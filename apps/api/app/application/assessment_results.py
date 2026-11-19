@@ -18,6 +18,7 @@ from collaborative_oscal_oscal.assessment_result import (
 from collaborative_oscal_oscal.catalog_index import canonical_json_sha256
 from collaborative_oscal_oscal.versions import OscalDocumentModel, authoring_version_for
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -36,6 +37,39 @@ SessionScope = Callable[[], AbstractContextManager[Session]]
 _ALLOWED_METHODS = frozenset({"EXAMINE", "INTERVIEW", "TEST"})
 _HOST_LABEL_RE = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")
 _IPV4_DOTTED_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
+_ALLOWED_ROOT_KEYS = frozenset({"assessment-results"})
+_ALLOWED_DOCUMENT_KEYS = frozenset({"uuid", "metadata", "import-ap", "results", "back-matter"})
+_ALLOWED_METADATA_KEYS = frozenset({"title", "last-modified", "version", "oscal-version"})
+_ALLOWED_IMPORT_AP_KEYS = frozenset({"href"})
+_ALLOWED_RESULT_KEYS = frozenset(
+    {
+        "uuid",
+        "title",
+        "description",
+        "reviewed-controls",
+        "observations",
+        "findings",
+        "start",
+        "end",
+    }
+)
+_ALLOWED_REVIEWED_CONTROLS_KEYS = frozenset({"control-selections"})
+_ALLOWED_CONTROL_SELECTION_KEYS = frozenset({"include-controls"})
+_ALLOWED_INCLUDE_CONTROL_KEYS = frozenset({"control-id"})
+_ALLOWED_OBSERVATION_KEYS = frozenset(
+    {"uuid", "title", "description", "methods", "collected", "subjects", "relevant-evidence"}
+)
+_ALLOWED_SUBJECT_KEYS = frozenset({"type", "subject-uuid"})
+_ALLOWED_RELEVANT_EVIDENCE_KEYS = frozenset({"href", "description"})
+_ALLOWED_FINDING_KEYS = frozenset(
+    {"uuid", "title", "description", "target", "related-observations"}
+)
+_ALLOWED_TARGET_KEYS = frozenset({"type", "target-id", "status"})
+_ALLOWED_STATUS_KEYS = frozenset({"state"})
+_ALLOWED_RELATED_OBSERVATION_KEYS = frozenset({"observation-uuid"})
+_ALLOWED_BACK_MATTER_KEYS = frozenset({"resources"})
+_ALLOWED_RESOURCE_KEYS = frozenset({"uuid", "title", "description", "rlinks"})
+_ALLOWED_RLINK_KEYS = frozenset({"href"})
 
 
 class InvalidAssessmentResult(ValueError):
@@ -59,6 +93,26 @@ class _StaleAssessmentResultFlush(RuntimeError):
         self.result_id = result_id
         self.expected_version = expected_version
         super().__init__("Assessment Results flush detected stale mapper version.")
+
+
+class AssessmentResultImportConflict(ValueError):
+    def __init__(
+        self,
+        *,
+        source_document_uuid: UUID,
+        existing_result_id: UUID,
+        reason: str,
+        existing_assessment_plan_id: UUID,
+        existing_assessment_plan_version_id: UUID,
+    ) -> None:
+        self.source_document_uuid = source_document_uuid
+        self.existing_result_id = existing_result_id
+        self.reason = reason
+        self.existing_assessment_plan_id = existing_assessment_plan_id
+        self.existing_assessment_plan_version_id = existing_assessment_plan_version_id
+        super().__init__(
+            "Assessment Results import identity conflicts with an existing submission."
+        )
 
 
 class AssessmentResultService:
@@ -141,6 +195,141 @@ class AssessmentResultService:
             session.add(record)
             session.flush()
             return self._result_payload(session, record)
+
+    def import_result(
+        self,
+        tenant_id: UUID,
+        actor: UUID,
+        *,
+        assessment_plan_id: UUID,
+        assessment_plan_version_id: UUID,
+        document: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool]:
+        source_document_uuid, content_sha256 = self._source_identity(document)
+        try:
+            with self._session_scope() as session:
+                plan = self._get_plan(session, tenant_id, assessment_plan_id)
+                plan_version = self._get_plan_version(
+                    session,
+                    tenant_id,
+                    assessment_plan_version_id,
+                )
+                if plan_version.assessment_plan_id != assessment_plan_id:
+                    raise InvalidAssessmentResult(
+                        [
+                            {
+                                "severity": "error",
+                                "category": "application_reference",
+                                "code": "plan_version_mismatch",
+                                "message": (
+                                    "The selected Assessment Plan version does not belong to "
+                                    "this Assessment Plan."
+                                ),
+                            }
+                        ]
+                    )
+
+                context_record = AssessmentResultRecord(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    system_id=plan.system_id,
+                    assessment_plan_id=assessment_plan_id,
+                    assessment_plan_version_id=assessment_plan_version_id,
+                    title="import",
+                    description=None,
+                    working_data={},
+                    created_by=actor,
+                    updated_by=actor,
+                    created_at=datetime.now(UTC),
+                    updated_at=datetime.now(UTC),
+                    concurrency_version=1,
+                )
+                context = self._context_for_result(session, context_record)
+                expected_plan_href = self._plan_href(context_record)
+
+                imported = self._map_import_document(
+                    document,
+                    expected_plan_href=expected_plan_href,
+                )
+                self._validate_working_integrity(
+                    imported["working_data"],
+                    result_uuid=None,
+                    planned_control_ids=context["planned_control_set"],
+                    allowed_subject_uuids=context["subject_uuid_set"],
+                    statement_controls=context["statement_controls"],
+                    catalog_objective_controls=context["catalog_objective_controls"],
+                    selected_catalog_objective_ids=context["selected_catalog_objective_ids"],
+                    local_objective_controls=context["local_objective_controls"],
+                    require_related_observations=False,
+                )
+
+                existing = session.scalar(
+                    select(AssessmentResultRecord)
+                    .where(
+                        AssessmentResultRecord.tenant_id == tenant_id,
+                        AssessmentResultRecord.source_document_uuid == source_document_uuid,
+                    )
+                    .with_for_update()
+                )
+                if existing is not None:
+                    self._match_existing_import(
+                        existing,
+                        requested_content_sha256=content_sha256,
+                        assessment_plan_id=assessment_plan_id,
+                        assessment_plan_version_id=assessment_plan_version_id,
+                        source_document_uuid=source_document_uuid,
+                    )
+                    return self._result_payload(session, existing), False
+
+                now = datetime.now(UTC)
+                record = AssessmentResultRecord(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    system_id=plan.system_id,
+                    assessment_plan_id=assessment_plan_id,
+                    assessment_plan_version_id=assessment_plan_version_id,
+                    title=imported["title"],
+                    description=imported["description"],
+                    working_data=copy.deepcopy(imported["working_data"]),
+                    source_document_uuid=source_document_uuid,
+                    source_content_sha256=content_sha256,
+                    source_provenance={
+                        "source_document_uuid": str(source_document_uuid),
+                        "source_result_uuid": imported["source_result_uuid"],
+                        "source_metadata_version": imported["source_metadata_version"],
+                        "source_metadata_last_modified": imported["source_metadata_last_modified"],
+                        "submitted_by": str(actor),
+                        "submitted_at": now.isoformat(),
+                    },
+                    created_by=actor,
+                    updated_by=actor,
+                    created_at=now,
+                    updated_at=now,
+                    concurrency_version=1,
+                )
+                session.add(record)
+                session.flush()
+                return self._result_payload(session, record), True
+        except IntegrityError as error:
+            if not self._is_source_document_constraint_violation(error):
+                raise
+            with self._session_scope() as session:
+                existing = session.scalar(
+                    select(AssessmentResultRecord).where(
+                        AssessmentResultRecord.tenant_id == tenant_id,
+                        AssessmentResultRecord.source_document_uuid == source_document_uuid,
+                    )
+                )
+                if existing is None:
+                    raise
+                self._match_existing_import(
+                    existing,
+                    requested_content_sha256=content_sha256,
+                    assessment_plan_id=assessment_plan_id,
+                    assessment_plan_version_id=assessment_plan_version_id,
+                    source_document_uuid=source_document_uuid,
+                )
+                return self._result_payload(session, existing), False
 
     def get_result(self, tenant_id: UUID, result_id: UUID) -> dict[str, Any]:
         with self._session_scope() as session:
@@ -498,6 +687,786 @@ class AssessmentResultService:
             diagnostics.append(self._oscal_diagnostic(error))
 
         return document, diagnostics, context
+
+    def _match_existing_import(
+        self,
+        existing: AssessmentResultRecord,
+        *,
+        requested_content_sha256: str,
+        assessment_plan_id: UUID,
+        assessment_plan_version_id: UUID,
+        source_document_uuid: UUID,
+    ) -> None:
+        if (
+            existing.assessment_plan_id != assessment_plan_id
+            or existing.assessment_plan_version_id != assessment_plan_version_id
+        ):
+            raise AssessmentResultImportConflict(
+                source_document_uuid=source_document_uuid,
+                existing_result_id=existing.id,
+                reason="assessment_context_mismatch",
+                existing_assessment_plan_id=existing.assessment_plan_id,
+                existing_assessment_plan_version_id=existing.assessment_plan_version_id,
+            )
+        if existing.source_content_sha256 != requested_content_sha256:
+            raise AssessmentResultImportConflict(
+                source_document_uuid=source_document_uuid,
+                existing_result_id=existing.id,
+                reason="content_mismatch",
+                existing_assessment_plan_id=existing.assessment_plan_id,
+                existing_assessment_plan_version_id=existing.assessment_plan_version_id,
+            )
+
+    @staticmethod
+    def _is_source_document_constraint_violation(error: IntegrityError) -> bool:
+        orig = getattr(error, "orig", None)
+        diag = getattr(orig, "diag", None)
+        return (
+            getattr(diag, "constraint_name", None)
+            == "uq_assessment_results_source_document_uuid"
+        )
+
+    @staticmethod
+    def _source_identity(document: dict[str, Any]) -> tuple[UUID, str]:
+        body = document.get("assessment-results")
+        if not isinstance(body, dict):
+            raise InvalidAssessmentResult(
+                [
+                    {
+                        "severity": "error",
+                        "category": "application_integrity",
+                        "code": "invalid_import_document",
+                        "message": (
+                            "OSCAL Assessment Results payload must include "
+                            "assessment-results."
+                        ),
+                        "path": "$.assessment-results",
+                    }
+                ]
+            )
+        source_uuid = body.get("uuid")
+        if not isinstance(source_uuid, str):
+            raise InvalidAssessmentResult(
+                [
+                    {
+                        "severity": "error",
+                        "category": "application_integrity",
+                        "code": "invalid_import_document_uuid",
+                        "message": "OSCAL Assessment Results document uuid must be a string.",
+                        "path": "$.assessment-results.uuid",
+                    }
+                ]
+            )
+        try:
+            parsed_uuid = UUID(source_uuid)
+        except ValueError as error:
+            raise InvalidAssessmentResult(
+                [
+                    {
+                        "severity": "error",
+                        "category": "application_integrity",
+                        "code": "invalid_import_document_uuid",
+                        "message": "OSCAL Assessment Results document uuid must be a valid UUID.",
+                        "path": "$.assessment-results.uuid",
+                    }
+                ]
+            ) from error
+        return parsed_uuid, canonical_json_sha256(document)
+
+    def _map_import_document(
+        self,
+        document: dict[str, Any],
+        *,
+        expected_plan_href: str,
+    ) -> dict[str, Any]:
+        diagnostics: list[dict[str, str]] = []
+        self._assert_allowed_keys(diagnostics, "$", document, _ALLOWED_ROOT_KEYS)
+
+        body = document.get("assessment-results")
+        if not isinstance(body, dict):
+            diagnostics.append(
+                {
+                    "severity": "error",
+                    "category": "application_integrity",
+                    "code": "invalid_import_document",
+                    "message": "assessment-results must be an object.",
+                    "path": "$.assessment-results",
+                }
+            )
+            raise InvalidAssessmentResult(diagnostics)
+        self._assert_allowed_keys(diagnostics, "$.assessment-results", body, _ALLOWED_DOCUMENT_KEYS)
+        self._assert_allowed_keys(
+            diagnostics,
+            "$.assessment-results.metadata",
+            body.get("metadata"),
+            _ALLOWED_METADATA_KEYS,
+        )
+        self._assert_allowed_keys(
+            diagnostics,
+            "$.assessment-results.import-ap",
+            body.get("import-ap"),
+            _ALLOWED_IMPORT_AP_KEYS,
+        )
+
+        try:
+            validate_assessment_result_document(
+                document,
+                expected_assessment_plan_href=expected_plan_href,
+                allowed_observation_methods=_ALLOWED_METHODS,
+            )
+        except AssessmentResultValidationError as error:
+            diagnostics.append(self._oscal_diagnostic(error))
+
+        results = body.get("results")
+        if not isinstance(results, list) or len(results) != 1:
+            diagnostics.append(
+                {
+                    "severity": "error",
+                    "category": "application_integrity",
+                    "code": "unsupported_results_count",
+                    "message": (
+                        "Imported OSCAL Assessment Results must contain exactly one "
+                        "results entry."
+                    ),
+                    "path": "$.assessment-results.results",
+                }
+            )
+            raise InvalidAssessmentResult(diagnostics)
+
+        result_entry = results[0]
+        if not isinstance(result_entry, dict):
+            diagnostics.append(
+                {
+                    "severity": "error",
+                    "category": "application_integrity",
+                    "code": "invalid_result_entry",
+                    "message": "assessment-results.results[0] must be an object.",
+                    "path": "$.assessment-results.results[0]",
+                }
+            )
+            raise InvalidAssessmentResult(diagnostics)
+        self._assert_allowed_keys(
+            diagnostics,
+            "$.assessment-results.results[0]",
+            result_entry,
+            _ALLOWED_RESULT_KEYS,
+        )
+        self._assert_allowed_keys(
+            diagnostics,
+            "$.assessment-results.results[0].reviewed-controls",
+            result_entry.get("reviewed-controls"),
+            _ALLOWED_REVIEWED_CONTROLS_KEYS,
+        )
+
+        resources = self._import_resources(
+            diagnostics,
+            body.get("back-matter"),
+        )
+        observations, referenced_resource_ids = self._import_observations(
+            diagnostics,
+            result_entry.get("observations"),
+            resources,
+        )
+        findings = self._import_findings(
+            diagnostics,
+            result_entry.get("findings"),
+        )
+        reviewed_control_ids = self._import_reviewed_control_ids(
+            diagnostics,
+            result_entry.get("reviewed-controls"),
+        )
+
+        unused_resources = sorted(
+            resource_id
+            for resource_id in resources
+            if resource_id not in referenced_resource_ids
+        )
+        if unused_resources:
+            diagnostics.append(
+                {
+                    "severity": "error",
+                    "category": "application_integrity",
+                    "code": "unsupported_unreferenced_resource",
+                    "message": (
+                        "Imported OSCAL Assessment Results back-matter resources "
+                        "must be referenced "
+                        "from observations."
+                    ),
+                    "path": "$.assessment-results.back-matter.resources",
+                }
+            )
+
+        metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+        source_result_uuid = result_entry.get("uuid")
+        if not isinstance(source_result_uuid, str):
+            diagnostics.append(
+                {
+                    "severity": "error",
+                    "category": "application_integrity",
+                    "code": "invalid_source_result_uuid",
+                    "message": "assessment-results.results[0].uuid must be a string UUID.",
+                    "path": "$.assessment-results.results[0].uuid",
+                }
+            )
+        else:
+            try:
+                UUID(source_result_uuid)
+            except ValueError:
+                diagnostics.append(
+                    {
+                        "severity": "error",
+                        "category": "application_integrity",
+                        "code": "invalid_source_result_uuid",
+                        "message": "assessment-results.results[0].uuid must be a valid UUID.",
+                        "path": "$.assessment-results.results[0].uuid",
+                    }
+                )
+
+        title = result_entry.get("title")
+        if not isinstance(title, str) or not title.strip():
+            diagnostics.append(
+                {
+                    "severity": "error",
+                    "category": "application_integrity",
+                    "code": "invalid_result_title",
+                    "message": "assessment-results.results[0].title must be a non-empty string.",
+                    "path": "$.assessment-results.results[0].title",
+                }
+            )
+
+        description = result_entry.get("description")
+        if not isinstance(description, str) or not description.strip():
+            diagnostics.append(
+                {
+                    "severity": "error",
+                    "category": "application_integrity",
+                    "code": "invalid_result_description",
+                    "message": (
+                        "assessment-results.results[0].description must be a non-empty string."
+                    ),
+                    "path": "$.assessment-results.results[0].description",
+                }
+            )
+
+        if diagnostics:
+            raise InvalidAssessmentResult(diagnostics)
+
+        return {
+            "title": title.strip(),
+            "description": description.strip(),
+            "working_data": self._normalize_working_data(
+                {
+                    "reviewed_control_ids": reviewed_control_ids,
+                    "observations": observations,
+                    "findings": findings,
+                    "start": result_entry.get("start"),
+                    "end": result_entry.get("end"),
+                }
+            ),
+            "source_result_uuid": source_result_uuid,
+            "source_metadata_version": metadata.get("version"),
+            "source_metadata_last_modified": metadata.get("last-modified"),
+        }
+
+    def _import_reviewed_control_ids(
+        self,
+        diagnostics: list[dict[str, str]],
+        reviewed_controls: Any,
+    ) -> list[str]:
+        if not isinstance(reviewed_controls, dict):
+            diagnostics.append(
+                {
+                    "severity": "error",
+                    "category": "application_integrity",
+                    "code": "invalid_reviewed_controls",
+                    "message": "reviewed-controls must be an object.",
+                    "path": "$.assessment-results.results[0].reviewed-controls",
+                }
+            )
+            return []
+
+        control_selections = reviewed_controls.get("control-selections")
+        if not isinstance(control_selections, list) or len(control_selections) != 1:
+            diagnostics.append(
+                {
+                    "severity": "error",
+                    "category": "application_integrity",
+                    "code": "unsupported_control_selections",
+                    "message": (
+                        "reviewed-controls.control-selections must contain exactly one selection."
+                    ),
+                    "path": "$.assessment-results.results[0].reviewed-controls.control-selections",
+                }
+            )
+            return []
+
+        selection = control_selections[0]
+        self._assert_allowed_keys(
+            diagnostics,
+            "$.assessment-results.results[0].reviewed-controls.control-selections[0]",
+            selection,
+            _ALLOWED_CONTROL_SELECTION_KEYS,
+        )
+        include_controls = (
+            selection.get("include-controls") if isinstance(selection, dict) else None
+        )
+        if not isinstance(include_controls, list):
+            diagnostics.append(
+                {
+                    "severity": "error",
+                    "category": "application_integrity",
+                    "code": "invalid_include_controls",
+                    "message": "include-controls must be a list.",
+                    "path": (
+                        "$.assessment-results.results[0].reviewed-controls.control-selections[0].include-controls"
+                    ),
+                }
+            )
+            return []
+
+        reviewed_control_ids: list[str] = []
+        for index, item in enumerate(include_controls):
+            self._assert_allowed_keys(
+                diagnostics,
+                (
+                    "$.assessment-results.results[0].reviewed-controls.control-selections[0]"
+                    f".include-controls[{index}]"
+                ),
+                item,
+                _ALLOWED_INCLUDE_CONTROL_KEYS,
+            )
+            control_id = item.get("control-id") if isinstance(item, dict) else None
+            if not isinstance(control_id, str) or not control_id:
+                diagnostics.append(
+                    {
+                        "severity": "error",
+                        "category": "application_integrity",
+                        "code": "invalid_control_id",
+                        "message": "Each include-controls entry requires control-id.",
+                        "path": (
+                            "$.assessment-results.results[0].reviewed-controls.control-selections[0]"
+                            f".include-controls[{index}].control-id"
+                        ),
+                    }
+                )
+                continue
+            reviewed_control_ids.append(control_id)
+        return reviewed_control_ids
+
+    def _import_resources(
+        self,
+        diagnostics: list[dict[str, str]],
+        back_matter: Any,
+    ) -> dict[str, dict[str, str | None]]:
+        if back_matter is None:
+            return {}
+        self._assert_allowed_keys(
+            diagnostics,
+            "$.assessment-results.back-matter",
+            back_matter,
+            _ALLOWED_BACK_MATTER_KEYS,
+        )
+        resources = back_matter.get("resources") if isinstance(back_matter, dict) else None
+        if not isinstance(resources, list):
+            diagnostics.append(
+                {
+                    "severity": "error",
+                    "category": "application_integrity",
+                    "code": "invalid_back_matter_resources",
+                    "message": "back-matter.resources must be a list when back-matter is provided.",
+                    "path": "$.assessment-results.back-matter.resources",
+                }
+            )
+            return {}
+
+        mapped: dict[str, dict[str, str | None]] = {}
+        for index, resource in enumerate(resources):
+            path = f"$.assessment-results.back-matter.resources[{index}]"
+            self._assert_allowed_keys(diagnostics, path, resource, _ALLOWED_RESOURCE_KEYS)
+            if not isinstance(resource, dict):
+                continue
+            resource_uuid = resource.get("uuid")
+            title = resource.get("title")
+            description = resource.get("description")
+            if (
+                not isinstance(resource_uuid, str)
+                or not isinstance(title, str)
+                or not isinstance(description, str)
+            ):
+                diagnostics.append(
+                    {
+                        "severity": "error",
+                        "category": "application_integrity",
+                        "code": "invalid_resource",
+                        "message": (
+                            "Each back-matter resource requires string uuid, title, "
+                            "and description."
+                        ),
+                        "path": path,
+                    }
+                )
+                continue
+
+            href: str | None = None
+            rlinks = resource.get("rlinks")
+            if rlinks is not None:
+                if (
+                    not isinstance(rlinks, list)
+                    or len(rlinks) != 1
+                    or not isinstance(rlinks[0], dict)
+                ):
+                    diagnostics.append(
+                        {
+                            "severity": "error",
+                            "category": "application_integrity",
+                            "code": "unsupported_resource_rlinks",
+                            "message": "Each imported resource supports at most one rlink object.",
+                            "path": f"{path}.rlinks",
+                        }
+                    )
+                else:
+                    self._assert_allowed_keys(
+                        diagnostics,
+                        f"{path}.rlinks[0]",
+                        rlinks[0],
+                        _ALLOWED_RLINK_KEYS,
+                    )
+                    href_value = rlinks[0].get("href")
+                    if not isinstance(href_value, str) or not href_value:
+                        diagnostics.append(
+                            {
+                                "severity": "error",
+                                "category": "application_integrity",
+                                "code": "invalid_resource_href",
+                                "message": "Resource rlink href must be a non-empty string.",
+                                "path": f"{path}.rlinks[0].href",
+                            }
+                        )
+                    else:
+                        href = href_value
+
+            if resource_uuid in mapped:
+                diagnostics.append(
+                    {
+                        "severity": "error",
+                        "category": "application_integrity",
+                        "code": "duplicate_resource_uuid",
+                        "message": "back-matter resource UUIDs must be unique.",
+                        "path": f"{path}.uuid",
+                    }
+                )
+                continue
+            mapped[resource_uuid] = {
+                "title": title,
+                "description": description,
+                "href": href,
+            }
+        return mapped
+
+    def _import_observations(
+        self,
+        diagnostics: list[dict[str, str]],
+        observations: Any,
+        resources: dict[str, dict[str, str | None]],
+    ) -> tuple[list[dict[str, Any]], set[str]]:
+        if not isinstance(observations, list):
+            diagnostics.append(
+                {
+                    "severity": "error",
+                    "category": "application_integrity",
+                    "code": "invalid_observations",
+                    "message": "assessment-results.results[0].observations must be a list.",
+                    "path": "$.assessment-results.results[0].observations",
+                }
+            )
+            return [], set()
+
+        mapped: list[dict[str, Any]] = []
+        referenced_resource_ids: set[str] = set()
+        for observation_index, observation in enumerate(observations):
+            path = f"$.assessment-results.results[0].observations[{observation_index}]"
+            self._assert_allowed_keys(diagnostics, path, observation, _ALLOWED_OBSERVATION_KEYS)
+            if not isinstance(observation, dict):
+                continue
+
+            subject_uuids: list[str] = []
+            subjects = observation.get("subjects", [])
+            if not isinstance(subjects, list):
+                diagnostics.append(
+                    {
+                        "severity": "error",
+                        "category": "application_integrity",
+                        "code": "invalid_subjects",
+                        "message": "Observation subjects must be a list when provided.",
+                        "path": f"{path}.subjects",
+                    }
+                )
+                subjects = []
+            for subject_index, subject in enumerate(subjects):
+                subject_path = f"{path}.subjects[{subject_index}]"
+                self._assert_allowed_keys(diagnostics, subject_path, subject, _ALLOWED_SUBJECT_KEYS)
+                if not isinstance(subject, dict):
+                    continue
+                subject_type = subject.get("type")
+                subject_uuid = subject.get("subject-uuid")
+                if subject_type != "component":
+                    diagnostics.append(
+                        {
+                            "severity": "error",
+                            "category": "application_integrity",
+                            "code": "unsupported_subject_type",
+                            "message": (
+                                "Only component subjects are supported for imported "
+                                "observations."
+                            ),
+                            "path": f"{subject_path}.type",
+                        }
+                    )
+                if not isinstance(subject_uuid, str):
+                    diagnostics.append(
+                        {
+                            "severity": "error",
+                            "category": "application_integrity",
+                            "code": "invalid_subject_uuid",
+                            "message": "subject-uuid must be a string UUID.",
+                            "path": f"{subject_path}.subject-uuid",
+                        }
+                    )
+                else:
+                    subject_uuids.append(subject_uuid)
+
+            evidence: list[dict[str, Any]] = []
+            relevant_evidence = observation.get("relevant-evidence", [])
+            if not isinstance(relevant_evidence, list):
+                diagnostics.append(
+                    {
+                        "severity": "error",
+                        "category": "application_integrity",
+                        "code": "invalid_relevant_evidence",
+                        "message": "Observation relevant-evidence must be a list when provided.",
+                        "path": f"{path}.relevant-evidence",
+                    }
+                )
+                relevant_evidence = []
+
+            for evidence_index, evidence_ref in enumerate(relevant_evidence):
+                ref_path = f"{path}.relevant-evidence[{evidence_index}]"
+                self._assert_allowed_keys(
+                    diagnostics,
+                    ref_path,
+                    evidence_ref,
+                    _ALLOWED_RELEVANT_EVIDENCE_KEYS,
+                )
+                if not isinstance(evidence_ref, dict):
+                    continue
+                href = evidence_ref.get("href")
+                if not isinstance(href, str) or not href.startswith("#"):
+                    diagnostics.append(
+                        {
+                            "severity": "error",
+                            "category": "application_integrity",
+                            "code": "unsupported_relevant_evidence_href",
+                            "message": (
+                                "Observation relevant-evidence href must reference a back-matter "
+                                "resource fragment (#uuid)."
+                            ),
+                            "path": f"{ref_path}.href",
+                        }
+                    )
+                    continue
+                resource_uuid = href[1:]
+                resource = resources.get(resource_uuid)
+                if resource is None:
+                    diagnostics.append(
+                        {
+                            "severity": "error",
+                            "category": "application_reference",
+                            "code": "unknown_relevant_evidence_resource",
+                            "message": (
+                                "Observation relevant-evidence references an unknown "
+                                "back-matter resource."
+                            ),
+                            "path": f"{ref_path}.href",
+                        }
+                    )
+                    continue
+                reference_description = evidence_ref.get("description")
+                if not isinstance(reference_description, str):
+                    diagnostics.append(
+                        {
+                            "severity": "error",
+                            "category": "application_integrity",
+                            "code": "invalid_relevant_evidence_description",
+                            "message": (
+                                "Observation relevant-evidence description must be a "
+                                "string."
+                            ),
+                            "path": f"{ref_path}.description",
+                        }
+                    )
+                    continue
+                if reference_description != resource["description"]:
+                    diagnostics.append(
+                        {
+                            "severity": "error",
+                            "category": "application_integrity",
+                            "code": "incompatible_relevant_evidence_description",
+                            "message": (
+                                "Observation relevant-evidence description must match the linked "
+                                "resource description."
+                            ),
+                            "path": f"{ref_path}.description",
+                        }
+                    )
+                    continue
+
+                referenced_resource_ids.add(resource_uuid)
+                evidence.append(
+                    {
+                        "id": resource_uuid,
+                        "title": resource["title"],
+                        "description": resource["description"],
+                        "href": resource["href"],
+                    }
+                )
+
+            mapped.append(
+                {
+                    "id": observation.get("uuid"),
+                    "title": observation.get("title"),
+                    "description": observation.get("description"),
+                    "methods": observation.get("methods", []),
+                    "collected_at": observation.get("collected"),
+                    "subject_uuids": subject_uuids,
+                    "evidence": evidence,
+                }
+            )
+
+        return mapped, referenced_resource_ids
+
+    def _import_findings(
+        self,
+        diagnostics: list[dict[str, str]],
+        findings: Any,
+    ) -> list[dict[str, Any]]:
+        if not isinstance(findings, list):
+            diagnostics.append(
+                {
+                    "severity": "error",
+                    "category": "application_integrity",
+                    "code": "invalid_findings",
+                    "message": "assessment-results.results[0].findings must be a list.",
+                    "path": "$.assessment-results.results[0].findings",
+                }
+            )
+            return []
+
+        mapped: list[dict[str, Any]] = []
+        for finding_index, finding in enumerate(findings):
+            path = f"$.assessment-results.results[0].findings[{finding_index}]"
+            self._assert_allowed_keys(diagnostics, path, finding, _ALLOWED_FINDING_KEYS)
+            if not isinstance(finding, dict):
+                continue
+            target = finding.get("target")
+            self._assert_allowed_keys(diagnostics, f"{path}.target", target, _ALLOWED_TARGET_KEYS)
+            status = target.get("status") if isinstance(target, dict) else None
+            self._assert_allowed_keys(
+                diagnostics,
+                f"{path}.target.status",
+                status,
+                _ALLOWED_STATUS_KEYS,
+            )
+
+            related_observations = finding.get("related-observations", [])
+            if not isinstance(related_observations, list):
+                diagnostics.append(
+                    {
+                        "severity": "error",
+                        "category": "application_integrity",
+                        "code": "invalid_related_observations",
+                        "message": "Finding related-observations must be a list when provided.",
+                        "path": f"{path}.related-observations",
+                    }
+                )
+                related_observations = []
+
+            related_ids: list[str] = []
+            for related_index, related in enumerate(related_observations):
+                related_path = f"{path}.related-observations[{related_index}]"
+                self._assert_allowed_keys(
+                    diagnostics,
+                    related_path,
+                    related,
+                    _ALLOWED_RELATED_OBSERVATION_KEYS,
+                )
+                if not isinstance(related, dict):
+                    continue
+                observation_uuid = related.get("observation-uuid")
+                if not isinstance(observation_uuid, str):
+                    diagnostics.append(
+                        {
+                            "severity": "error",
+                            "category": "application_integrity",
+                            "code": "invalid_related_observation_uuid",
+                            "message": (
+                                "related-observations observation-uuid must be a "
+                                "string UUID."
+                            ),
+                            "path": f"{related_path}.observation-uuid",
+                        }
+                    )
+                else:
+                    related_ids.append(observation_uuid)
+
+            mapped.append(
+                {
+                    "id": finding.get("uuid"),
+                    "title": finding.get("title"),
+                    "description": finding.get("description"),
+                    "target_type": target.get("type") if isinstance(target, dict) else None,
+                    "target_id": target.get("target-id") if isinstance(target, dict) else None,
+                    "status": (
+                        status.get("state")
+                        if isinstance(status, dict)
+                        else None
+                    ),
+                    "related_observation_ids": related_ids,
+                }
+            )
+        return mapped
+
+    @staticmethod
+    def _assert_allowed_keys(
+        diagnostics: list[dict[str, str]],
+        path: str,
+        value: Any,
+        allowed_keys: set[str] | frozenset[str],
+    ) -> None:
+        if not isinstance(value, dict):
+            diagnostics.append(
+                {
+                    "severity": "error",
+                    "category": "application_integrity",
+                    "code": "invalid_import_structure",
+                    "message": "Expected an object for this OSCAL import field.",
+                    "path": path,
+                }
+            )
+            return
+        unknown = sorted(key for key in value if key not in allowed_keys)
+        for key in unknown:
+            diagnostics.append(
+                {
+                    "severity": "error",
+                    "category": "application_integrity",
+                    "code": "unsupported_import_field",
+                    "message": (
+                        "Unsupported OSCAL field "
+                        f"{key!r} for imported Assessment Results subset."
+                    ),
+                    "path": f"{path}.{key}",
+                }
+            )
 
     def _context_for_result(
         self, session: Session, record: AssessmentResultRecord

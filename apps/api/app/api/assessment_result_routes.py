@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -15,6 +15,7 @@ from app.api.assessment_result_schemas import (
 )
 from app.api.dependencies import require_tenant_permission
 from app.application.assessment_results import (
+    AssessmentResultImportConflict,
     AssessmentResultService,
     InvalidAssessmentResult,
     StaleAssessmentResultUpdate,
@@ -55,6 +56,20 @@ def _handle_stale(error: StaleAssessmentResultUpdate) -> HTTPException:
             "result_id": str(error.result_id),
             "expected_version": error.expected_version,
             "current_version": error.current_version,
+        },
+    )
+
+
+def _handle_import_conflict(error: AssessmentResultImportConflict) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "import_conflict",
+            "reason": error.reason,
+            "source_document_uuid": str(error.source_document_uuid),
+            "existing_result_id": str(error.existing_result_id),
+            "existing_assessment_plan_id": str(error.existing_assessment_plan_id),
+            "existing_assessment_plan_version_id": str(error.existing_assessment_plan_version_id),
         },
     )
 
@@ -170,6 +185,38 @@ def list_assessment_result_versions(
         ]
     except EntityNotFoundError as error:
         raise _handle_not_found(error) from error
+
+
+@router.post(
+    "/assessment-plans/{plan_id}/versions/{version_id}/assessment-results/import",
+    response_model=AssessmentResultResponse,
+    status_code=201,
+)
+def import_assessment_result(
+    context: WriteContext,
+    service: Service,
+    plan_id: UUID,
+    version_id: UUID,
+    document: dict[str, Any],
+    response: Response,
+) -> AssessmentResultResponse:
+    try:
+        result, created = service.import_result(
+            context.tenant_id,
+            context.membership.user_id,
+            assessment_plan_id=plan_id,
+            assessment_plan_version_id=version_id,
+            document=document,
+        )
+    except EntityNotFoundError as error:
+        raise _handle_not_found(error) from error
+    except InvalidAssessmentResult as error:
+        raise _handle_invalid(error) from error
+    except AssessmentResultImportConflict as error:
+        raise _handle_import_conflict(error) from error
+    if not created:
+        response.status_code = 200
+    return AssessmentResultResponse.model_validate(result)
 
 
 @router.post(

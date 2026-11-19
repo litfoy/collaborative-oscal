@@ -1201,6 +1201,13 @@ class AssessmentResultRecord(Base):
             "system_id",
             "updated_at",
         ),
+        Index(
+            "uq_assessment_results_source_document_uuid",
+            "tenant_id",
+            "source_document_uuid",
+            unique=True,
+            postgresql_where=text("source_document_uuid IS NOT NULL"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
@@ -1211,6 +1218,9 @@ class AssessmentResultRecord(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     working_data: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    source_document_uuid: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    source_content_sha256: Mapped[str | None] = mapped_column(String(64))
+    source_provenance: Mapped[dict | None] = mapped_column(JSONB)
     created_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     updated_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

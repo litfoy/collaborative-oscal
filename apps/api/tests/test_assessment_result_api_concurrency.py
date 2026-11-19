@@ -199,6 +199,7 @@ def api_world(monkeypatch, postgres_url, session_factory, grc_service):
         plan["id"],
         expected_version=plan["concurrency_version"],
     )
+    other_tenant = grc_service.create_tenant("Other tenant", f"other-{suffix}")
 
     result = assessment_result_service.create_result(
         tenant.id,
@@ -247,8 +248,13 @@ def api_world(monkeypatch, postgres_url, session_factory, grc_service):
 
     yield {
         "tenant_id": tenant.id,
+        "other_tenant_id": other_tenant.id,
         "subject": subject,
         "result_id": result["id"],
+        "plan_id": plan["id"],
+        "plan_version_id": plan_version["id"],
+        "control_id": control_id,
+        "subject_uuid": str(component["oscal_component_uuid"]),
         "title": result["title"],
         "description": result["description"],
         "reviewed_control_ids": result["reviewed_control_ids"],
@@ -285,6 +291,97 @@ def _working_payload(
         "findings": [],
         "start": None,
         "end": None,
+    }
+
+
+def _import_base(tenant_id: UUID, plan_id: UUID, plan_version_id: UUID) -> str:
+    return (
+        f"/api/v1/tenants/{tenant_id}/assessment-plans/{plan_id}/versions/"
+        f"{plan_version_id}/assessment-results/import"
+    )
+
+
+def _import_payload(
+    api_world: dict[str, object], *, metadata_version: str = "automation-1"
+) -> dict:
+    evidence_uuid = str(uuid4())
+    observation_uuid = str(uuid4())
+    return {
+        "assessment-results": {
+            "uuid": str(uuid4()),
+            "metadata": {
+                "title": "AI Governance Demo automated submission",
+                "last-modified": "2026-11-19T10:00:00+00:00",
+                "version": metadata_version,
+                "oscal-version": "1.2.1",
+            },
+            "import-ap": {
+                "href": (
+                    f"/api/v1/tenants/{api_world['tenant_id']}/assessment-plans/"
+                    f"{api_world['plan_id']}/versions/{api_world['plan_version_id']}/export"
+                )
+            },
+            "results": [
+                {
+                    "uuid": str(uuid4()),
+                    "title": "Automated result",
+                    "description": "Automated scanner output for MFA objectives.",
+                    "reviewed-controls": {
+                        "control-selections": [
+                            {"include-controls": [{"control-id": api_world["control_id"]}]}
+                        ]
+                    },
+                    "start": "2026-11-19T09:00:00+00:00",
+                    "end": "2026-11-19T09:30:00+00:00",
+                    "observations": [
+                        {
+                            "uuid": observation_uuid,
+                            "title": "Automated observation",
+                            "description": "Tool telemetry observation.",
+                            "methods": ["TEST"],
+                            "collected": "2026-11-19T09:25:00+00:00",
+                            "subjects": [
+                                {
+                                    "type": "component",
+                                    "subject-uuid": api_world["subject_uuid"],
+                                }
+                            ],
+                            "relevant-evidence": [
+                                {
+                                    "href": f"#{evidence_uuid}",
+                                    "description": "Automated scan evidence.",
+                                }
+                            ],
+                        }
+                    ],
+                    "findings": [
+                        {
+                            "uuid": str(uuid4()),
+                            "title": "Automated finding",
+                            "description": "Objective satisfied.",
+                            "target": {
+                                "type": "objective-id",
+                                "target-id": "local-mfa-objective",
+                                "status": {"state": "satisfied"},
+                            },
+                            "related-observations": [
+                                {"observation-uuid": observation_uuid}
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "back-matter": {
+                "resources": [
+                    {
+                        "uuid": evidence_uuid,
+                        "title": "Automation evidence",
+                        "description": "Automated scan evidence.",
+                        "rlinks": [{"href": "https://example.test/evidence/automation.json"}],
+                    }
+                ]
+            },
+        }
     }
 
 
@@ -402,6 +499,56 @@ def test_stale_publish_creates_no_additional_snapshot(client, api_world) -> None
     versions = listed.json()
     assert len(versions) == 1
     assert versions[0]["id"] == first_id
+
+
+def test_assessment_result_import_endpoint_supports_create_and_replay(client, api_world) -> None:
+    headers = _headers(api_world["subject"])
+    path = _import_base(api_world["tenant_id"], api_world["plan_id"], api_world["plan_version_id"])
+    payload = _import_payload(api_world)
+
+    created = client.post(path, headers=headers, json=payload)
+    assert created.status_code == 201, created.json()
+    created_id = created.json()["id"]
+
+    replay = client.post(path, headers=headers, json=payload)
+    assert replay.status_code == 200
+    assert replay.json()["id"] == created_id
+
+
+def test_assessment_result_import_endpoint_returns_409_for_conflicting_replay(
+    client, api_world
+) -> None:
+    headers = _headers(api_world["subject"])
+    path = _import_base(api_world["tenant_id"], api_world["plan_id"], api_world["plan_version_id"])
+    payload = _import_payload(api_world, metadata_version="automation-2")
+    payload["assessment-results"]["uuid"] = str(uuid4())
+
+    created = client.post(path, headers=headers, json=payload)
+    assert created.status_code == 201, created.json()
+
+    conflicting = json.loads(json.dumps(payload))
+    conflicting["assessment-results"]["metadata"]["version"] = "automation-3"
+    replay = client.post(path, headers=headers, json=conflicting)
+    assert replay.status_code == 409
+    assert replay.json()["detail"]["code"] == "import_conflict"
+    assert replay.json()["detail"]["reason"] == "content_mismatch"
+
+
+def test_assessment_result_import_endpoint_requires_authentication(client, api_world) -> None:
+    path = _import_base(api_world["tenant_id"], api_world["plan_id"], api_world["plan_version_id"])
+    response = client.post(path, json=_import_payload(api_world))
+    assert response.status_code == 401
+
+
+def test_assessment_result_import_endpoint_enforces_tenant_isolation(client, api_world) -> None:
+    headers = _headers(api_world["subject"])
+    path = _import_base(
+        api_world["other_tenant_id"],
+        api_world["plan_id"],
+        api_world["plan_version_id"],
+    )
+    response = client.post(path, headers=headers, json=_import_payload(api_world))
+    assert response.status_code == 403
 
 
 

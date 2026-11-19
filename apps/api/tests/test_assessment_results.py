@@ -13,6 +13,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.application.assessment_plans import AssessmentPlanService
 from app.application.assessment_results import (
+    AssessmentResultImportConflict,
     AssessmentResultService,
     InvalidAssessmentResult,
     StaleAssessmentResultUpdate,
@@ -3084,6 +3085,629 @@ def test_assessment_result_distinguishes_fragment_only_from_fragmented_absolute_
     assert fragment_only_error is not None
     assert "fragment-only references" in fragment_only_error
     assert absolute_fragment_error is None
+
+
+def _native_import_payload(
+    *,
+    tenant_id: UUID,
+    plan_id: UUID,
+    plan_version_id: UUID,
+    control_id: str,
+    subject_uuid: UUID,
+    document_uuid: UUID | None = None,
+    result_uuid: UUID | None = None,
+    observation_uuid: UUID | None = None,
+    evidence_uuid: UUID | None = None,
+    finding_uuid: UUID | None = None,
+    metadata_version: str = "automation-run-7",
+    metadata_last_modified: str = "2026-11-19T10:15:00+00:00",
+) -> dict[str, object]:
+    document_uuid = document_uuid or uuid4()
+    result_uuid = result_uuid or uuid4()
+    observation_uuid = observation_uuid or uuid4()
+    evidence_uuid = evidence_uuid or uuid4()
+    finding_uuid = finding_uuid or uuid4()
+    return {
+        "assessment-results": {
+            "uuid": str(document_uuid),
+            "metadata": {
+                "title": "Automated tenant assessment result import",
+                "last-modified": metadata_last_modified,
+                "version": metadata_version,
+                "oscal-version": "1.2.1",
+            },
+            "import-ap": {
+                "href": (
+                    f"/api/v1/tenants/{tenant_id}/assessment-plans/{plan_id}/versions/"
+                    f"{plan_version_id}/export"
+                )
+            },
+            "results": [
+                {
+                    "uuid": str(result_uuid),
+                    "title": "Automated execution findings",
+                    "description": "Automated checks over privileged authentication controls.",
+                    "reviewed-controls": {
+                        "control-selections": [
+                            {
+                                "include-controls": [
+                                    {
+                                        "control-id": control_id,
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    "start": "2026-11-19T09:00:00+00:00",
+                    "end": "2026-11-19T09:30:00+00:00",
+                    "observations": [
+                        {
+                            "uuid": str(observation_uuid),
+                            "title": "Automated privileged login check",
+                            "description": (
+                                "Tool observed MFA challenge flow in production telemetry."
+                            ),
+                            "methods": ["TEST"],
+                            "collected": "2026-11-19T09:12:00+00:00",
+                            "subjects": [
+                                {
+                                    "type": "component",
+                                    "subject-uuid": str(subject_uuid),
+                                }
+                            ],
+                            "relevant-evidence": [
+                                {
+                                    "href": f"#{evidence_uuid}",
+                                    "description": "Automated log extract.",
+                                }
+                            ],
+                        }
+                    ],
+                    "findings": [
+                        {
+                            "uuid": str(finding_uuid),
+                            "title": "MFA objective satisfied",
+                            "description": "Automated check confirms objective coverage.",
+                            "target": {
+                                "type": "objective-id",
+                                "target-id": "local-mfa-objective",
+                                "status": {"state": "satisfied"},
+                            },
+                            "related-observations": [
+                                {
+                                    "observation-uuid": str(observation_uuid),
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "back-matter": {
+                "resources": [
+                    {
+                        "uuid": str(evidence_uuid),
+                        "title": "Automated evidence artifact",
+                        "description": "Automated log extract.",
+                        "rlinks": [
+                            {
+                                "href": "https://example.test/evidence/mfa-automation-log.json",
+                            }
+                        ],
+                    }
+                ]
+            },
+        }
+    }
+
+
+def test_assessment_result_import_maps_supported_native_oscal_subset_and_provenance(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        _system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    payload = _native_import_payload(
+        tenant_id=tenant_id,
+        plan_id=plan["id"],
+        plan_version_id=plan_version["id"],
+        control_id=control_id,
+        subject_uuid=subject_uuid,
+    )
+
+    imported, created = service.import_result(
+        tenant_id,
+        actor,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        document=payload,
+    )
+
+    assert created is True
+    assert imported["concurrency_version"] == 1
+    assert imported["assessment_plan_id"] == plan["id"]
+    assert imported["assessment_plan_version_id"] == plan_version["id"]
+    assert str(imported["observations"][0]["id"]) == (
+        payload["assessment-results"]["results"][0]["observations"][0]["uuid"]
+    )
+    assert str(imported["findings"][0]["id"]) == (
+        payload["assessment-results"]["results"][0]["findings"][0]["uuid"]
+    )
+    assert (
+        str(imported["observations"][0]["evidence"][0]["id"])
+        == payload["assessment-results"]["back-matter"]["resources"][0]["uuid"]
+    )
+
+    with session_factory.begin() as session:
+        record = session.scalar(
+            select(AssessmentResultRecord).where(
+                AssessmentResultRecord.tenant_id == tenant_id,
+                AssessmentResultRecord.id == imported["id"],
+            )
+        )
+        assert record is not None
+        assert record.source_document_uuid is not None
+        assert record.source_content_sha256 is not None
+        assert record.source_provenance is not None
+        assert record.source_provenance["source_document_uuid"] == payload[
+            "assessment-results"
+        ]["uuid"]
+        assert (
+            record.source_provenance["source_result_uuid"]
+            == payload["assessment-results"]["results"][0]["uuid"]
+        )
+        assert (
+            record.source_provenance["source_metadata_version"]
+            == payload["assessment-results"]["metadata"]["version"]
+        )
+        assert (
+            record.source_provenance["source_metadata_last_modified"]
+            == payload["assessment-results"]["metadata"]["last-modified"]
+        )
+        assert record.source_provenance["submitted_by"] == str(actor)
+
+
+def test_assessment_result_import_is_idempotent_for_identical_replay(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        _system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    payload = _native_import_payload(
+        tenant_id=tenant_id,
+        plan_id=plan["id"],
+        plan_version_id=plan_version["id"],
+        control_id=control_id,
+        subject_uuid=subject_uuid,
+    )
+
+    first, first_created = service.import_result(
+        tenant_id,
+        actor,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        document=payload,
+    )
+    replay, replay_created = service.import_result(
+        tenant_id,
+        actor,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        document=payload,
+    )
+
+    assert first_created is True
+    assert replay_created is False
+    assert replay["id"] == first["id"]
+
+
+def test_assessment_result_import_rejects_conflicting_reuse_of_document_uuid(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        _system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    source_uuid = uuid4()
+    first_payload = _native_import_payload(
+        tenant_id=tenant_id,
+        plan_id=plan["id"],
+        plan_version_id=plan_version["id"],
+        control_id=control_id,
+        subject_uuid=subject_uuid,
+        document_uuid=source_uuid,
+    )
+    conflicting_payload = _native_import_payload(
+        tenant_id=tenant_id,
+        plan_id=plan["id"],
+        plan_version_id=plan_version["id"],
+        control_id=control_id,
+        subject_uuid=subject_uuid,
+        document_uuid=source_uuid,
+        metadata_version="automation-run-8",
+    )
+
+    service.import_result(
+        tenant_id,
+        actor,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        document=first_payload,
+    )
+
+    with pytest.raises(AssessmentResultImportConflict) as error:
+        service.import_result(
+            tenant_id,
+            actor,
+            assessment_plan_id=plan["id"],
+            assessment_plan_version_id=plan_version["id"],
+            document=conflicting_payload,
+        )
+    assert error.value.reason == "content_mismatch"
+    assert error.value.source_document_uuid == source_uuid
+
+
+def test_assessment_result_import_rejects_context_mismatch_for_reused_document_uuid(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    source_uuid = uuid4()
+    first_payload = _native_import_payload(
+        tenant_id=tenant_id,
+        plan_id=plan["id"],
+        plan_version_id=plan_version["id"],
+        control_id=control_id,
+        subject_uuid=subject_uuid,
+        document_uuid=source_uuid,
+    )
+    service.import_result(
+        tenant_id,
+        actor,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        document=first_payload,
+    )
+
+    ap_service = AssessmentPlanService(lambda: session_factory.begin())
+    ap_service.update_plan(
+        tenant_id,
+        actor,
+        plan["id"],
+        expected_version=_expected_version(ap_service, tenant_id, plan["id"]),
+        title=f"{plan['title']} v2",
+        description="Updated title to create a distinct historical AP version context.",
+        working_data={
+            "control_ids": [control_id],
+            "source_objectives": [],
+            "local_objectives": [
+                {
+                    "objective_id": "local-mfa-objective",
+                    "control_id": control_id,
+                    "description": "Determine whether MFA is enforced for privileged access.",
+                    "methods": ["EXAMINE", "TEST"],
+                }
+            ],
+            "subject_uuids": [str(subject_uuid)],
+            "activities": [],
+            "tasks": [],
+            "roles": [],
+            "parties": [],
+            "terms": None,
+        },
+    )
+    second_plan_version = ap_service.create_version(
+        tenant_id,
+        actor,
+        plan["id"],
+        expected_version=_expected_version(ap_service, tenant_id, plan["id"]),
+    )
+
+    mismatch_payload = _native_import_payload(
+        tenant_id=tenant_id,
+        plan_id=plan["id"],
+        plan_version_id=second_plan_version["id"],
+        control_id=control_id,
+        subject_uuid=subject_uuid,
+        document_uuid=source_uuid,
+    )
+
+    with pytest.raises(AssessmentResultImportConflict) as error:
+        service.import_result(
+            tenant_id,
+            actor,
+            assessment_plan_id=plan["id"],
+            assessment_plan_version_id=second_plan_version["id"],
+            document=mismatch_payload,
+        )
+    assert error.value.reason == "assessment_context_mismatch"
+
+    listed = service.list_results(tenant_id, system_id)
+    assert len(listed) == 1
+
+
+def test_assessment_result_import_rejects_unsupported_fields_without_persistence(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    payload = _native_import_payload(
+        tenant_id=tenant_id,
+        plan_id=plan["id"],
+        plan_version_id=plan_version["id"],
+        control_id=control_id,
+        subject_uuid=subject_uuid,
+    )
+    payload["assessment-results"]["results"][0]["observations"][0]["remarks"] = "unsupported"
+
+    with pytest.raises(InvalidAssessmentResult) as error:
+        service.import_result(
+            tenant_id,
+            actor,
+            assessment_plan_id=plan["id"],
+            assessment_plan_version_id=plan_version["id"],
+            document=payload,
+        )
+    assert any(item["code"] == "unsupported_import_field" for item in error.value.diagnostics)
+    assert service.list_results(tenant_id, system_id) == []
+
+
+def test_assessment_result_import_rejects_mismatched_import_ap_without_partial_persistence(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    payload = _native_import_payload(
+        tenant_id=tenant_id,
+        plan_id=plan["id"],
+        plan_version_id=plan_version["id"],
+        control_id=control_id,
+        subject_uuid=subject_uuid,
+    )
+    payload["assessment-results"]["import-ap"]["href"] = (
+        "/api/v1/tenants/other/assessment-plans/x/versions/y/export"
+    )
+
+    with pytest.raises(InvalidAssessmentResult) as error:
+        service.import_result(
+            tenant_id,
+            actor,
+            assessment_plan_id=plan["id"],
+            assessment_plan_version_id=plan_version["id"],
+            document=payload,
+        )
+    assert any(item["code"] in {"oscal_model", "oscal_schema"} for item in error.value.diagnostics)
+    assert service.list_results(tenant_id, system_id) == []
+
+
+def test_assessment_result_import_is_concurrency_safe_for_duplicate_submissions(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    payload = _native_import_payload(
+        tenant_id=tenant_id,
+        plan_id=plan["id"],
+        plan_version_id=plan_version["id"],
+        control_id=control_id,
+        subject_uuid=subject_uuid,
+    )
+    service = AssessmentResultService(lambda: session_factory.begin())
+
+    barrier = threading.Barrier(3)
+
+    def _submit_once() -> tuple[UUID, bool]:
+        concurrent_service = AssessmentResultService(lambda: session_factory.begin())
+        barrier.wait(timeout=5)
+        result, created = concurrent_service.import_result(
+            tenant_id,
+            actor,
+            assessment_plan_id=plan["id"],
+            assessment_plan_version_id=plan_version["id"],
+            document=payload,
+        )
+        return result["id"], created
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(_submit_once)
+        second = executor.submit(_submit_once)
+        barrier.wait(timeout=5)
+        first_result = first.result()
+        second_result = second.result()
+
+    assert {first_result[0], second_result[0]} <= {
+        service.list_results(tenant_id, system_id)[0]["id"]
+    }
+    assert {first_result[1], second_result[1]} == {True, False}
+    assert len(service.list_results(tenant_id, system_id)) == 1
+
+
+def test_assessment_result_import_supports_publication_and_native_export(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        _system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    payload = _native_import_payload(
+        tenant_id=tenant_id,
+        plan_id=plan["id"],
+        plan_version_id=plan_version["id"],
+        control_id=control_id,
+        subject_uuid=subject_uuid,
+    )
+
+    imported, created = service.import_result(
+        tenant_id,
+        actor,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        document=payload,
+    )
+    assert created is True
+
+    version = _publish_result(
+        service,
+        tenant_id,
+        actor,
+        imported["id"],
+        expected_version=imported["concurrency_version"],
+    )
+    assert version["created"] is True
+    exported = service.export_version(tenant_id, imported["id"], version["id"])
+    exported_result = exported["assessment-results"]["results"][0]
+    exported_observation = exported_result["observations"][0]
+    exported_finding = exported_result["findings"][0]
+    exported_resource = exported["assessment-results"]["back-matter"]["resources"][0]
+
+    assert exported["assessment-results"]["import-ap"]["href"].endswith(
+        f"/{plan_version['id']}/export"
+    )
+    assert exported_observation["uuid"] == (
+        payload["assessment-results"]["results"][0]["observations"][0]["uuid"]
+    )
+    assert exported_finding["uuid"] == (
+        payload["assessment-results"]["results"][0]["findings"][0]["uuid"]
+    )
+    assert exported_resource["uuid"] == (
+        payload["assessment-results"]["back-matter"]["resources"][0]["uuid"]
+    )
+
+
+def test_assessment_result_import_replay_after_edit_or_publication_preserves_existing_state(
+    grc_service, session_factory
+) -> None:
+    (
+        tenant_id,
+        actor,
+        _system_id,
+        plan,
+        plan_version,
+        control_id,
+        subject_uuid,
+    ) = _prepare_plan_version(grc_service, session_factory)
+    service = AssessmentResultService(lambda: session_factory.begin())
+    payload = _native_import_payload(
+        tenant_id=tenant_id,
+        plan_id=plan["id"],
+        plan_version_id=plan_version["id"],
+        control_id=control_id,
+        subject_uuid=subject_uuid,
+    )
+
+    imported, created = service.import_result(
+        tenant_id,
+        actor,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        document=payload,
+    )
+    assert created is True
+
+    edited = _update_result(
+        service,
+        tenant_id,
+        actor,
+        imported["id"],
+        title="Edited after import",
+        description=imported["description"],
+        working_data={
+            "reviewed_control_ids": imported["reviewed_control_ids"],
+            "observations": imported["observations"],
+            "findings": imported["findings"],
+            "start": imported["start"],
+            "end": imported["end"],
+        },
+    )
+    replay_after_edit, created_after_edit = service.import_result(
+        tenant_id,
+        actor,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        document=payload,
+    )
+    assert created_after_edit is False
+    assert replay_after_edit["id"] == imported["id"]
+    assert replay_after_edit["title"] == "Edited after import"
+    assert replay_after_edit["concurrency_version"] == edited["concurrency_version"]
+
+    published = _publish_result(
+        service,
+        tenant_id,
+        actor,
+        imported["id"],
+        expected_version=edited["concurrency_version"],
+    )
+    assert published["created"] is True
+    versions_before_replay = service.list_versions(tenant_id, imported["id"])
+
+    replay_after_publish, created_after_publish = service.import_result(
+        tenant_id,
+        actor,
+        assessment_plan_id=plan["id"],
+        assessment_plan_version_id=plan_version["id"],
+        document=payload,
+    )
+    assert created_after_publish is False
+    assert replay_after_publish["id"] == imported["id"]
+    assert replay_after_publish["title"] == "Edited after import"
+    assert service.list_versions(tenant_id, imported["id"]) == versions_before_replay
 
 
 
