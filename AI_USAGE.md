@@ -4,8 +4,8 @@ Collaborative OSCAL uses human-led, AI-assisted development, including substanti
 
 ## Principles
 
-- The human founder and maintainer leads product and architecture decisions and retains responsibility for project-level reviews, acceptance decisions, and releases.
-- AI tools assist with implementation, specification, analysis, and technical review. Project-level reviews are conducted by the human founder and maintainer alongside AI-assisted reviews.
+- The project's founder and maintainer leads product and architecture decisions and retains responsibility for project-level reviews, acceptance decisions, and releases.
+- AI tools assist with implementation, specification, analysis, and technical review. Project-level reviews are conducted by the project's founder and maintainer alongside AI-assisted reviews.
 - AI-generated code or text is treated as untrusted until appropriately reviewed.
 - Architecture and security requirements in ADRs and repository instructions take precedence over generated suggestions.
 - Automated testing and documented architectural decisions support, but do not replace, human acceptance decisions.

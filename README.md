@@ -10,7 +10,7 @@ It is designed to reduce redundant governance and compliance work across data pr
 
 The central idea is to **document implementation once where appropriate, reuse information across frameworks, and assess it independently in each relevant context**. OSCAL provides the common machine-readable data foundation rather than merely an export format.
 
-![Collaborative OSCAL](./assets/Collaborative%20OSCAL%20Governance%20Architecture.png)
+![Collaborative OSCAL](./assets/Collaborative%20OSCAL%20Governance%20Blueprint.png)
 
 *Conceptual overview: shared safeguards and system information, separate assessments. Independent findings are supported at the data-model level; shared evidence management and fine-grained stakeholder authorization remain future work.*
 
@@ -84,9 +84,9 @@ All implemented features are experimental and remain alpha quality.
 | Assessment plans (APs) | Scope, objectives, subjects, activities, tasks, roles and pinned SSP/SSP-version context | Implemented |
 | Assessment results (ARs) | Human-authored or imported reviewed controls, observations, evidence references, findings and pinned AP versions | Implemented |
 | Automated assessment integration | Tenant-scoped REST submission of native OSCAL 1.2.1 Assessment Results JSON into the Assessment Results lifecycle | Implemented |
-| Human and automated assessments | Both enter the same working-state, publication, validation and historical snapshot model | Implemented |
-| Historical integrity | Imported catalog revisions and published document snapshots remain immutable; imported Assessment Results working states remain editable until publication, when they are frozen as historical snapshots. Historical references remain pinned to the original document state. | Implemented |
-| Optimistic concurrency | Implemented for Assessment Plans, Assessment Results, SSPs, Profiles, and Mapping Collections. Independently reviewed and verified only for Assessment Plans and Assessment Results | Implementation complete for these aggregates; independent review status differs |
+| Human and automated assessments | Both enter the same working-state, publication, validation, and historical snapshot model in which publication creates an immutable snapshot while the working state remains editable for subsequent updates | Implemented |
+| Historical integrity | Imported catalog revisions and published document snapshots remain immutable. Publication creates an immutable historical snapshot while the working state remains editable for subsequent updates. Imported Assessment Results working states remain editable until first publication. Historical references remain pinned to the original document state. | Implemented |
+| Optimistic concurrency | Implemented for Assessment Plans, Assessment Results, SSPs, Profiles, and Mapping Collections. Independently reviewed and accepted for Assessment Plans, Assessment Results, and SSPs; Profiles and Mapping Collections await independent review | Implementation complete for these aggregates; independent review pending for Profiles and Mapping Collections |
 | CI supply-chain visibility | Automated CycloneDX SBOM generation for API and web runtime/development dependencies | Implemented in CI |
 | Shared assessment evidence | Managed, versioned evidence library and cross-assessment reuse | Longer-term plan |
 | Risks and POA&M | Risk treatment, remediation and tracking | Planned |
@@ -101,7 +101,7 @@ The application is a modular monolith with a Next.js / TypeScript web frontend, 
 
 Key design decisions:
 
-- Imported catalog revisions and published SSP, AP and AR document snapshots are immutable. Imported Assessment Results working states remain editable until publication, when they are frozen as historical snapshots. Historical references remain pinned to the original document state.
+- Imported catalog revisions and published SSP, AP and AR document snapshots are immutable. Publication creates an immutable historical snapshot while the working state remains editable for subsequent updates. Imported Assessment Results working states remain editable until first publication. Historical references remain pinned to the original document state.
 - Reusable measures, concrete components and requirement-specific implementation contributions remain separate. Control mappings do not transfer implementation or assessment status automatically.
 - PostgreSQL combines authoritative OSCAL JSONB snapshots with relational identities, tenant boundaries and explicit references. Working records support editing before document version creation.
 - OSCAL processing follows a Trestle-first approach, supplemented by official version-specific NIST JSON Schemas and application-level reference and integrity checks. This is not exhaustive OSCAL semantic validation.
@@ -119,11 +119,11 @@ Collaborative OSCAL explores a complementary approach: a browser-based, database
 
 ## Known limitations and roadmap
 
-Alpha limitations include incomplete semantic validation, fine-grained stakeholder authorization and separation of duties, incomplete workflow coverage and further operational hardening. Optimistic concurrency is implemented for Assessment Plans, Assessment Results, SSPs, Profiles and Mapping Collections; independent review and verification evidence is currently established only for Assessment Plans and Assessment Results.
+Alpha limitations include incomplete semantic validation, fine-grained stakeholder authorization and separation of duties, incomplete workflow coverage and further operational hardening. Optimistic concurrency is implemented for Assessment Plans, Assessment Results, SSPs, Profiles and Mapping Collections; independent review and verification evidence is currently established for Assessment Plans, Assessment Results, and SSPs, while Profiles and Mapping Collections await independent review.
 
 ### Near-term priorities
 
-- Complete independent contention and verification review for SSPs, Profiles, and Mapping Collections to match the established Assessment Plan and Assessment Result coverage.
+- Complete optimistic concurrency coverage for the remaining aggregates by finishing independent contention and verification review for Profiles and Mapping Collections.
 - Add shared Parties, Roles and Responsibilities management.
 - Implement native OSCAL Inventory Items and extend assessment subjects.
 - Add a shared system and inventory overview.
@@ -136,12 +136,16 @@ Alpha limitations include incomplete semantic validation, fine-grained stakehold
 
 - Add shared, versioned assessment evidence and cross-assessment reuse.
 - Add risk management and POA&M workflows.
+- Expand OSCAL interoperability, portable document workflows, and reporting.
+- Extend fine-grained authorization and formal approvals.
+- Improve semantic validation for assessment objectives, methods, steps, and reviewed scope.
+- Continue expanding profile resolution and parameter authoring.
 
 Schema-valid OSCAL documents do not establish regulatory compliance or guarantee interoperability with every OSCAL tool. They describe data and assessment context; they do not determine an organization's independent assessment conclusion. See the [catalog import guide](docs/catalog-import.md), [profile resolution decision](docs/adr/0016-defer-profile-resolution.md) and [AI Governance interoperability findings](docs/architecture/ai-governance-demo-interoperability-findings-2026-11-17.md).
 
 ## Development and verification
 
-Development is human-led and AI-assisted, with substantial use of agentic software engineering. Human founders and maintainers lead product and architecture decisions; AI tools assist implementation, specification and technical review. Reviews are performed by the human founder and maintainer together with AI-assisted reviews. The human maintainer retains responsibility for acceptance decisions and releases. Automated testing and Architecture Decision Records support verification, but no claim is made that all generated code has been manually reviewed or independently audited.
+Development is human-led and AI-assisted, with substantial use of agentic software engineering. The project's founder and maintainer leads product and architecture decisions; AI tools assist implementation, specification and technical review. Reviews are performed by the project's founder and maintainer together with AI-assisted reviews. The project's founder and maintainer retains responsibility for acceptance decisions and releases. Automated testing and Architecture Decision Records support verification, but no claim is made that all generated code has been manually reviewed or independently audited.
 
 The repository includes backend and frontend tests, PostgreSQL integration coverage, CI configuration, and compatibility and regression probes. The [Assessment Results compatibility notes](docs/architecture/assessment-results-compatibility-probes-2026-11-17.md) document additional checks performed during development. Test results from earlier development snapshots are not a release certification; run the current test suites and manual workflows as described in the [development guide](docs/development.md).
 

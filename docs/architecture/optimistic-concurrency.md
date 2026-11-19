@@ -5,7 +5,7 @@ This guide defines the reusable implementation and verification contract for agg
 - Architectural decision: `docs/adr/0022-aggregate-optimistic-concurrency.md`
 - Original Assessment Plan decision (kept unchanged): `docs/adr/0021-assessment-plan-optimistic-concurrency.md`
 - **Implemented aggregate coverage:** Assessment Plans, Assessment Results, SSPs, Profiles, and Mapping Collections
-- **Independent review and verification:** currently established as a strong contention/reference model only for Assessment Plans and Assessment Results
+- **Independent review and verification:** currently established as a strong contention/reference model for Assessment Plans, Assessment Results, and SSPs; Profiles and Mapping Collections are implemented but pending independent review
 
 ## Implementation Contract
 
@@ -195,6 +195,3 @@ Apply these guarantees only to aggregates that expose the corresponding operatio
 - **Thread barriers alone are insufficient:** they coordinate timing but do not prove actual database lock contention.
 - **Simulated exceptions alone are insufficient:** they can prove translation logic, but not real transactional winner/loser behavior.
 - **Passing tests alone are insufficient without evidence quality:** concurrency guarantees require tests that demonstrate real contention, rollback behavior, and persisted-state outcomes, not only status-code checks.
-
-
-

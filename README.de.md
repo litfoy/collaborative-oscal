@@ -6,11 +6,11 @@
 
 Collaborative OSCAL ist eine unabhängige, Open-Source-GRC-Plattform für kollaborative Governance-, Risiko- und Compliance-Prozesse, die sich selbst betreiben lässt. Das Projekt befindet sich in der Alpha-Entwicklung und verwendet [NIST OSCAL (Open Security Controls Assessment Language)](https://pages.nist.gov/OSCAL/) als native gemeinsame Informationsgrundlage.
 
-Das Projekt soll redundante Governance- und Compliance-Arbeit in den Bereichen Datenschutz, Informationssicherheit, KI-Sicherheit, AI Governance und weiteren Governance-Domänen reduzieren. Gemeinsame Systeminformationen, Schutzmaßnahmen und Umsetzungsdaten können domänenübergreifend wiederverwendet werden, während Anforderungen, Verantwortlichkeiten und Prüfurteile jeder Dom��ne unabhängig bleiben.
+Das Projekt soll redundante Governance- und Compliance-Arbeit in den Bereichen Datenschutz, Informationssicherheit, KI-Sicherheit, AI Governance und weiteren Governance-Domänen reduzieren. Gemeinsame Systeminformationen, Schutzmaßnahmen und Umsetzungsdaten können domänenübergreifend wiederverwendet werden, während Anforderungen, Verantwortlichkeiten und Prüfurteile jeder Domäne unabhängig bleiben.
 
 Die zentrale Idee: **Umsetzungen dort, wo es sinnvoll ist, einmal dokumentieren, Informationen regelwerksübergreifend wiederverwenden und im jeweiligen fachlichen Kontext unabhängig bewerten.** OSCAL dient dabei als gemeinsame maschinenlesbare Datengrundlage und nicht lediglich als Exportformat.
 
-![Collaborative OSCAL](./assets/Collaborative%20OSCAL%20Governance%20Architecture.png)
+![Collaborative OSCAL](./assets/Collaborative%20OSCAL%20Governance%20Blueprint.png)
 
 *Konzeptioneller Überblick: gemeinsame Schutzmaßnahmen und Systeminformationen, getrennte Prüfungen. Unabhängige Feststellungen werden auf Datenmodellebene unterstützt; gemeinsame Nachweisverwaltung und differenzierte Stakeholder-Berechtigungen sind noch geplant.*
 
@@ -84,9 +84,9 @@ Alle implementierten Funktionen befinden sich in experimenteller Alpha-Qualität
 | Prüfpläne (AP) | Prüfumfang, Prüfziele, Prüfgegenstände, Aktivitäten, Aufgaben, Rollen sowie fest referenzierter SSP-/SSP-Versionskontext | Implementiert |
 | Prüfergebnisse (AR) | Menschlich erstellte oder importierte geprüfte Controls, Beobachtungen, Nachweisreferenzen, Feststellungen und fest referenzierte AP-Versionen | Implementiert |
 | Automatisierte Prüfung | Mandantenbezogene REST-Übermittlung nativer OSCAL-1.2.1-Prüfergebnis-JSON-Dokumente in den Prüfergebnis-Lebenszyklus | Implementiert |
-| Menschliche und automatisierte Prüfungen | Beide folgen demselben Arbeitsstand-, Veröffentlichungs-, Validierungs- und Historienmodell | Implementiert |
-| Historische Integrität | Importierte Katalogrevisionen und veröffentlichte SSP-, AP- und AR-Dokumentstände sind unveränderlich. Importierte Prüfergebnis-Arbeitsstände bleiben bis zur Veröffentlichung bearbeitbar und werden dann als historische Dokumentstände eingefroren. Historische Referenzen bleiben an den ursprünglichen Dokumentstand gebunden. | Implementiert |
-| Optimistische Nebenläufigkeit | Implementiert für Prüfpläne, Prüfergebnisse, SSPs, Profile und Mapping-Sammlungen. Unabhängig geprüft und verifiziert sind derzeit nur Prüfpläne und Prüfergebnisse | Implementierung für diese Aggregate vorhanden; Prüfstatus unterscheidet sich |
+| Menschliche und automatisierte Prüfungen | Beide folgen demselben Arbeitsstand-, Veröffentlichungs-, Validierungs- und Historienmodell, bei dem eine Veröffentlichung einen unveränderlichen Snapshot erzeugt, während der Arbeitsstand für nachfolgende Änderungen bearbeitbar bleibt | Implementiert |
+| Historische Integrität | Importierte Katalogrevisionen und veröffentlichte SSP-, AP- und AR-Dokumentstände sind unveränderlich. Eine Veröffentlichung erzeugt einen unveränderlichen historischen Snapshot, während der Arbeitsstand für nachfolgende Änderungen bearbeitbar bleibt. Importierte Prüfergebnis-Arbeitsstände bleiben bis zur ersten Veröffentlichung bearbeitbar. Historische Referenzen bleiben an den ursprünglichen Dokumentstand gebunden. | Implementiert |
+| Optimistische Nebenläufigkeit | Implementiert für Prüfpläne, Prüfergebnisse, SSPs, Profile und Mapping-Sammlungen. Unabhängig geprüft und akzeptiert für Prüfpläne, Prüfergebnisse und SSPs; Profile und Mapping-Sammlungen warten auf unabhängige Prüfung | Implementierung für diese Aggregate vorhanden; unabhängige Prüfung für Profile und Mapping-Sammlungen ausstehend |
 | SBOM-Sichtbarkeit in der CI | Automatisierte CycloneDX-SBOM-Erzeugung für API- und Web-Abhängigkeiten in Entwicklungs- und Laufzeitumfang | In der CI implementiert |
 | Gemeinsame Prüfnachweise | Verwaltete, versionierte Nachweisbibliothek und prüfungsübergreifende Wiederverwendung | Langfristiger Plan |
 
@@ -100,7 +100,7 @@ Die Anwendung ist als modularer Monolith mit Next.js / TypeScript im Frontend, F
 
 Zentrale Architekturentscheidungen:
 
-- Importierte Katalogrevisionen und veröffentlichte SSP-, AP- und AR-Dokumentversionen sind unveränderlich. Historische Referenzen bleiben an den ursprünglichen Dokumentstand gebunden.
+- Importierte Katalogrevisionen und veröffentlichte SSP-, AP- und AR-Dokumentversionen sind unveränderlich. Eine Veröffentlichung erzeugt einen unveränderlichen historischen Snapshot, während der Arbeitsstand für nachfolgende Änderungen bearbeitbar bleibt. Importierte Prüfergebnis-Arbeitsstände bleiben bis zur ersten Veröffentlichung bearbeitbar. Historische Referenzen bleiben an den ursprünglichen Dokumentstand gebunden.
 - Wiederverwendbare Maßnahmen, konkrete Komponenten und anforderungsspezifische Umsetzungsbeiträge bleiben getrennt. Mappings übertragen weder Umsetzungsstatus noch Prüfergebnisse automatisch.
 - PostgreSQL verbindet maßgebliche OSCAL-JSONB-Dokumentstände mit relationalen Identitäten, Mandantengrenzen und expliziten Referenzen. Bearbeitbare Arbeitsstände ermöglichen Änderungen vor der Erstellung einer Dokumentversion.
 - Die OSCAL-Verarbeitung folgt einem Trestle-first-Ansatz, ergänzt durch offizielle versionsspezifische NIST-JSON-Schemas sowie anwendungsspezifische Referenz- und Integritätsprüfungen. Dies ist keine vollständige semantische OSCAL-Validierung.
@@ -118,11 +118,11 @@ Collaborative OSCAL untersucht einen ergänzenden Ansatz: einen browserbasierten
 
 ## Bekannte Einschränkungen und Roadmap
 
-Zu den Alpha-Einschränkungen gehören unvollständige semantische Validierung, differenzierte Stakeholder-Berechtigungen und Funktionstrennung, teilweise noch fehlende Workflow-Abdeckung sowie weitere operative Härtung. Optimistische Nebenläufigkeit ist für Prüfpläne, Prüfergebnisse, SSPs, Profile und Mapping-Sammlungen implementiert; unabhängig überprüfte und verifizierte Nachweise bestehen derzeit nur für Prüfpläne und Prüfergebnisse.
+Zu den Alpha-Einschränkungen gehören unvollständige semantische Validierung, differenzierte Stakeholder-Berechtigungen und Funktionstrennung, teilweise noch fehlende Workflow-Abdeckung sowie weitere operative Härtung. Optimistische Nebenläufigkeit ist für Prüfpläne, Prüfergebnisse, SSPs, Profile und Mapping-Sammlungen implementiert; unabhängig überprüfte und verifizierte Nachweise bestehen für Prüfpläne, Prüfergebnisse und SSPs, während Profile und Mapping-Sammlungen auf unabhängige Prüfung warten.
 
 ### Kurzfristige Prioritäten
 
-- Für SSPs, Profile und Mapping-Sammlungen eine unabhängige Prüfung von Nebenläufigkeitskonflikten und Verifikation nachholen, damit der Abdeckungsstand dem der etablierten Prüfplan- und Prüfergebnis-Prüfung entspricht.
+- Die Nebenläufigkeitsabdeckung für die verbleibenden Aggregate abschließen, indem die unabhängige Prüfung und Verifikation für Profile und Mapping-Sammlungen fertiggestellt wird.
 - Gemeinsame Verwaltung von Parties, Rollen und Verantwortlichkeiten ergänzen.
 - Native OSCAL-Inventaritems und erweiterte Prüfgegenstände implementieren.
 - Eine gemeinsame System- und Inventarübersicht bereitstellen.
@@ -144,7 +144,7 @@ Schema-valide OSCAL-Dokumente belegen weder regulatorische Konformität noch gar
 
 ## Entwicklung und Qualitätssicherung
 
-Die Entwicklung wird vom Menschen geführt und durch KI unterstützt; dabei kommt Agentic Software Engineering in erheblichem Umfang zum Einsatz. Menschliche Gründer und Maintainer treffen die Produkt- und Architekturentscheidungen; KI-Werkzeuge unterstützen Implementierung, Spezifikation und technische Prüfung. Reviews werden vom menschlichen Gründer und Maintainer zusammen mit KI-gestützten Reviews durchgeführt. Die menschliche Verantwortung für Annahmeentscheidungen und Releases bleibt bestehen. Automatisierte Tests und Architecture Decision Records unterstützen die Verifikation; es wird nicht behauptet, dass sämtlicher generierter Code manuell geprüft oder unabhängig auditiert wurde.
+Die Entwicklung wird vom Menschen geführt und durch KI unterstützt; dabei kommt Agentic Software Engineering in erheblichem Umfang zum Einsatz. Der Gründer und Maintainer des Projekts trifft die Produkt- und Architekturentscheidungen; KI-Werkzeuge unterstützen Implementierung, Spezifikation und technische Prüfung. Reviews werden vom Gründer und Maintainer des Projekts zusammen mit KI-gestützten Reviews durchgeführt. Die Verantwortung für Annahmeentscheidungen und Releases bleibt beim Gründer und Maintainer des Projekts. Automatisierte Tests und Architecture Decision Records unterstützen die Verifikation; es wird nicht behauptet, dass sämtlicher generierter Code manuell geprüft oder unabhängig auditiert wurde.
 
 Das Repository enthält Backend- und Frontend-Tests, PostgreSQL-Integrationstests, eine CI-Konfiguration sowie Kompatibilitäts- und Regressionstests. Die [Kompatibilitätsnotizen zu Prüfergebnissen](docs/architecture/assessment-results-compatibility-probes-2026-11-17.md) dokumentieren weitere während der Entwicklung durchgeführte Prüfungen. Testergebnisse früherer Entwicklungsstände stellen keine Release-Zertifizierung dar; die aktuellen Testsuiten und manuellen Workflows sollten entsprechend dem [Entwicklerleitfaden](docs/development.md) ausgeführt werden.
 
@@ -184,8 +184,8 @@ CC-BY-4.0-Geltungsbereich in diesem Repository:
 Vom CC-BY-4.0-Geltungsbereich ausgenommen:
 
 - Software-Quellcode und Skripte (Apache-2.0)
-- Drittanbieter-Artefakte, uebernommene normative Inhalte, Schemas, Fixtures und Provenance-Dateien (urspruengliche Lizenzen bleiben gueltig)
-- Maschinen-generierte Abhaengigkeitsinventare in `docs/`
+- Drittanbieter-Artefakte, übernommene normative Inhalte, Schemas, Fixtures und Provenance-Dateien (ursprüngliche Lizenzen bleiben gültig)
+- Maschinen-generierte Abhängigkeitsinventare in `docs/`
 
 ## Weiterführende Informationen
 

@@ -35,8 +35,8 @@ The repository now needs one architectural standard for optimistic concurrency a
   - Profiles
   - Mapping Collections
 - **Independent implementation review and verification status:**
-  - Assessment Plans and Assessment Results have established independent review and verified contention/reference coverage.
-  - SSPs, Profiles, and Mapping Collections have implemented concurrency paths, but do not yet have the same independent review and verification status.
+  - Assessment Plans, Assessment Results, and SSPs have established independent review and verified contention/reference coverage.
+  - Profiles and Mapping Collections have implemented concurrency paths, but do not yet have the same independent review and verification status.
 - Operation-specific requirements apply only where those operations exist for an aggregate (for example: publication, idempotent publication, immutable snapshots, deletion endpoints, or nested authored structures).
 - This ADR defines the standard now; rollout remains explicit per aggregate.
 
