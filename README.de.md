@@ -122,7 +122,6 @@ Zu den Alpha-Einschränkungen gehören unvollständige semantische Validierung, 
 
 ### Kurzfristige Prioritäten
 
-- Die Nebenläufigkeitsabdeckung für die verbleibenden Aggregate abschließen, indem die Prüfung und Verifikation für Profile und Mapping-Sammlungen fertiggestellt wird.
 - Gemeinsame Verwaltung von Parties, Rollen und Verantwortlichkeiten ergänzen.
 - Native OSCAL-Inventaritems und erweiterte Prüfgegenstände implementieren.
 - Eine gemeinsame System- und Inventarübersicht bereitstellen.

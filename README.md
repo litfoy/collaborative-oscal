@@ -123,7 +123,6 @@ Alpha limitations include incomplete semantic validation, fine-grained stakehold
 
 ### Near-term priorities
 
-- Complete optimistic concurrency coverage for the remaining aggregates by finishing contention and verification review for Profiles and Mapping Collections.
 - Add shared Parties, Roles and Responsibilities management.
 - Implement native OSCAL Inventory Items and extend assessment subjects.
 - Add a shared system and inventory overview.
