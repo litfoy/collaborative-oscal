@@ -17,9 +17,9 @@
 - Authentication validates configured OIDC access tokens, persists external identities and tenant memberships, and provides
   trusted tenant context and catalog:read/catalog:write authorization. Catalog browsing, Profiles, implementation registers,
   Systems, SSP/AP/AR workflows, native Assessment Results REST import, and optimistic concurrency implementations for
-  Assessment Plans, Assessment Results, SSPs, Profiles, and Mapping Collections are implemented. Independent contention and
-  verification review coverage is currently established for Assessment Plans, Assessment Results, and SSPs; Profiles and
-  Mapping Collections remain pending independent review.
+  Assessment Plans, Assessment Results, SSPs, Profiles, and Mapping Collections are implemented. Review and
+  verification coverage is currently established for Assessment Plans, Assessment Results, and SSPs (reviewed by the
+  maintainer with AI-assisted analysis; no external audit); Profiles and Mapping Collections remain pending review.
   Do not imply that unimplemented GRC areas such as catalog editing, managed evidence, risk/POA&M, or fine-grained Party/Role
   governance are complete.
 
@@ -47,8 +47,8 @@ HttpOnly cookie session; tokens never reach the browser). Catalog import also re
 `python -m app.cli`. Catalog editing, managed evidence, shared Parties/Roles/Responsibilities, risk/POA&M, public user
 management, and machine identities are not complete. Control references use `catalog_id + revision_id + oscal_control_id`.
 See ADR 0007. Optimistic concurrency implementations exist for Assessment Plans, Assessment Results, SSPs, Profiles, and Mapping Collections;
-independent contention and verification coverage is currently established for Assessment Plans, Assessment Results, and SSPs,
-with Profiles and Mapping Collections pending independent review.
+review and verification coverage is currently established for Assessment Plans, Assessment Results, and SSPs (reviewed by the
+maintainer with AI-assisted analysis; no external audit), with Profiles and Mapping Collections pending review.
 
 ### Domain-Oriented User Experience
 

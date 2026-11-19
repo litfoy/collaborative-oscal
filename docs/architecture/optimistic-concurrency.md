@@ -5,7 +5,7 @@ This guide defines the reusable implementation and verification contract for agg
 - Architectural decision: `docs/adr/0022-aggregate-optimistic-concurrency.md`
 - Original Assessment Plan decision (kept unchanged): `docs/adr/0021-assessment-plan-optimistic-concurrency.md`
 - **Implemented aggregate coverage:** Assessment Plans, Assessment Results, SSPs, Profiles, and Mapping Collections
-- **Independent review and verification:** currently established as a strong contention/reference model for Assessment Plans, Assessment Results, and SSPs; Profiles and Mapping Collections are implemented but pending independent review
+- **Review and verification:** currently established as a strong contention/reference model for Assessment Plans, Assessment Results, and SSPs (reviewed by the maintainer with AI-assisted analysis; no external audit); Profiles and Mapping Collections are implemented but pending review
 
 ## Implementation Contract
 

@@ -5,7 +5,7 @@
 
 ## Context
 
-Assessment Plan authoring introduced optimistic concurrency in ADR 0021 and validated it against real PostgreSQL contention, mapper version mismatches, API conflict translation, BFF forwarding, and frontend conflict UX. Assessment Results implemented and independently verified the same pattern for a second mutable aggregate.
+Assessment Plan authoring introduced optimistic concurrency in ADR 0021 and validated it against real PostgreSQL contention, mapper version mismatches, API conflict translation, BFF forwarding, and frontend conflict UX. Assessment Results implemented and verified the same pattern for a second mutable aggregate through maintainer-led, AI-assisted review.
 
 The repository now needs one architectural standard for optimistic concurrency across mutable aggregates, without rewriting ADR 0021 or overstating current implementation coverage.
 
@@ -34,9 +34,9 @@ The repository now needs one architectural standard for optimistic concurrency a
   - System Security Plans (SSPs)
   - Profiles
   - Mapping Collections
-- **Independent implementation review and verification status:**
-  - Assessment Plans, Assessment Results, and SSPs have established independent review and verified contention/reference coverage.
-  - Profiles and Mapping Collections have implemented concurrency paths, but do not yet have the same independent review and verification status.
+- **Implementation review and verification status:**
+  - Assessment Plans, Assessment Results, and SSPs have established review and verified contention/reference coverage (reviewed by the maintainer with AI-assisted analysis; no external audit).
+  - Profiles and Mapping Collections have implemented concurrency paths, but do not yet have the same review and verification status.
 - Operation-specific requirements apply only where those operations exist for an aggregate (for example: publication, idempotent publication, immutable snapshots, deletion endpoints, or nested authored structures).
 - This ADR defines the standard now; rollout remains explicit per aggregate.
 
