@@ -16,10 +16,10 @@ Catalog and Profile APIs and basic implementation tracking are user-facing, but 
 | `apps/api/app/persistence` | PostgreSQL mappings, transactions, and tenant-scoped repositories | SQLAlchemy and Alembic foundation |
 | `packages/domain` | Future cross-application domain package boundary | No separately packaged domain library |
 | `packages/oscal` | OSCAL digest, catalog projections, safe JSON/YAML parser, versioned validation, and compatible Trestle-backed authoring | Catalog import and authoring/validation for Profiles, Mapping collections, Component Definitions, and SSPs |
-| `packages/collaboration` | Collaboration concepts and application services | Reserved |
-| `packages/automation` | Future scheduled/event-triggered jobs and policy automation | Reserved |
+| `packages/collaboration` | Collaboration concepts and application services | Planned boundary; not scaffolded yet |
+| `packages/automation` | Future scheduled/event-triggered jobs and policy automation | Planned boundary; not scaffolded yet |
 | `packages/authorization` | Future separately packaged authorization boundary | Documentation only; current implementation is in `apps/api/app` |
-| `apps/worker` | Future background execution entry point | Reserved |
+| `apps/worker` | Future background execution entry point | Planned boundary; not scaffolded yet |
 
 These are logical boundaries, not separate services. Cross-module dependencies should flow through explicit application interfaces rather than importing another module's internal implementation.
 
