@@ -180,7 +180,14 @@ versions; keep version-specific compatibility tests and document-preservation
 behavior.
 
 The BSI Grundschutz++ fixture declares OSCAL 1.1.3 and passes Trestle model
-validation and existing projections. The official NIST SP 800-53 Rev. 5.2.0 Catalog fixture is from
+validation and existing projections. Its bundled copy is an unmodified file from
+`BSI-Bund/Stand-der-Technik-Bibliothek` at commit `c3f37859`
+(`control_layer/Grundschutz++/Grundschutz++-resolved_catalog.json`) with
+SHA-256 `592410c513691c18631402db3982dda6a4530dd6f2960868a6999017d311fa28`
+and license `CC-BY-SA-4.0` from the same commit's `LICENSE` file. Provenance is
+recorded in
+[`Grundschutz++-resolved_catalog.provenance.json`](../examples/catalogs/Grundschutz++-resolved_catalog.provenance.json).
+The official NIST SP 800-53 Rev. 5.2.0 Catalog fixture is from
 the independent [OSCAL Content release `v1.5.0`](https://github.com/usnistgov/oscal-content/releases/tag/v1.5.0);
 its declared OSCAL version is 1.2.2.
 The checked-in fixture

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 """record catalog import format and prevent duplicate catalog revisions
 
 Revision ID: 86d2a7c7b5e1

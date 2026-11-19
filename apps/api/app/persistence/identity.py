@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 

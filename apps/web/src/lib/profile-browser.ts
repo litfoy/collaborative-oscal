@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Collaborative OSCAL Authors.
+
 import type { ProfileBrowserNode } from "./types";
 import type { Translate } from "./i18n";
 

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Collaborative OSCAL Authors.
+
 import { resetConfigForTests } from "@/lib/config";
 import { vi } from "vitest";
 

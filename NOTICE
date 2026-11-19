@@ -1,0 +1,18 @@
+Collaborative OSCAL
+Copyright The Collaborative OSCAL Authors.
+
+This product includes software developed by the following projects and communities:
+- NIST OSCAL (Open Security Controls Assessment Language)
+- OSCAL Compass, including Compliance Trestle and OSCAL content projects
+- Bundesamt fuer Sicherheit in der Informationstechnik (BSI) Grundschutz++ catalog content (redistributed unmodified under CC-BY-SA-4.0)
+
+Collaborative OSCAL is an independent open-source project and is not affiliated with
+or endorsed by NIST, OSCAL Compass, CNCF, or the Linux Foundation.
+
+Additional third-party attribution and license details are documented in:
+- THIRD_PARTY_NOTICES.md
+- docs/npm-license-inventory.json
+- docs/python-license-inventory.runtime.json
+- docs/python-license-inventory.dev-and-runtime.json
+
+

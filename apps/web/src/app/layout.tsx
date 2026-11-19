@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Collaborative OSCAL Authors.
+
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 

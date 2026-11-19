@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 """Read-only projections of OSCAL catalog content for presentation.
 
 Functions never mutate their input. Unknown or malformed optional elements are

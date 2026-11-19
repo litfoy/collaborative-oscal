@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 import json
 import threading
 from datetime import UTC, datetime, timedelta

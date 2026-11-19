@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 """Preserve profile import identities and their implementation provenance.
 
 Revision ID: 71bc92de4a10

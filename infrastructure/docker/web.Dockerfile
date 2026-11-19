@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 FROM node:22-bookworm-slim AS build
 WORKDIR /opt/app
 COPY package.json package-lock.json ./

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 """Add optimistic concurrency versions to Assessment Results.
 
 Revision ID: f7a1c9e2d4b3

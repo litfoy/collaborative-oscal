@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Collaborative OSCAL Authors.
+
 import { ApiError, ERROR_MESSAGES, ERROR_TRANSLATION_KEYS } from "@/lib/errors";
 
 import * as common from "./common";

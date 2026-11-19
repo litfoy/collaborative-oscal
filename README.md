@@ -142,7 +142,27 @@ The repository includes backend and frontend tests, PostgreSQL integration cover
 
 ## License
 
-The project's own software is licensed under [Apache License 2.0](LICENSE). Third-party catalogs and other external content remain subject to their respective licenses and attribution requirements; the software license does not relicense those materials.
+The project's own software is licensed under [Apache License 2.0](LICENSE). Project attribution notices are documented in [NOTICE](NOTICE).
+
+Third-party catalogs, schemas, fixtures, dependencies, and container content remain subject to their respective licenses and attribution requirements; the software license does not relicense those materials. See:
+
+- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+- [docs/license-compliance-assessment.md](docs/license-compliance-assessment.md)
+- [docs/npm-license-inventory.json](docs/npm-license-inventory.json)
+- [docs/python-license-inventory.runtime.json](docs/python-license-inventory.runtime.json)
+
+Project-authored documentation is licensed under [Creative Commons Attribution 4.0 International](LICENSES/CC-BY-4.0.txt) (CC-BY-4.0).
+
+CC-BY-4.0 scope in this repository:
+
+- Root documentation: `README.md`, `README.de.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `MAINTAINERS.md`, and `AI_USAGE.md`
+- Project-authored Markdown under `docs/` unless a file clearly identifies third-party ownership or license terms
+
+Excluded from CC-BY-4.0 scope:
+
+- Software source code and scripts (Apache-2.0)
+- Third-party artifacts, copied normative content, schemas, fixtures, and provenance files (retain original licenses)
+- Machine-generated dependency inventories in `docs/`
 
 ## Further reading
 

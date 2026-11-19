@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 """add assessment result import provenance and idempotency identity
 
 Revision ID: c92e1b7d4f33

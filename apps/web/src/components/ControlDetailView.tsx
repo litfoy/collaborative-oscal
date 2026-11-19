@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Collaborative OSCAL Authors.
+
 import { parameterText, renderProse } from "@/lib/safe";
 import { useI18n } from "@/lib/i18n/provider";
 import type { Translate } from "@/lib/i18n";

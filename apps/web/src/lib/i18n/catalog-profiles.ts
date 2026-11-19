@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Collaborative OSCAL Authors.
+
 export const en = {
   "catalogs.import": "Import catalog",
   "catalogs.importComplete": "Import complete.",

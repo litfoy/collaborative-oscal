@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Collaborative OSCAL Authors.
+
 import { ApiProblem } from "@/components/ApiProblem";
 import { ProfileManager } from "@/components/ProfileManager";
 import { listCatalogs, listProfiles, listTenants } from "@/lib/api";

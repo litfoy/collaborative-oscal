@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 """Add tenant-scoped demo seed run markers.
 
 Revision ID: d4e5f6a7b8c9

@@ -1,0 +1,34 @@
+name: Bug report
+description: Report a reproducible defect
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please include enough detail to reproduce the issue.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Include commands, inputs, and expected vs actual behavior.
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit / branch
+      description: Commit hash or branch where this was observed.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste relevant output (redact sensitive data).
+

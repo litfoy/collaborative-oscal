@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 """Add tenant-scoped Assessment Results and immutable versions.
 
 Revision ID: c5d2f61a8b91

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 """Add optimistic concurrency versions to profiles and mapping collections.
 
 Revision ID: b62f4d1a9c3e

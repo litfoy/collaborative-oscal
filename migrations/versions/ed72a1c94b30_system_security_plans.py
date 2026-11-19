@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 """Add tenant-scoped information systems and immutable SSP versions.
 
 Revision ID: ed72a1c94b30

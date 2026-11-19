@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 """Read-only, tenant-scoped catalog queries.
 
 Every query filters on `tenant_id`; callers must pass a tenant id obtained from a

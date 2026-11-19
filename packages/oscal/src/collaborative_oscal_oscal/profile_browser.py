@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 """Compact, read-only presentation index for selecting controls from a catalog."""
 
 from typing import Any

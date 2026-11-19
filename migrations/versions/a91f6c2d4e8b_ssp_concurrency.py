@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 """Add optimistic concurrency versions to System Security Plans.
 
 Revision ID: a91f6c2d4e8b

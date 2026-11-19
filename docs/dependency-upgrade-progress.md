@@ -95,8 +95,9 @@ _Last updated: 2026-11-18_
 - npm inventory (existing process):
   - `npx license-checker --json --out docs/npm-license-inventory.json`
 - Python inventories:
-  - `cd apps/api && uv run --with pip-licenses pip-licenses --format=json --with-authors --with-license-file --output-file /Users/rib/workspace/collaborative-oscal/docs/python-license-inventory.dev-and-runtime.json`
-  - `cd apps/api && uv run --no-dev --with pip-licenses pip-licenses --format=json --with-authors --with-license-file --output-file /Users/rib/workspace/collaborative-oscal/docs/python-license-inventory.runtime.json`
+  - `cd apps/api && uv run --with pip-licenses pip-licenses --format=json --with-authors --with-license-file --output-file ../../docs/python-license-inventory.dev-and-runtime.json`
+  - `cd apps/api && uv run --no-dev --with pip-licenses pip-licenses --format=json --with-authors --with-license-file --output-file ../../docs/python-license-inventory.runtime.json`
+  - `python scripts/normalize_license_inventory_paths.py`
 
 ## Hardening Task 05 pre-work obligations (unresolved)
 

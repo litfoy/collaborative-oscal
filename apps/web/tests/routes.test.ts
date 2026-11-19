@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Collaborative OSCAL Authors.
+
 // @vitest-environment node
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";

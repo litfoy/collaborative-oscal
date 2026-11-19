@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Collaborative OSCAL Authors.
+
 import type { Parameter } from "./types";
 
 /** Returns a same-origin relative path or "/" — never an absolute or protocol-relative URL. */

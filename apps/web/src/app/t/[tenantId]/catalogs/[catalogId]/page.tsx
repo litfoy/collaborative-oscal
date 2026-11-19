@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Collaborative OSCAL Authors.
+
 import { ApiProblem } from "@/components/ApiProblem";
 import { ControlBrowser } from "@/components/ControlBrowser";
 import { getCatalog, getControl, getOutline, getRevision, listRevisions } from "@/lib/api";

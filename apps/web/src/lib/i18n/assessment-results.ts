@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Collaborative OSCAL Authors.
+
 export const en = {
   "assessmentResults.sectionTitle": "Assessment results",
   "assessmentResults.workspaceIntro": "Capture structured observations, evidence, and findings against one immutable Assessment Plan version.",

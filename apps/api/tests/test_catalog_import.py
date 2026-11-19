@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path

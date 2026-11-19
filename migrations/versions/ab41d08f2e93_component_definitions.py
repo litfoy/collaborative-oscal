@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 """Add tenant-scoped OSCAL Component Definitions.
 
 Revision ID: ab41d08f2e93

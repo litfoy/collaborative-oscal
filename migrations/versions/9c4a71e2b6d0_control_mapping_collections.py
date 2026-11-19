@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 """Add OSCAL Control Mapping collections and revision-pinned members.
 
 Revision ID: 9c4a71e2b6d0

@@ -142,7 +142,27 @@ Collaborative OSCAL baut auf der Arbeit verschiedener Open-Source-Projekte und C
 
 ## Lizenz
 
-Die selbst entwickelte Software steht unter der [Apache License 2.0](LICENSE). Für Kataloge Dritter und andere externe Inhalte gelten deren jeweilige Lizenzen und Namensnennungspflichten; die Softwarelizenz lizenziert diese Inhalte nicht um.
+Die selbst entwickelte Software steht unter der [Apache License 2.0](LICENSE). Hinweise zur Projektzuordnung stehen in der Datei [NOTICE](NOTICE).
+
+Für Kataloge Dritter, Schemas, Test-Fixtures, Abhängigkeiten und Container-Inhalte gelten weiterhin deren jeweilige Lizenz- und Namensnennungspflichten; die Softwarelizenz lizenziert diese Inhalte nicht um. Siehe:
+
+- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+- [docs/license-compliance-assessment.md](docs/license-compliance-assessment.md)
+- [docs/npm-license-inventory.json](docs/npm-license-inventory.json)
+- [docs/python-license-inventory.runtime.json](docs/python-license-inventory.runtime.json)
+
+Projekt-eigene Dokumentation steht unter [Creative Commons Attribution 4.0 International](LICENSES/CC-BY-4.0.txt) (CC-BY-4.0).
+
+CC-BY-4.0-Geltungsbereich in diesem Repository:
+
+- Root-Dokumentation: `README.md`, `README.de.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `MAINTAINERS.md` und `AI_USAGE.md`
+- Projekt-eigene Markdown-Dateien unter `docs/`, sofern eine Datei nicht eindeutig Rechte Dritter oder abweichende Lizenzbedingungen ausweist
+
+Vom CC-BY-4.0-Geltungsbereich ausgenommen:
+
+- Software-Quellcode und Skripte (Apache-2.0)
+- Drittanbieter-Artefakte, uebernommene normative Inhalte, Schemas, Fixtures und Provenance-Dateien (urspruengliche Lizenzen bleiben gueltig)
+- Maschinen-generierte Abhaengigkeitsinventare in `docs/`
 
 ## Weiterführende Informationen
 
@@ -152,4 +172,3 @@ Die selbst entwickelte Software steht unter der [Apache License 2.0](LICENSE). F
 - [NIST AI Risk Management Framework](https://www.nist.gov/itl/ai-risk-management-framework)
 - [LF AI & Data](https://lfaidata.foundation/)
 - [BSI – Stand-der-Technik-Bibliothek](https://github.com/BSI-Bund/Stand-der-Technik-Bibliothek)
-v

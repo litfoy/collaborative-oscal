@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Collaborative OSCAL Authors.
+
 import { describe, expect, it, vi } from "vitest";
 
 import { bffWrite } from "@/lib/bff-client";

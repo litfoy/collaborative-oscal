@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 from pathlib import Path
 from unittest.mock import Mock, patch
 from uuid import uuid4

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 # Creates a local development user in the dev realm through the Keycloak admin API.
 # Credentials come from the environment so that none are committed:
 #   KEYCLOAK_ADMIN_USERNAME, KEYCLOAK_ADMIN_PASSWORD (the bootstrap admin)

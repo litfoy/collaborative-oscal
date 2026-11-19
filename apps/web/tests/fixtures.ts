@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Collaborative OSCAL Authors.
+
 import type { Catalog, ControlDetail, OutlineNode, Paged, RevisionSummary } from "@/lib/types";
 
 export const TENANT = "11111111-1111-4111-8111-111111111111";

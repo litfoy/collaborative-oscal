@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Collaborative OSCAL Authors.
+
 import { ApiError, ERROR_MESSAGES, kindForStatus } from "./errors";
 
 /** Browser-side client for the same-origin BFF. It never sees any token. */

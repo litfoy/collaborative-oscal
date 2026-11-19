@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any

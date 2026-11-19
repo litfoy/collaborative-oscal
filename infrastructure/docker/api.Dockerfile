@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Collaborative OSCAL Authors.
+
 FROM ghcr.io/astral-sh/uv:0.13.7 AS uv
 FROM python:3.13-slim
 
