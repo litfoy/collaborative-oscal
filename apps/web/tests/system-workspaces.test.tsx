@@ -804,19 +804,29 @@ describe("Systems workspaces", () => {
       description: "Server description",
       concurrency_version: 3,
     };
+    let sawRefreshedToken = false;
+    let staleCount = 0;
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}`) && init?.method === "PUT") {
-        return new Response(
-          JSON.stringify({
-            detail: {
-              code: "stale_update",
-              system_id: system.id,
-              expected_version: 1,
-              current_version: 3,
-            },
-          }),
-          { status: 409, headers: { "Content-Type": "application/json" } },
-        );
+        const body = JSON.parse((init.body as string) ?? "{}");
+        if (staleCount === 0) {
+          staleCount += 1;
+          expect(body.expected_version).toBe(1);
+          return new Response(
+            JSON.stringify({
+              detail: {
+                code: "stale_update",
+                system_id: system.id,
+                expected_version: 1,
+                current_version: 3,
+              },
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        expect(body.expected_version).toBe(3);
+        sawRefreshedToken = true;
+        return jsonResponse({ ...refreshedSystem, name: body.name, concurrency_version: 4 });
       }
       if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}`) && (!init?.method || init.method === "GET")) {
         return jsonResponse(refreshedSystem);
@@ -836,6 +846,236 @@ describe("Systems workspaces", () => {
     await user.click(screen.getByRole("button", { name: "Discard System edits and reload" }));
     expect(confirmSpy).toHaveBeenCalled();
     expect(await screen.findByLabelText("System name")).toHaveValue("Server Identity");
+
+    await user.clear(screen.getByLabelText("System name"));
+    await user.type(screen.getByLabelText("System name"), "After reload");
+    await user.click(screen.getByRole("button", { name: "Save System characteristics" }));
+    expect(await screen.findByText("System characteristics saved.")).toBeVisible();
+    expect(sawRefreshedToken).toBe(true);
+  });
+
+  it("keeps system draft and original token when stale reload is canceled or fails", async () => {
+    const user = userEvent.setup();
+    let call = 0;
+    const expectedVersions: number[] = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}`) && init?.method === "PUT") {
+        const body = JSON.parse((init.body as string) ?? "{}");
+        expectedVersions.push(body.expected_version);
+        if (call < 2) {
+          call += 1;
+          return new Response(
+            JSON.stringify({
+              detail: {
+                code: "stale_update",
+                system_id: system.id,
+                expected_version: body.expected_version,
+                current_version: 3,
+              },
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return jsonResponse({ ...system, name: body.name, concurrency_version: 2 });
+      }
+      if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}`) && (!init?.method || init.method === "GET")) {
+        return new Response(JSON.stringify({ error: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return jsonResponse(plan);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const confirmSpy = vi.spyOn(window, "confirm");
+
+    renderSystem();
+    await user.clear(screen.getByLabelText("System name"));
+    await user.type(screen.getByLabelText("System name"), "Local System Name");
+    await user.click(screen.getByRole("button", { name: "Save System characteristics" }));
+    await screen.findByText("This System changed in another session. Current server version: 3.");
+
+    confirmSpy.mockReturnValueOnce(false);
+    await user.click(screen.getByRole("button", { name: "Discard System edits and reload" }));
+    expect(screen.getByLabelText("System name")).toHaveValue("Local System Name");
+
+    confirmSpy.mockReturnValueOnce(true);
+    await user.click(screen.getByRole("button", { name: "Discard System edits and reload" }));
+    expect(
+      await screen.findByText(/The service is temporarily unavailable\. Please try again\./),
+    ).toBeVisible();
+    expect(screen.getByLabelText("System name")).toHaveValue("Local System Name");
+
+    await user.click(screen.getByRole("button", { name: "Save System characteristics" }));
+    await screen.findByText("This System changed in another session. Current server version: 3.");
+    expect(expectedVersions).toEqual([1, 1]);
+  });
+
+  it("disables system and component editing actions while requests are pending", async () => {
+    const user = userEvent.setup();
+    let resolveSystemSave!: (response: Response) => void;
+    let resolveComponentSave!: (response: Response) => void;
+    let call = 0;
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      call += 1;
+      if (call === 1 && init?.method === "PUT") {
+        return await new Promise<Response>((resolve) => {
+          resolveSystemSave = resolve;
+        });
+      }
+      if (call === 2 && init?.method === "PUT") {
+        return await new Promise<Response>((resolve) => {
+          resolveComponentSave = resolve;
+        });
+      }
+      return jsonResponse(plan);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <LocaleProvider locale="en"><SystemWorkspace tenantId={TENANT} initialSystem={system} initialComponents={[component, secondComponent]}
+        initialPlans={[plan]} initialVersions={{ [plan.id]: [version] }} catalogs={[catalog()]}
+        initialAssessmentPlans={assessmentPlans}
+        initialAssessmentResults={[]}
+        planRevisions={{ [plan.id]: revision() }}
+        revisions={[{ catalog: catalog(), revision: revision() }]} definitions={[definition]} canWrite /></LocaleProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save System characteristics" }));
+    expect(screen.getByLabelText("System name")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add identifier" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove identifier" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add information type" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove information type" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Components" })).toBeDisabled();
+    resolveSystemSave(jsonResponse(system));
+    await screen.findByText("System characteristics saved.");
+
+    await user.click(screen.getByRole("button", { name: "Components" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit component" })[0]);
+    await user.click(screen.getByRole("button", { name: "Save component" }));
+
+    expect(screen.getByRole("button", { name: "Add component" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Adopt reusable measure" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Discard draft" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Components" })).toBeDisabled();
+    for (const button of screen.getAllByRole("button", { name: "Edit component" })) {
+      expect(button).toBeDisabled();
+    }
+
+    resolveComponentSave(jsonResponse(component));
+    await screen.findByText("System component updated.");
+  });
+
+  it("reloading one aggregate preserves unsaved drafts and tokens for the other aggregate", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const refreshedSystem = {
+      ...system,
+      name: "Server Identity",
+      concurrency_version: 3,
+    };
+    const refreshedComponent = {
+      ...component,
+      component: {
+        ...component.component,
+        title: "Server component",
+      },
+      concurrency_version: 4,
+    };
+    let systemPutCount = 0;
+    let componentPutCount = 0;
+    const systemVersions: number[] = [];
+    const componentVersions: number[] = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}`) && init?.method === "PUT") {
+        const body = JSON.parse((init.body as string) ?? "{}");
+        systemVersions.push(body.expected_version);
+        if (systemPutCount === 0) {
+          systemPutCount += 1;
+          return new Response(
+            JSON.stringify({
+              detail: {
+                code: "stale_update",
+                system_id: system.id,
+                expected_version: 1,
+                current_version: 3,
+              },
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return jsonResponse({ ...refreshedSystem, name: body.name, concurrency_version: 5 });
+      }
+      if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}`) && (!init?.method || init.method === "GET")) {
+        return jsonResponse(refreshedSystem);
+      }
+      if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}/components/${component.id}`) && init?.method === "PUT") {
+        const body = JSON.parse((init.body as string) ?? "{}");
+        componentVersions.push(body.expected_version);
+        if (componentPutCount === 0) {
+          componentPutCount += 1;
+          return new Response(
+            JSON.stringify({
+              detail: {
+                code: "stale_update",
+                component_id: component.id,
+                expected_version: 1,
+                current_version: 4,
+              },
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return jsonResponse({
+          ...refreshedComponent,
+          component: {
+            ...refreshedComponent.component,
+            description: body.description,
+          },
+          concurrency_version: 5,
+        });
+      }
+      if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}/components`) && (!init?.method || init.method === "GET")) {
+        return jsonResponse([refreshedComponent]);
+      }
+      return jsonResponse(plan);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderSystem();
+    await user.clear(screen.getByLabelText("System name"));
+    await user.type(screen.getByLabelText("System name"), "System local draft");
+    await user.click(screen.getByRole("button", { name: "Components" }));
+    await user.click(screen.getByRole("button", { name: "Edit component" }));
+    await user.clear(screen.getByLabelText("Actual deployment description"));
+    await user.type(screen.getByLabelText("Actual deployment description"), "Component local draft");
+
+    await user.click(screen.getByRole("button", { name: "Overview" }));
+    await user.click(screen.getByRole("button", { name: "Save System characteristics" }));
+    await screen.findByText("This System changed in another session. Current server version: 3.");
+
+    await user.click(screen.getByRole("button", { name: "Components" }));
+    expect(screen.getByLabelText("Actual deployment description")).toHaveValue("Component local draft");
+    await user.click(screen.getByRole("button", { name: "Save component" }));
+    await screen.findByText("This component changed in another session. Current server version: 4.");
+    await user.click(screen.getByRole("button", { name: "Discard component edits and reload" }));
+
+    await user.click(screen.getByRole("button", { name: "Overview" }));
+    await user.clear(screen.getByLabelText("System name"));
+    await user.type(screen.getByLabelText("System name"), "System draft after component reload");
+    await user.click(screen.getByRole("button", { name: "Save System characteristics" }));
+    await screen.findByText("System characteristics saved.");
+
+    await user.click(screen.getByRole("button", { name: "Components" }));
+    await user.clear(screen.getByLabelText("Actual deployment description"));
+    await user.type(screen.getByLabelText("Actual deployment description"), "After reload");
+    await user.click(screen.getByRole("button", { name: "Save component" }));
+    await screen.findByText("System component updated.");
+
+    expect(systemVersions).toEqual([1, 1]);
+    expect(componentVersions).toEqual([1, 4]);
   });
 
   it("handles stale component updates with explicit reload confirmation and keeps draft until reload", async () => {
@@ -850,19 +1090,36 @@ describe("Systems workspaces", () => {
       },
       concurrency_version: 3,
     };
+    let sawRefreshedToken = false;
+    let staleCount = 0;
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}/components/${component.id}`) && init?.method === "PUT") {
-        return new Response(
-          JSON.stringify({
-            detail: {
-              code: "stale_update",
-              component_id: component.id,
-              expected_version: 1,
-              current_version: 3,
-            },
-          }),
-          { status: 409, headers: { "Content-Type": "application/json" } },
-        );
+        const body = JSON.parse((init.body as string) ?? "{}");
+        if (staleCount === 0) {
+          staleCount += 1;
+          expect(body.expected_version).toBe(1);
+          return new Response(
+            JSON.stringify({
+              detail: {
+                code: "stale_update",
+                component_id: component.id,
+                expected_version: 1,
+                current_version: 3,
+              },
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        expect(body.expected_version).toBe(3);
+        sawRefreshedToken = true;
+        return jsonResponse({
+          ...refreshedComponent,
+          component: {
+            ...refreshedComponent.component,
+            description: body.description,
+          },
+          concurrency_version: 4,
+        });
       }
       if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}/components`) && (!init?.method || init.method === "GET")) {
         return jsonResponse([refreshedComponent]);
@@ -885,35 +1142,77 @@ describe("Systems workspaces", () => {
     expect(confirmSpy).toHaveBeenCalled();
     expect(await screen.findByLabelText("Component title")).toHaveValue("Server component");
     expect(screen.getByLabelText("Actual deployment description")).toHaveValue("Server component description");
+
+    await user.clear(screen.getByLabelText("Actual deployment description"));
+    await user.type(screen.getByLabelText("Actual deployment description"), "After reload");
+    await user.click(screen.getByRole("button", { name: "Save component" }));
+    expect(await screen.findByText("System component updated.")).toBeVisible();
+    expect(sawRefreshedToken).toBe(true);
   });
 
-  it("renders German system conflict messaging", async () => {
+  it("keeps component draft and original token when stale reload is canceled or fails", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(false);
+    let call = 0;
+    const expectedVersions: number[] = [];
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}`) && init?.method === "PUT") {
-        return new Response(
-          JSON.stringify({
-            detail: {
-              code: "stale_update",
-              system_id: system.id,
-              expected_version: 1,
-              current_version: 3,
-            },
-          }),
-          { status: 409, headers: { "Content-Type": "application/json" } },
-        );
+      if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}/components/${component.id}`) && init?.method === "PUT") {
+        const body = JSON.parse((init.body as string) ?? "{}");
+        expectedVersions.push(body.expected_version);
+        if (call < 2) {
+          call += 1;
+          return new Response(
+            JSON.stringify({
+              detail: {
+                code: "stale_update",
+                component_id: component.id,
+                expected_version: body.expected_version,
+                current_version: 3,
+              },
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return jsonResponse({
+          ...component,
+          component: {
+            ...component.component,
+            description: body.description,
+          },
+          concurrency_version: 2,
+        });
+      }
+      if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}/components`) && (!init?.method || init.method === "GET")) {
+        return new Response(JSON.stringify({ error: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        });
       }
       return jsonResponse(plan);
     });
     vi.stubGlobal("fetch", fetchMock);
+    const confirmSpy = vi.spyOn(window, "confirm");
 
-    renderSystem("de");
-    await user.clear(screen.getByLabelText("Systemname"));
-    await user.type(screen.getByLabelText("Systemname"), "Lokale Aenderung");
-    await user.click(screen.getByRole("button", { name: "Systemmerkmale speichern" }));
+    renderSystem();
+    await user.click(screen.getByRole("button", { name: "Components" }));
+    await user.click(screen.getByRole("button", { name: "Edit component" }));
+    await user.clear(screen.getByLabelText("Actual deployment description"));
+    await user.type(screen.getByLabelText("Actual deployment description"), "Local component draft");
+    await user.click(screen.getByRole("button", { name: "Save component" }));
+    await screen.findByText("This component changed in another session. Current server version: 3.");
 
-    expect(await screen.findByText("Dieses System wurde in einer anderen Sitzung geändert. Aktuelle Serverversion: 3.")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Systemänderungen verwerfen und neu laden" })).toBeVisible();
+    confirmSpy.mockReturnValueOnce(false);
+    await user.click(screen.getByRole("button", { name: "Discard component edits and reload" }));
+    expect(screen.getByLabelText("Actual deployment description")).toHaveValue("Local component draft");
+
+    confirmSpy.mockReturnValueOnce(true);
+    await user.click(screen.getByRole("button", { name: "Discard component edits and reload" }));
+    expect(
+      await screen.findByText(/The service is temporarily unavailable\. Please try again\./),
+    ).toBeVisible();
+    expect(screen.getByLabelText("Actual deployment description")).toHaveValue("Local component draft");
+
+    await user.click(screen.getByRole("button", { name: "Save component" }));
+    await screen.findByText("This component changed in another session. Current server version: 3.");
+    expect(expectedVersions).toEqual([1, 1]);
   });
 });
