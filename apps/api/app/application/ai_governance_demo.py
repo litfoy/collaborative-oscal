@@ -6,10 +6,12 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from collaborative_oscal_oscal.catalog_index import canonical_json_sha256
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
@@ -22,12 +24,15 @@ from app.application.component_definitions import (
     ComponentRequirementInput,
 )
 from app.application.implementations import ImplementationService
+from app.application.mappings import MappingService
 from app.application.system_security_plans import SystemSecurityPlanService
 from app.domain.implementations import (
     ImplementationInformation,
     ImplementationStatus,
     OscalImplementationStatus,
 )
+from app.domain.mappings import MappingEntrySpec, MappingPairSpec
+from app.persistence.identity import SQLIdentityRepository
 from app.persistence.models import (
     CatalogControlIndexRecord,
     CatalogRecord,
@@ -40,19 +45,17 @@ from app.persistence.models import (
 from app.persistence.repositories import SQLAlchemyUnitOfWork
 
 SEED_NAME = "ai-governance-demo-v1"
+GOVERNANCE_COVERAGE_SEED_NAME = "ai-governance-demo-governance-coverage-v1"
 SEED_LOCK_KEY = 8188815197680786
 SYSTEM_NAME = "Agentic AI Development Platform"
+GOVERNANCE_COVERAGE_SYSTEM_NAME = "EU AI Act Coverage Sandbox"
+GOVERNANCE_COVERAGE_MAPPING_TITLE = "EU AI Act to NIST GenAI mapping (unreviewed AI-assisted demo)"
+GOVERNANCE_COVERAGE_MAPPING_COUNT = 12
 
 UPSTREAM_CATALOG_UUID = UUID("1cead03a-d26a-400d-b16b-169816e2e592")
 UPSTREAM_CATALOG_OSCAL_VERSION = "1.1.2"
-UPSTREAM_CATALOG_SHA256 = "5d23b8f05ab5d8e96c552e2a9dcc1f0da9062fe9dcbe61b8de3136edf4cb703e"
-UPSTREAM_CATALOG_SOURCE_URI = (
-    "https://github.com/oscal-compass/oscal-content/blob/"
-    "56b1adba350b11f200636b94a64615b29fae33ed/"
-    "catalogs/nist_ai_rmf_gen_ai/1.0.0/catalog.json"
-)
-UPSTREAM_CATALOG_SOURCE_ORGANIZATION = "OSCAL Compass"
-UPSTREAM_CATALOG_LICENSE = "Apache-2.0"
+EU_AI_ACT_CATALOG_UUID = UUID("f7b7352c-0824-4be8-b246-5c745d51c84b")
+EU_AI_ACT_CATALOG_OSCAL_VERSION = "1.1.2"
 
 PRIORITIZED_CONTROL_IDS = (
     "MG-2.2-006",
@@ -86,6 +89,8 @@ class AIGovernanceDemoSeedResult:
     ssp_version_id: UUID | None
     assessment_plan_version_id: UUID | None
     assessment_result_version_id: UUID | None
+    governance_coverage_system_id: UUID | None = None
+    governance_coverage_mapping_collection_id: UUID | None = None
 
 
 def seed_ai_governance_demo(
@@ -94,40 +99,14 @@ def seed_ai_governance_demo(
     tenant_id: UUID,
     actor_id: UUID,
     catalog_path: Path,
+    catalog_provenance_path: Path,
+    eu_ai_act_catalog_path: Path,
+    mapping_draft_path: Path,
 ) -> AIGovernanceDemoSeedResult:
     with session_factory.begin() as session:
         connection = session.connection()
         connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": SEED_LOCK_KEY})
         _validate_seed_context(session, tenant_id, actor_id)
-        if session.scalar(
-            select(DemoSeedRunRecord.seed_name).where(
-                DemoSeedRunRecord.tenant_id == tenant_id,
-                DemoSeedRunRecord.seed_name == SEED_NAME,
-            )
-        ):
-            existing = _existing_catalog_revision(session, tenant_id)
-            if existing is None:
-                raise RuntimeError("Seed marker exists but upstream catalog revision is missing.")
-            return AIGovernanceDemoSeedResult(
-                applied=False,
-                catalog_id=existing.catalog_id,
-                revision_id=existing.id,
-                system_id=None,
-                ssp_version_id=None,
-                assessment_plan_version_id=None,
-                assessment_result_version_id=None,
-            )
-
-        if session.scalar(
-            select(InformationSystemRecord.id).where(
-                InformationSystemRecord.tenant_id == tenant_id,
-                InformationSystemRecord.name == SYSTEM_NAME,
-            )
-        ):
-            raise ValueError(
-                "Seed marker is missing, but demo System name already exists. "
-                "Refusing to create duplicate content."
-            )
 
         scoped_factory = sessionmaker(
             bind=connection,
@@ -145,8 +124,50 @@ def seed_ai_governance_demo(
             session,
             tenant_id=tenant_id,
             catalog_path=catalog_path,
+            catalog_provenance_path=catalog_provenance_path,
             unit_of_work_factory=unit_of_work_factory,
         )
+
+        if session.scalar(
+            select(DemoSeedRunRecord.seed_name).where(
+                DemoSeedRunRecord.tenant_id == tenant_id,
+                DemoSeedRunRecord.seed_name == SEED_NAME,
+            )
+        ):
+            extension = _seed_governance_coverage_extension(
+                session,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                eu_ai_act_catalog_path=eu_ai_act_catalog_path,
+                mapping_draft_path=mapping_draft_path,
+                nist_catalog=catalog,
+                nist_revision=revision,
+                begin_scope=begin_scope,
+                unit_of_work_factory=unit_of_work_factory,
+            )
+            return AIGovernanceDemoSeedResult(
+                applied=extension.applied,
+                catalog_id=catalog.id,
+                revision_id=revision.id,
+                system_id=None,
+                ssp_version_id=None,
+                assessment_plan_version_id=None,
+                assessment_result_version_id=None,
+                governance_coverage_system_id=extension.system_id,
+                governance_coverage_mapping_collection_id=extension.mapping_collection_id,
+            )
+
+        if session.scalar(
+            select(InformationSystemRecord.id).where(
+                InformationSystemRecord.tenant_id == tenant_id,
+                InformationSystemRecord.name == SYSTEM_NAME,
+            )
+        ):
+            raise ValueError(
+                "Seed marker is missing, but demo System name already exists. "
+                "Refusing to create duplicate content."
+            )
+
         _validate_prioritized_controls(session, tenant_id, revision.id)
 
         definitions = ComponentDefinitionService(begin_scope)
@@ -899,6 +920,18 @@ def seed_ai_governance_demo(
             .on_conflict_do_nothing(index_elements=["tenant_id", "seed_name"])
         )
 
+        extension = _seed_governance_coverage_extension(
+            session,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            eu_ai_act_catalog_path=eu_ai_act_catalog_path,
+            mapping_draft_path=mapping_draft_path,
+            nist_catalog=catalog,
+            nist_revision=revision,
+            begin_scope=begin_scope,
+            unit_of_work_factory=unit_of_work_factory,
+        )
+
         return AIGovernanceDemoSeedResult(
             applied=True,
             catalog_id=catalog.id,
@@ -907,17 +940,247 @@ def seed_ai_governance_demo(
             ssp_version_id=ssp_version["id"],
             assessment_plan_version_id=assessment_plan_version["id"],
             assessment_result_version_id=assessment_result_version["id"],
+            governance_coverage_system_id=extension.system_id,
+            governance_coverage_mapping_collection_id=extension.mapping_collection_id,
         )
 
 
-def _existing_catalog_revision(session: Session, tenant_id: UUID) -> CatalogRevisionRecord | None:
+@dataclass(frozen=True, slots=True)
+class _GovernanceCoverageExtensionResult:
+    applied: bool
+    system_id: UUID | None
+    mapping_collection_id: UUID | None
+
+
+def _latest_catalog_revision_for_document(
+    session: Session,
+    *,
+    tenant_id: UUID,
+    document_uuid: UUID,
+) -> CatalogRevisionRecord | None:
     return session.scalar(
         select(CatalogRevisionRecord)
         .where(
             CatalogRevisionRecord.tenant_id == tenant_id,
-            CatalogRevisionRecord.oscal_document_uuid == UPSTREAM_CATALOG_UUID,
+            CatalogRevisionRecord.oscal_document_uuid == document_uuid,
         )
-        .order_by(CatalogRevisionRecord.revision_number.desc(), CatalogRevisionRecord.id)
+        .order_by(CatalogRevisionRecord.revision_number.desc(), CatalogRevisionRecord.id.desc())
+    )
+
+
+def _catalog_revision_by_document_and_digest(
+    session: Session,
+    *,
+    tenant_id: UUID,
+    document_uuid: UUID,
+    content_sha256: str,
+) -> CatalogRevisionRecord | None:
+    return session.scalar(
+        select(CatalogRevisionRecord)
+        .where(
+            CatalogRevisionRecord.tenant_id == tenant_id,
+            CatalogRevisionRecord.oscal_document_uuid == document_uuid,
+            CatalogRevisionRecord.content_sha256 == content_sha256,
+        )
+        .order_by(CatalogRevisionRecord.revision_number.desc(), CatalogRevisionRecord.id.desc())
+    )
+
+
+def _load_catalog_document(path: Path, *, expected_uuid: UUID, expected_oscal_version: str) -> dict:
+    content = path.read_bytes()
+    document = json.loads(content)
+    if UUID(document["catalog"]["uuid"]) != expected_uuid:
+        raise ValueError(f"Catalog UUID mismatch for {path}.")
+    if document["catalog"]["metadata"]["oscal-version"] != expected_oscal_version:
+        raise ValueError(f"Catalog OSCAL version mismatch for {path}.")
+    return document
+
+
+def _seed_governance_coverage_extension(
+    session: Session,
+    *,
+    tenant_id: UUID,
+    actor_id: UUID,
+    eu_ai_act_catalog_path: Path,
+    mapping_draft_path: Path,
+    nist_catalog: CatalogRecord,
+    nist_revision: CatalogRevisionRecord,
+    begin_scope: Callable[[], AbstractContextManager[Session]],
+    unit_of_work_factory: Callable[[], SQLAlchemyUnitOfWork],
+) -> _GovernanceCoverageExtensionResult:
+    if session.scalar(
+        select(DemoSeedRunRecord.seed_name).where(
+            DemoSeedRunRecord.tenant_id == tenant_id,
+            DemoSeedRunRecord.seed_name == GOVERNANCE_COVERAGE_SEED_NAME,
+        )
+    ):
+        return _GovernanceCoverageExtensionResult(
+            applied=False,
+            system_id=None,
+            mapping_collection_id=None,
+        )
+
+    actor = SQLIdentityRepository(session).get_by_id(actor_id)
+    if actor is None:
+        raise ValueError("Actor identity does not exist.")
+
+    eu_catalog, eu_revision = _ensure_eu_ai_act_catalog(
+        session,
+        tenant_id=tenant_id,
+        eu_ai_act_catalog_path=eu_ai_act_catalog_path,
+        unit_of_work_factory=unit_of_work_factory,
+    )
+
+    pairs = _mapping_pairs_from_draft(
+        mapping_draft_path,
+        source_catalog_id=eu_catalog.id,
+        source_revision_id=eu_revision.id,
+        target_catalog_id=nist_catalog.id,
+        target_revision_id=nist_revision.id,
+    )
+
+    mappings = MappingService(begin_scope)
+    collection = mappings.create(
+        tenant_id,
+        actor,
+        GOVERNANCE_COVERAGE_MAPPING_TITLE,
+        (
+            "Unreviewed AI-assisted demonstration mapping proposals only. "
+            "Not legal advice, an applicability determination, control equivalence, "
+            "or evidence of implementation/compliance."
+        ),
+        pairs,
+    )
+
+    if session.scalar(
+        select(InformationSystemRecord.id).where(
+            InformationSystemRecord.tenant_id == tenant_id,
+            InformationSystemRecord.name == GOVERNANCE_COVERAGE_SYSTEM_NAME,
+        )
+    ):
+        raise ValueError(
+            "Coverage extension marker is missing, but the governance coverage System name "
+            "already exists. Refusing to create duplicate content."
+        )
+
+    ssp = SystemSecurityPlanService(begin_scope)
+    system = ssp.create_system(
+        tenant_id,
+        actor_id,
+        name=GOVERNANCE_COVERAGE_SYSTEM_NAME,
+        organization_id=None,
+        description=(
+            "Fictional demonstration data only. Illustrative sandbox system for proposed "
+            "EU AI Act to NIST GenAI mapping review workflows."
+        ),
+        system_boundary=(
+            "Fictional demonstration data only. Includes a single registry service used to "
+            "track mapping review notes and curation metadata."
+        ),
+        system_ids=[
+            {
+                "id": "eu-ai-act-coverage-sandbox.demo.internal",
+                "identifier_type": "https://example.demo/system-id",
+            }
+        ],
+        information_types=[
+            {
+                "title": "Mapping review notes",
+                "description": (
+                    "Fictional demo records that capture proposed crosswalk rationale and "
+                    "review decisions."
+                ),
+            }
+        ],
+        operational_status="operational",
+        status_remarks=None,
+        security_sensitivity_level="low",
+    )
+    ssp.create_component(
+        tenant_id,
+        actor_id,
+        system["id"],
+        component_type="this-system",
+        title="Coverage mapping register",
+        description=(
+            "Fictional demonstration data only. Single system component that records "
+            "proposed mapping relationships and reviewer notes."
+        ),
+        purpose="Track unreviewed demonstration mappings for curation.",
+        status="operational",
+        status_remarks=None,
+        is_system_component=True,
+    )
+
+    session.execute(
+        insert(DemoSeedRunRecord)
+        .values(tenant_id=tenant_id, seed_name=GOVERNANCE_COVERAGE_SEED_NAME)
+        .on_conflict_do_nothing(index_elements=["tenant_id", "seed_name"])
+    )
+    return _GovernanceCoverageExtensionResult(
+        applied=True,
+        system_id=system["id"],
+        mapping_collection_id=collection.id,
+    )
+
+
+def _mapping_pairs_from_draft(
+    mapping_draft_path: Path,
+    *,
+    source_catalog_id: UUID,
+    source_revision_id: UUID,
+    target_catalog_id: UUID,
+    target_revision_id: UUID,
+) -> tuple[MappingPairSpec, ...]:
+    draft = json.loads(mapping_draft_path.read_bytes())
+    if not isinstance(draft, dict):
+        raise ValueError("Mapping draft payload must be a JSON object.")
+    if draft.get("artifact_type") != "collaborative-oscal-seed-crosswalk-draft":
+        raise ValueError("Mapping draft artifact type is not supported for seeding.")
+    if not str(draft.get("direction", "")).startswith("source (EU AI Act) -> target"):
+        raise ValueError("Mapping draft direction must be source EU AI Act to target NIST GenAI.")
+
+    mappings = draft.get("mappings")
+    if not isinstance(mappings, list) or len(mappings) != GOVERNANCE_COVERAGE_MAPPING_COUNT:
+        raise ValueError(
+            f"Expected {GOVERNANCE_COVERAGE_MAPPING_COUNT} proposed mapping entries in draft input."
+        )
+
+    source_catalog = draft.get("source_catalog")
+    target_catalog = draft.get("target_catalog")
+    if not isinstance(source_catalog, dict) or not isinstance(target_catalog, dict):
+        raise ValueError("Mapping draft must declare source and target catalog metadata.")
+    if UUID(str(source_catalog.get("catalog_uuid"))) != EU_AI_ACT_CATALOG_UUID:
+        raise ValueError("Mapping draft source catalog UUID does not match the EU AI Act catalog.")
+    if UUID(str(target_catalog.get("catalog_uuid"))) != UPSTREAM_CATALOG_UUID:
+        raise ValueError("Mapping draft target catalog UUID does not match the NIST GenAI catalog.")
+
+    entries: list[MappingEntrySpec] = []
+    for item in mappings:
+        if not isinstance(item, dict):
+            raise ValueError("Each mapping draft entry must be an object.")
+        if item.get("review_status") != "proposed":
+            raise ValueError("Mapping draft contains non-proposed entries; review status mismatch.")
+        entries.append(
+            MappingEntrySpec(
+                id=None,
+                sources=(str(item["source_control_id"]),),
+                targets=(str(item["target_control_id"]),),
+                relationship=str(item["relationship"]),
+                matching_rationale=str(item["matching_rationale"]),
+                justification=str(item["justification"]),
+            )
+        )
+
+    return (
+        MappingPairSpec(
+            id=None,
+            source_catalog_id=source_catalog_id,
+            source_revision_id=source_revision_id,
+            target_catalog_id=target_catalog_id,
+            target_revision_id=target_revision_id,
+            entries=tuple(entries),
+        ),
     )
 
 
@@ -926,40 +1189,103 @@ def _ensure_upstream_catalog(
     *,
     tenant_id: UUID,
     catalog_path: Path,
+    catalog_provenance_path: Path,
     unit_of_work_factory: Callable[[], SQLAlchemyUnitOfWork],
 ) -> tuple[CatalogRecord, CatalogRevisionRecord]:
-    existing = _existing_catalog_revision(session, tenant_id)
+    provenance = json.loads(catalog_provenance_path.read_bytes())
+    content = catalog_path.read_bytes()
+    if hashlib.sha256(content).hexdigest() != provenance.get("sha256"):
+        raise ValueError("Bundled NIST GenAI catalog checksum mismatch.")
+    document = json.loads(content)
+    if UUID(document["catalog"]["uuid"]) != UPSTREAM_CATALOG_UUID:
+        raise ValueError("Bundled NIST GenAI catalog UUID mismatch.")
+    if document["catalog"]["metadata"]["oscal-version"] != UPSTREAM_CATALOG_OSCAL_VERSION:
+        raise ValueError("Bundled NIST GenAI catalog OSCAL version mismatch.")
+
+    canonical_digest = canonical_json_sha256(document)
+    existing = _catalog_revision_by_document_and_digest(
+        session,
+        tenant_id=tenant_id,
+        document_uuid=UPSTREAM_CATALOG_UUID,
+        content_sha256=canonical_digest,
+    )
     if existing is not None:
         catalog = session.get(CatalogRecord, existing.catalog_id)
         if catalog is None:
             raise RuntimeError("Catalog revision exists without catalog row.")
         return catalog, existing
 
-    content = catalog_path.read_bytes()
-    digest = hashlib.sha256(content).hexdigest()
-    if digest != UPSTREAM_CATALOG_SHA256:
-        raise ValueError("Upstream AI RMF catalog checksum mismatch.")
-    document = json.loads(content)
-    if UUID(document["catalog"]["uuid"]) != UPSTREAM_CATALOG_UUID:
-        raise ValueError("Upstream AI RMF catalog UUID mismatch.")
-    if document["catalog"]["metadata"]["oscal-version"] != UPSTREAM_CATALOG_OSCAL_VERSION:
-        raise ValueError("Upstream AI RMF catalog OSCAL version mismatch.")
+    latest = _latest_catalog_revision_for_document(
+        session,
+        tenant_id=tenant_id,
+        document_uuid=UPSTREAM_CATALOG_UUID,
+    )
 
     importer = CatalogImportService(unit_of_work_factory)
     result = importer.import_catalog(
         tenant_id,
         content,
         metadata=CatalogImportMetadata(
-            source_uri=UPSTREAM_CATALOG_SOURCE_URI,
-            source_organization=UPSTREAM_CATALOG_SOURCE_ORGANIZATION,
-            license_identifier=UPSTREAM_CATALOG_LICENSE,
+            source_uri=str(provenance.get("source_uri") or ""),
+            source_organization=str(provenance.get("attribution") or ""),
+            license_identifier=str(provenance.get("license_identifier") or ""),
             catalog_name="NIST AI Risk Management Framework Generattive AI Profile",
         ),
+        target_catalog_id=latest.catalog_id if latest is not None else None,
     )
     catalog = session.get(CatalogRecord, result.catalog.id)
     revision = session.get(CatalogRevisionRecord, result.revision.id)
     if catalog is None or revision is None:
         raise RuntimeError("Catalog import completed without persisted records.")
+    return catalog, revision
+
+
+def _ensure_eu_ai_act_catalog(
+    session: Session,
+    *,
+    tenant_id: UUID,
+    eu_ai_act_catalog_path: Path,
+    unit_of_work_factory: Callable[[], SQLAlchemyUnitOfWork],
+) -> tuple[CatalogRecord, CatalogRevisionRecord]:
+    document = _load_catalog_document(
+        eu_ai_act_catalog_path,
+        expected_uuid=EU_AI_ACT_CATALOG_UUID,
+        expected_oscal_version=EU_AI_ACT_CATALOG_OSCAL_VERSION,
+    )
+    canonical_digest = canonical_json_sha256(document)
+    existing = _catalog_revision_by_document_and_digest(
+        session,
+        tenant_id=tenant_id,
+        document_uuid=EU_AI_ACT_CATALOG_UUID,
+        content_sha256=canonical_digest,
+    )
+    if existing is not None:
+        catalog = session.get(CatalogRecord, existing.catalog_id)
+        if catalog is None:
+            raise RuntimeError("Catalog revision exists without catalog row.")
+        return catalog, existing
+
+    latest = _latest_catalog_revision_for_document(
+        session,
+        tenant_id=tenant_id,
+        document_uuid=EU_AI_ACT_CATALOG_UUID,
+    )
+    importer = CatalogImportService(unit_of_work_factory)
+    result = importer.import_catalog(
+        tenant_id,
+        eu_ai_act_catalog_path.read_bytes(),
+        metadata=CatalogImportMetadata(
+            source_uri="https://eur-lex.europa.eu/eli/reg/2024/1689/oj/eng",
+            source_organization="eu-ai-act-oscal maintainers",
+            license_identifier=None,
+            catalog_name="EU Artificial Intelligence Act - Regulation (EU) 2024/1689",
+        ),
+        target_catalog_id=latest.catalog_id if latest is not None else None,
+    )
+    catalog = session.get(CatalogRecord, result.catalog.id)
+    revision = session.get(CatalogRevisionRecord, result.revision.id)
+    if catalog is None or revision is None:
+        raise RuntimeError("EU AI Act catalog import completed without persisted records.")
     return catalog, revision
 
 

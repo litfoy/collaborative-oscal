@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,15 +19,23 @@ from collaborative_oscal_oscal.system_security_plan import (
     validate_system_security_plan_document,
 )
 from sqlalchemy import func, select, text
+from sqlalchemy.dialects.postgresql import insert
 
 from app.application import ai_governance_demo as ai_demo_module
 from app.application.ai_governance_demo import (
+    EU_AI_ACT_CATALOG_UUID,
+    GOVERNANCE_COVERAGE_MAPPING_COUNT,
+    GOVERNANCE_COVERAGE_MAPPING_TITLE,
+    GOVERNANCE_COVERAGE_SEED_NAME,
+    GOVERNANCE_COVERAGE_SYSTEM_NAME,
     MODEL_VERSION_CONTROL_ID,
     MODEL_VERSION_OBJECTIVE_ID,
     SEED_NAME,
     SYSTEM_NAME,
+    UPSTREAM_CATALOG_UUID,
     seed_ai_governance_demo,
 )
+from app.application.catalog_import import CatalogImportService
 from app.application.system_security_plans import SystemSecurityPlanService
 from app.persistence.identity import SQLIdentityRepository, SQLMembershipRepository
 from app.persistence.models import (
@@ -43,6 +52,8 @@ from app.persistence.models import (
     ControlImplementationRecord,
     DemoSeedRunRecord,
     InformationSystemRecord,
+    MappingCollectionRecord,
+    MappingMemberRecord,
     SystemComponentRecord,
     SystemSecurityPlanImplementationRecord,
     SystemSecurityPlanRecord,
@@ -50,6 +61,7 @@ from app.persistence.models import (
     TenantMembershipRecord,
     UserIdentityRecord,
 )
+from app.persistence.repositories import SQLAlchemyUnitOfWork
 
 pytestmark = pytest.mark.integration
 CATALOG_PATH = (
@@ -58,6 +70,33 @@ CATALOG_PATH = (
     / "catalogs"
     / "nist-ai-rmf-gen-ai-1.0.0-catalog.json"
 )
+CATALOG_PROVENANCE_PATH = (
+    Path(__file__).parents[3]
+    / "examples"
+    / "catalogs"
+    / "nist-ai-rmf-gen-ai-1.0.0-catalog.provenance.json"
+)
+EU_AI_ACT_CATALOG_PATH = (
+    Path(__file__).parents[3] / "examples" / "catalogs" / "eu_ai_act_catalog.json"
+)
+MAPPING_DRAFT_PATH = (
+    Path(__file__).parents[3]
+    / "examples"
+    / "mappings"
+    / "eu-ai-act_to_nist-genai_mapping-draft.json"
+)
+
+
+def _seed_demo(session_factory, tenant_id: UUID, actor_id: UUID):
+    return seed_ai_governance_demo(
+        session_factory=session_factory,
+        tenant_id=tenant_id,
+        actor_id=actor_id,
+        catalog_path=CATALOG_PATH,
+        catalog_provenance_path=CATALOG_PROVENANCE_PATH,
+        eu_ai_act_catalog_path=EU_AI_ACT_CATALOG_PATH,
+        mapping_draft_path=MAPPING_DRAFT_PATH,
+    )
 
 
 def _actor(session_factory, tenant_id: UUID) -> UUID:
@@ -239,6 +278,22 @@ def _seed_resource_counts(session_factory, tenant_id: UUID) -> dict[str, int]:
                 )
                 or 0
             ),
+            "mapping_collections": int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(MappingCollectionRecord)
+                    .where(MappingCollectionRecord.tenant_id == tenant_id)
+                )
+                or 0
+            ),
+            "mapping_members": int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(MappingMemberRecord)
+                    .where(MappingMemberRecord.tenant_id == tenant_id)
+                )
+                or 0
+            ),
         }
 
 
@@ -263,12 +318,7 @@ def test_ai_governance_demo_seed_is_idempotent(grc_service, session_factory) -> 
     tenant = grc_service.create_tenant("AI Governance Seed Tenant", f"ai-demo-{uuid4().hex}")
     actor_id = _actor(session_factory, tenant.id)
 
-    first = seed_ai_governance_demo(
-        session_factory=session_factory,
-        tenant_id=tenant.id,
-        actor_id=actor_id,
-        catalog_path=CATALOG_PATH,
-    )
+    first = _seed_demo(session_factory, tenant.id, actor_id)
     assert first.applied is True
     assert first.system_id is not None
     assert first.ssp_version_id is not None
@@ -312,12 +362,7 @@ def test_ai_governance_demo_seed_is_idempotent(grc_service, session_factory) -> 
         status_remarks=current["status_remarks"],
         security_sensitivity_level=current["security_sensitivity_level"],
     )
-    second = seed_ai_governance_demo(
-        session_factory=session_factory,
-        tenant_id=tenant.id,
-        actor_id=actor_id,
-        catalog_path=CATALOG_PATH,
-    )
+    second = _seed_demo(session_factory, tenant.id, actor_id)
     after = _count_versions(session_factory, tenant.id)
 
     assert second.applied is False
@@ -325,6 +370,167 @@ def test_ai_governance_demo_seed_is_idempotent(grc_service, session_factory) -> 
     assert second.revision_id == first.revision_id
     assert before == after
     assert service.get_system(tenant.id, first.system_id)["description"] == updated_description
+
+
+def test_ai_governance_coverage_extension_seeds_expected_demo_data(
+    grc_service, session_factory
+) -> None:
+    tenant = grc_service.create_tenant("AI Governance Coverage", f"ai-coverage-{uuid4().hex}")
+    actor_id = _actor(session_factory, tenant.id)
+
+    seeded = _seed_demo(session_factory, tenant.id, actor_id)
+    assert seeded.applied is True
+    assert seeded.governance_coverage_system_id is not None
+    assert seeded.governance_coverage_mapping_collection_id is not None
+
+    with session_factory() as session:
+        eu_revision = session.scalar(
+            select(CatalogRevisionRecord).where(
+                CatalogRevisionRecord.tenant_id == tenant.id,
+                CatalogRevisionRecord.oscal_document_uuid == EU_AI_ACT_CATALOG_UUID,
+            )
+        )
+        assert eu_revision is not None
+        eu_control_count = session.scalar(
+            select(func.count())
+            .select_from(CatalogControlIndexRecord)
+            .where(
+                CatalogControlIndexRecord.tenant_id == tenant.id,
+                CatalogControlIndexRecord.catalog_revision_id == eu_revision.id,
+            )
+        )
+        nist_revision = session.scalar(
+            select(CatalogRevisionRecord).where(
+                CatalogRevisionRecord.tenant_id == tenant.id,
+                CatalogRevisionRecord.oscal_document_uuid == UPSTREAM_CATALOG_UUID,
+            )
+        )
+        assert nist_revision is not None
+        coverage_system = session.scalar(
+            select(InformationSystemRecord).where(
+                InformationSystemRecord.tenant_id == tenant.id,
+                InformationSystemRecord.id == seeded.governance_coverage_system_id,
+                InformationSystemRecord.name == GOVERNANCE_COVERAGE_SYSTEM_NAME,
+            )
+        )
+        assert coverage_system is not None
+        component_count = session.scalar(
+            select(func.count())
+            .select_from(SystemComponentRecord)
+            .where(
+                SystemComponentRecord.tenant_id == tenant.id,
+                SystemComponentRecord.system_id == coverage_system.id,
+            )
+        )
+        mapping_collection = session.scalar(
+            select(MappingCollectionRecord).where(
+                MappingCollectionRecord.tenant_id == tenant.id,
+                MappingCollectionRecord.id == seeded.governance_coverage_mapping_collection_id,
+            )
+        )
+        assert mapping_collection is not None
+        member_count = session.scalar(
+            select(func.count())
+            .select_from(MappingMemberRecord)
+            .where(
+                MappingMemberRecord.tenant_id == tenant.id,
+                MappingMemberRecord.collection_id == mapping_collection.id,
+            )
+        )
+        extension_marker = session.scalar(
+            select(func.count())
+            .select_from(DemoSeedRunRecord)
+            .where(
+                DemoSeedRunRecord.tenant_id == tenant.id,
+                DemoSeedRunRecord.seed_name == GOVERNANCE_COVERAGE_SEED_NAME,
+            )
+        )
+
+    assert int(eu_control_count or 0) == 50
+    assert int(component_count or 0) == 1
+    assert int(member_count or 0) == GOVERNANCE_COVERAGE_MAPPING_COUNT * 2
+    assert int(extension_marker or 0) == 1
+    assert mapping_collection.document["mapping-collection"]["metadata"]["title"] == (
+        GOVERNANCE_COVERAGE_MAPPING_TITLE
+    )
+    mappings = mapping_collection.document["mapping-collection"]["mappings"]
+    assert isinstance(mappings, list)
+    assert len(mappings) == 1
+    assert len(mappings[0]["maps"]) == GOVERNANCE_COVERAGE_MAPPING_COUNT
+
+    repeated = _seed_demo(session_factory, tenant.id, actor_id)
+    assert repeated.applied is False
+    with session_factory() as session:
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(MappingCollectionRecord)
+                .where(MappingCollectionRecord.tenant_id == tenant.id)
+            )
+            == 1
+        )
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(InformationSystemRecord)
+                .where(
+                    InformationSystemRecord.tenant_id == tenant.id,
+                    InformationSystemRecord.name == GOVERNANCE_COVERAGE_SYSTEM_NAME,
+                )
+            )
+            == 1
+        )
+
+
+def test_governance_coverage_extension_applies_to_existing_demo_marker(
+    grc_service, session_factory
+) -> None:
+    tenant = grc_service.create_tenant("AI Governance Existing Demo", f"ai-existing-{uuid4().hex}")
+    actor_id = _actor(session_factory, tenant.id)
+
+    importer = CatalogImportService(lambda: SQLAlchemyUnitOfWork(session_factory))
+    importer.import_catalog(tenant.id, CATALOG_PATH.read_bytes())
+
+    with session_factory.begin() as session:
+        session.execute(
+            insert(DemoSeedRunRecord)
+            .values(tenant_id=tenant.id, seed_name=SEED_NAME)
+            .on_conflict_do_nothing(index_elements=["tenant_id", "seed_name"])
+        )
+
+    result = _seed_demo(session_factory, tenant.id, actor_id)
+    assert result.applied is True
+    assert result.system_id is None
+    assert result.governance_coverage_system_id is not None
+    assert result.governance_coverage_mapping_collection_id is not None
+
+
+def test_governance_coverage_extension_rolls_back_on_invalid_mapping_reference(
+    grc_service, session_factory, tmp_path
+) -> None:
+    tenant = grc_service.create_tenant("AI Governance Bad Mapping", f"ai-bad-map-{uuid4().hex}")
+    actor_id = _actor(session_factory, tenant.id)
+    baseline = _tenant_baseline_counts(session_factory, tenant.id)
+
+    draft = json.loads(MAPPING_DRAFT_PATH.read_text(encoding="utf-8"))
+    draft["mappings"][0]["source_control_id"] = "aia-not-present"
+    invalid_mapping_path = tmp_path / "invalid-eu-nist-draft.json"
+    invalid_mapping_path.write_text(json.dumps(draft), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Source controls do not exist"):
+        seed_ai_governance_demo(
+            session_factory=session_factory,
+            tenant_id=tenant.id,
+            actor_id=actor_id,
+            catalog_path=CATALOG_PATH,
+            catalog_provenance_path=CATALOG_PROVENANCE_PATH,
+            eu_ai_act_catalog_path=EU_AI_ACT_CATALOG_PATH,
+            mapping_draft_path=invalid_mapping_path,
+        )
+
+    rolled_back = _seed_resource_counts(session_factory, tenant.id)
+    assert all(count == 0 for count in rolled_back.values())
+    assert _tenant_baseline_counts(session_factory, tenant.id) == baseline
 
 
 # Approved control -> (concrete system component, originating reusable safeguard).
@@ -433,12 +639,7 @@ def test_ai_governance_demo_seed_publishes_semantically_consistent_chain(
 ) -> None:
     tenant = grc_service.create_tenant("AI Governance Semantics", f"ai-demo-{uuid4().hex}")
     actor_id = _actor(session_factory, tenant.id)
-    seeded = seed_ai_governance_demo(
-        session_factory=session_factory,
-        tenant_id=tenant.id,
-        actor_id=actor_id,
-        catalog_path=CATALOG_PATH,
-    )
+    seeded = _seed_demo(session_factory, tenant.id, actor_id)
     assert seeded.applied is True
     chain = _published_chain(session_factory, tenant.id, seeded)
     ssp, plan, results = chain["ssp"], chain["plan"], chain["results"]
@@ -681,12 +882,7 @@ def test_ai_governance_demo_seed_publishes_semantically_consistent_chain(
     )
 
     # A repeated seed run leaves the published immutable versions untouched.
-    repeated = seed_ai_governance_demo(
-        session_factory=session_factory,
-        tenant_id=tenant.id,
-        actor_id=actor_id,
-        catalog_path=CATALOG_PATH,
-    )
+    repeated = _seed_demo(session_factory, tenant.id, actor_id)
     assert repeated.applied is False
     after = _published_chain(session_factory, tenant.id, seeded)
     for key in ("ssp_version", "plan_version", "result_version"):
@@ -708,12 +904,7 @@ def test_ai_governance_demo_seed_requires_active_actor_membership(
         )
 
     with pytest.raises(ValueError, match="active tenant membership"):
-        seed_ai_governance_demo(
-            session_factory=session_factory,
-            tenant_id=tenant.id,
-            actor_id=identity.id,
-            catalog_path=CATALOG_PATH,
-        )
+        _seed_demo(session_factory, tenant.id, identity.id)
 
 
 def test_ai_governance_demo_seed_rolls_back_mid_lifecycle_failure(
@@ -729,12 +920,7 @@ def test_ai_governance_demo_seed_rolls_back_mid_lifecycle_failure(
     monkeypatch.setattr(ai_demo_module, "_validate_historical_chain", fail_after_db_writes)
 
     with pytest.raises(RuntimeError, match="Injected failure"):
-        seed_ai_governance_demo(
-            session_factory=session_factory,
-            tenant_id=tenant.id,
-            actor_id=actor_id,
-            catalog_path=CATALOG_PATH,
-        )
+        _seed_demo(session_factory, tenant.id, actor_id)
 
     # Read through a fresh session and assert the failed seed left no persistent resources.
     rolled_back = _seed_resource_counts(session_factory, tenant.id)
@@ -743,20 +929,10 @@ def test_ai_governance_demo_seed_rolls_back_mid_lifecycle_failure(
 
     monkeypatch.undo()
 
-    applied = seed_ai_governance_demo(
-        session_factory=session_factory,
-        tenant_id=tenant.id,
-        actor_id=actor_id,
-        catalog_path=CATALOG_PATH,
-    )
+    applied = _seed_demo(session_factory, tenant.id, actor_id)
     assert applied.applied is True
 
-    no_op = seed_ai_governance_demo(
-        session_factory=session_factory,
-        tenant_id=tenant.id,
-        actor_id=actor_id,
-        catalog_path=CATALOG_PATH,
-    )
+    no_op = _seed_demo(session_factory, tenant.id, actor_id)
     assert no_op.applied is False
 
 

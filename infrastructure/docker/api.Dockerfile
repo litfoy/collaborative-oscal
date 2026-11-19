@@ -16,6 +16,8 @@ COPY migrations /opt/app/migrations
 COPY apps/api/tests/fixtures/NIST_SP-800-53_rev5_catalog-min.json /opt/demo/nist-sp-800-53-rev5.json
 COPY examples/catalogs/nist-ai-rmf-gen-ai-1.0.0-catalog.json /opt/demo/nist-ai-rmf-gen-ai-1.0.0-catalog.json
 COPY examples/catalogs/nist-ai-rmf-gen-ai-1.0.0-catalog.provenance.json /opt/demo/nist-ai-rmf-gen-ai-1.0.0-catalog.provenance.json
+COPY examples/catalogs/eu_ai_act_catalog.json /opt/demo/eu_ai_act_catalog.json
+COPY examples/mappings/eu-ai-act_to_nist-genai_mapping-draft.json /opt/demo/eu-ai-act_to_nist-genai_mapping-draft.json
 COPY infrastructure/docker/init-credentials.py infrastructure/docker/api-entrypoint.sh infrastructure/docker/seed-demo-catalog.py /opt/compose/
 ENV PATH="/opt/app/apps/api/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1

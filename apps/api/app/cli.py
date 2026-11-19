@@ -50,6 +50,37 @@ def _default_ai_catalog_path() -> Path:
     )
 
 
+def _default_ai_catalog_provenance_path() -> Path:
+    bundled = Path("/opt/demo/nist-ai-rmf-gen-ai-1.0.0-catalog.provenance.json")
+    if bundled.exists():
+        return bundled
+    return (
+        Path(__file__).resolve().parents[3]
+        / "examples"
+        / "catalogs"
+        / "nist-ai-rmf-gen-ai-1.0.0-catalog.provenance.json"
+    )
+
+
+def _default_eu_ai_act_catalog_path() -> Path:
+    bundled = Path("/opt/demo/eu_ai_act_catalog.json")
+    if bundled.exists():
+        return bundled
+    return Path(__file__).resolve().parents[3] / "examples" / "catalogs" / "eu_ai_act_catalog.json"
+
+
+def _default_eu_nist_mapping_draft_path() -> Path:
+    bundled = Path("/opt/demo/eu-ai-act_to_nist-genai_mapping-draft.json")
+    if bundled.exists():
+        return bundled
+    return (
+        Path(__file__).resolve().parents[3]
+        / "examples"
+        / "mappings"
+        / "eu-ai-act_to_nist-genai_mapping-draft.json"
+    )
+
+
 def _bootstrap_demo() -> None:
     if get_settings().auth_mode != "demo":
         raise ValueError("bootstrap-demo requires AUTH_MODE=demo.")
@@ -158,12 +189,23 @@ def _import_catalog(
     )
 
 
-def _seed_ai_governance_demo(*, tenant_id: UUID, actor_id: UUID, catalog_path: Path) -> str:
+def _seed_ai_governance_demo(
+    *,
+    tenant_id: UUID,
+    actor_id: UUID,
+    catalog_path: Path,
+    catalog_provenance_path: Path,
+    eu_ai_act_catalog_path: Path,
+    mapping_draft_path: Path,
+) -> str:
     result = seed_ai_governance_demo(
         session_factory=create_session_factory(),
         tenant_id=tenant_id,
         actor_id=actor_id,
         catalog_path=catalog_path,
+        catalog_provenance_path=catalog_provenance_path,
+        eu_ai_act_catalog_path=eu_ai_act_catalog_path,
+        mapping_draft_path=mapping_draft_path,
     )
     outcome = "applied" if result.applied else "already applied"
     return (
@@ -172,7 +214,13 @@ def _seed_ai_governance_demo(*, tenant_id: UUID, actor_id: UUID, catalog_path: P
     )
 
 
-def _seed_ai_governance_demo_local(*, catalog_path: Path) -> str:
+def _seed_ai_governance_demo_local(
+    *,
+    catalog_path: Path,
+    catalog_provenance_path: Path,
+    eu_ai_act_catalog_path: Path,
+    mapping_draft_path: Path,
+) -> str:
     if get_settings().auth_mode != "demo":
         raise ValueError("seed-ai-governance-demo-local requires AUTH_MODE=demo.")
     with create_session_factory().begin() as session:
@@ -182,6 +230,9 @@ def _seed_ai_governance_demo_local(*, catalog_path: Path) -> str:
         tenant_id=DEMO_TENANT_ID,
         actor_id=DEMO_USER_ID,
         catalog_path=catalog_path,
+        catalog_provenance_path=catalog_provenance_path,
+        eu_ai_act_catalog_path=eu_ai_act_catalog_path,
+        mapping_draft_path=mapping_draft_path,
     )
 
 
@@ -227,6 +278,24 @@ def main() -> None:
         default=_default_ai_catalog_path(),
         help="Path to the approved upstream AI RMF catalog snapshot.",
     )
+    ai_demo.add_argument(
+        "--catalog-provenance-file",
+        type=Path,
+        default=_default_ai_catalog_provenance_path(),
+        help="Path to the local provenance metadata for the bundled NIST GenAI snapshot.",
+    )
+    ai_demo.add_argument(
+        "--eu-ai-act-catalog-file",
+        type=Path,
+        default=_default_eu_ai_act_catalog_path(),
+        help="Path to the approved EU AI Act OSCAL catalog snapshot.",
+    )
+    ai_demo.add_argument(
+        "--mapping-draft-file",
+        type=Path,
+        default=_default_eu_nist_mapping_draft_path(),
+        help="Path to the EU AI Act to NIST GenAI draft mapping input.",
+    )
     ai_demo_local = commands.add_parser(
         "seed-ai-governance-demo-local",
         help=(
@@ -239,6 +308,24 @@ def main() -> None:
         type=Path,
         default=_default_ai_catalog_path(),
         help="Path to the approved upstream AI RMF catalog snapshot.",
+    )
+    ai_demo_local.add_argument(
+        "--catalog-provenance-file",
+        type=Path,
+        default=_default_ai_catalog_provenance_path(),
+        help="Path to the local provenance metadata for the bundled NIST GenAI snapshot.",
+    )
+    ai_demo_local.add_argument(
+        "--eu-ai-act-catalog-file",
+        type=Path,
+        default=_default_eu_ai_act_catalog_path(),
+        help="Path to the approved EU AI Act OSCAL catalog snapshot.",
+    )
+    ai_demo_local.add_argument(
+        "--mapping-draft-file",
+        type=Path,
+        default=_default_eu_nist_mapping_draft_path(),
+        help="Path to the EU AI Act to NIST GenAI draft mapping input.",
     )
     arguments = parser.parse_args()
 
@@ -295,13 +382,21 @@ def main() -> None:
                 tenant_id=arguments.tenant_id,
                 actor_id=arguments.actor_id,
                 catalog_path=arguments.catalog_file,
+                catalog_provenance_path=arguments.catalog_provenance_file,
+                eu_ai_act_catalog_path=arguments.eu_ai_act_catalog_file,
+                mapping_draft_path=arguments.mapping_draft_file,
             )
         except (OSError, ValueError, EntityNotFoundError, RuntimeError) as exc:
             parser.error(str(exc))
         print(message)
     elif arguments.command == "seed-ai-governance-demo-local":
         try:
-            message = _seed_ai_governance_demo_local(catalog_path=arguments.catalog_file)
+            message = _seed_ai_governance_demo_local(
+                catalog_path=arguments.catalog_file,
+                catalog_provenance_path=arguments.catalog_provenance_file,
+                eu_ai_act_catalog_path=arguments.eu_ai_act_catalog_file,
+                mapping_draft_path=arguments.mapping_draft_file,
+            )
         except (OSError, ValueError, EntityNotFoundError, RuntimeError) as exc:
             parser.error(str(exc))
         print(message)

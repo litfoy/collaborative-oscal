@@ -1,0 +1,143 @@
+{
+  "artifact_type": "collaborative-oscal-seed-crosswalk-draft",
+  "status": "proposed-not-importable",
+  "description": "AI-assisted demonstration mapping proposals; NOT legal advice, an applicability determination, control equivalence, or evidence of implementation/compliance.",
+  "direction": "source (EU AI Act) -> target (NIST AI RMF GenAI Profile)",
+  "source_catalog": {
+    "title": "EU Artificial Intelligence Act — Regulation (EU) 2024/1689 — OSCAL Catalog",
+    "catalog_uuid": "f7b7352c-0824-4be8-b246-5c745d51c84b",
+    "version": "0.1.1",
+    "oscal_version": "1.1.2",
+    "content_file": "eu_ai_act_catalog.json"
+  },
+  "target_catalog": {
+    "title": "NIST AI Risk Management Framework Generattive AI Profile",
+    "catalog_uuid": "1cead03a-d26a-400d-b16b-169816e2e592",
+    "version": "1.0.0",
+    "oscal_version": "1.1.2",
+    "content_file": "examples/catalogs/nist-ai-rmf-gen-ai-1.0.0-catalog.json"
+  },
+  "seed_conversion_note": "Resolve exact tenant-scoped catalog and revision UUIDs after catalog import, then convert entries through the existing MappingService. OSCAL mapping collection import does not yet exist.",
+  "mappings": [
+    {
+      "source_control_id": "aia-5.1.ba",
+      "source_control_title": "Prohibition — non-consensual intimate imagery",
+      "target_control_id": "GV-1.1-005",
+      "target_control_title": "Establish policies restricting the use of GAI to create child sexual abuse materials (CSAM) or other nonconsensual intimate imagery.",
+      "relationship": "intersects-with",
+      "matching_rationale": "semantic",
+      "justification": "Both address non-consensual intimate imagery. The AI RMF action recommends restricting GAI use through policy; the EU control states a prohibition subject to precise conditions. A policy alone does not establish compliance.",
+      "review_status": "proposed"
+    },
+    {
+      "source_control_id": "aia-6",
+      "source_control_title": "Classification rules for high-risk AI systems",
+      "target_control_id": "GV-1.3-001",
+      "target_control_title": "Consider the following, or similar, factors when updating or defining risk tiers for GAI: Abuses and risks to information integrity; Cadence of vendor releases and updates; Data protection requirements; Dependencies between GAI and other IT or data systems; Harm in physical environments; Human review of GAI system outputs; Legal or regulatory requirements; Presentation of obscene, objectionable, toxic, invalid or untruthful output; Psychological impacts to humans (e.g., anthropomorphization, algorithmic aversion, emotional entanglement); Immediate and long term impacts; Internal vs. external use; Unreliable decision making capabilities, validity, adaptability, and variability of GAI system performance over time.",
+      "relationship": "intersects-with",
+      "matching_rationale": "semantic",
+      "justification": "Both concern risk classification informed by context and legal requirements. AI RMF risk tiers do not determine the legal high-risk classification under Article 6.",
+      "review_status": "proposed"
+    },
+    {
+      "source_control_id": "aia-9",
+      "source_control_title": "Risk management system",
+      "target_control_id": "GV-4.1-003",
+      "target_control_title": "Establish policies, procedures, and processes detailing risk measurement in context of use with standardized measurement protocols and structured public feedback exercises such as AI red-teaming or independent external audits.",
+      "relationship": "intersects-with",
+      "matching_rationale": "semantic",
+      "justification": "Both involve risk-measurement processes and ongoing governance. The AI RMF action covers assessment practices, not the entire legally prescribed lifecycle risk management system.",
+      "review_status": "proposed"
+    },
+    {
+      "source_control_id": "aia-10",
+      "source_control_title": "Data and data governance",
+      "target_control_id": "MG-2.2-002",
+      "target_control_title": "Document training data sources to trace the origin and provenance of AI-generated content.",
+      "relationship": "intersects-with",
+      "matching_rationale": "semantic",
+      "justification": "Both refer to documenting data sources and provenance. The AI RMF action covers only one aspect of the broader Article 10 data quality, governance and bias requirements.",
+      "review_status": "proposed"
+    },
+    {
+      "source_control_id": "aia-11",
+      "source_control_title": "Technical documentation",
+      "target_control_id": "MG-2.2-006",
+      "target_control_title": "Implement version control for models and datasets to track changes and facilitate rollback if necessary.",
+      "relationship": "intersects-with",
+      "matching_rationale": "semantic",
+      "justification": "Version control of models and datasets can support keeping technical documentation current and traceable. It does not cover all Annex IV documentation requirements.",
+      "review_status": "proposed"
+    },
+    {
+      "source_control_id": "aia-12",
+      "source_control_title": "Record-keeping",
+      "target_control_id": "MS-4.2-006",
+      "target_control_title": "Deploy logging and monitoring tools to continuously track AI system performance and flag abnormal behavior.",
+      "relationship": "intersects-with",
+      "matching_rationale": "semantic",
+      "justification": "Both address AI-system logging and monitoring. The AI RMF action is broader operational monitoring and does not specify the legally required events and retention context.",
+      "review_status": "proposed"
+    },
+    {
+      "source_control_id": "aia-14",
+      "source_control_title": "Human oversight",
+      "target_control_id": "MP-1.1-008",
+      "target_control_title": "Document system requirements, ownership, and AI actor roles and responsibilities for human oversight of GAI systems.",
+      "relationship": "intersects-with",
+      "matching_rationale": "semantic",
+      "justification": "Both involve human oversight and documented responsibilities. Documenting roles alone does not provide the operational intervention and control capabilities required by Article 14.",
+      "review_status": "proposed"
+    },
+    {
+      "source_control_id": "aia-15",
+      "source_control_title": "Accuracy, robustness and cybersecurity",
+      "target_control_id": "MS-2.7-016",
+      "target_control_title": "Perform AI red-teaming to assess resilience against malicious behavior, including malicious code generation, prompt injection, adversarial examples, data poisoning, and model extraction.",
+      "relationship": "intersects-with",
+      "matching_rationale": "semantic",
+      "justification": "Adversarial testing can help evaluate cybersecurity and robustness. Red-teaming addresses only part of Article 15, which also covers accuracy and ongoing resilience.",
+      "review_status": "proposed"
+    },
+    {
+      "source_control_id": "aia-17",
+      "source_control_title": "Quality management system",
+      "target_control_id": "GV-1.2-001",
+      "target_control_title": "Connect new GAI policies, procedures, and processes to existing model, data, and IT governance and to legal, compliance, and risk functions.",
+      "relationship": "intersects-with",
+      "matching_rationale": "semantic",
+      "justification": "Both call for integrating AI policies and procedures into organizational governance. The EU quality management system mandates substantially more specific processes and evidence.",
+      "review_status": "proposed"
+    },
+    {
+      "source_control_id": "aia-27",
+      "source_control_title": "Fundamental rights impact assessment for high-risk AI systems",
+      "target_control_id": "MS-3.3-001",
+      "target_control_title": "Conduct impact assessments on how AI-generated content might affect different social, economic, and cultural groups.",
+      "relationship": "intersects-with",
+      "matching_rationale": "semantic",
+      "justification": "Both involve analyzing potential impacts on people and groups. The AI RMF action does not replace a role- and use-case-specific fundamental-rights impact assessment.",
+      "review_status": "proposed"
+    },
+    {
+      "source_control_id": "aia-50",
+      "source_control_title": "Transparency obligations for providers and deployers of certain AI systems",
+      "target_control_id": "GV-1.1-003",
+      "target_control_title": "Disclose use of GAI to end users.",
+      "relationship": "intersects-with",
+      "matching_rationale": "semantic",
+      "justification": "Both concern disclosing AI use to end users. Article 50 includes specific system categories, presentation, timing and accessibility requirements not captured by the AI RMF action.",
+      "review_status": "proposed"
+    },
+    {
+      "source_control_id": "aia-73",
+      "source_control_title": "Reporting of serious incidents",
+      "target_control_id": "MG-2.3-001",
+      "target_control_title": "Develop and update GAI system incident response and recovery plans and procedures to address the following: Review and maintenance of policies and procedures to account for newly encountered uses; Review and maintenance of policies and procedures for detection of unanticipated uses; Verify response and recovery plans account for the GAI system supply chain; Verify response and recovery plans are updated for and include necessary details to communicate with downstream GAI system actors.",
+      "relationship": "intersects-with",
+      "matching_rationale": "semantic",
+      "justification": "Both involve incident response and downstream communication. An incident-response plan is not equivalent to the Article 73 duty to report qualifying incidents to the competent authorities within deadlines.",
+      "review_status": "proposed"
+    }
+  ]
+}
