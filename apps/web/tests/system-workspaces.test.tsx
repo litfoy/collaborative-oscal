@@ -314,6 +314,69 @@ describe("Systems workspaces", () => {
     expect(screen.getByRole("button", { name: "Create immutable SSP version" })).toBeEnabled();
   });
 
+  it("disables nested contribution editor controls during pending save and preserves draft input", async () => {
+    const user = userEvent.setup();
+    let resolveSave!: (value: Response) => void;
+    const savePending = new Promise<Response>((resolve) => {
+      resolveSave = resolve;
+    });
+    const fetchMock = vi.fn().mockReturnValueOnce(savePending);
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderPlan();
+    await user.click(screen.getByRole("button", { name: "Control implementation" }));
+    await user.click(screen.getByRole("button", { name: "Edit contribution" }));
+    await user.selectOptions(
+      screen.getByLabelText(
+        "OSCAL implementation status (separate from application workflow status)",
+      ),
+      "planned",
+    );
+    await user.clear(screen.getByLabelText("Requirement-specific implementation description"));
+    await user.type(
+      screen.getByLabelText("Requirement-specific implementation description"),
+      "Pending draft",
+    );
+    await user.type(screen.getByLabelText("Explanation required for this state"), "Pending explanation");
+
+    await user.click(
+      screen.getByRole("button", { name: "Save requirement contribution changes" }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    expect(
+      screen.getByLabelText("Requirement contribution from the exact pinned baseline"),
+    ).toBeDisabled();
+    expect(screen.getByLabelText("Actual system component")).toBeDisabled();
+    expect(
+      screen.getByLabelText("Requirement-specific implementation description"),
+    ).toBeDisabled();
+    expect(
+      screen.getByLabelText(
+        "OSCAL implementation status (separate from application workflow status)",
+      ),
+    ).toBeDisabled();
+    expect(screen.getByLabelText("Explanation required for this state")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Discard draft" })).toBeDisabled();
+    expect(
+      screen.getByLabelText("Requirement-specific implementation description"),
+    ).toHaveValue("Pending draft");
+    expect(screen.getByLabelText("Explanation required for this state")).toHaveValue(
+      "Pending explanation",
+    );
+
+    resolveSave(
+      jsonResponse({
+        ...implementation,
+        description: "Pending draft",
+        oscal_implementation_status: "planned",
+        oscal_status_explanation: "Pending explanation",
+      }),
+    );
+    expect(await screen.findByText(/Requirement contribution: Pending draft/)).toBeInTheDocument();
+  });
+
   it("shows failed validation diagnostics and prevents version creation", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ...validation, valid: false, diagnostics: [{ severity: "error", code: "system_ids_required", message: "Add an identifier." }] })));
@@ -541,7 +604,7 @@ describe("Systems workspaces", () => {
     ).toBeVisible();
     expect(
       screen.getByText(
-        "This Assessment Plan changed in another session. Current server version: 3.",
+        "This SSP changed in another session. Current server version: 3.",
       ),
     ).toBeVisible();
     expect(screen.getByLabelText("SSP document title")).toHaveValue("Identity SSP changed");
@@ -553,6 +616,27 @@ describe("Systems workspaces", () => {
   it("shows explicit conflict handling and keeps unsaved SSP edits until reload is confirmed", async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const refreshedComponent = {
+      ...secondComponent,
+      component: { ...secondComponent.component, title: "Server component" },
+    };
+    const refreshedImplementation = {
+      ...implementation,
+      description: "Server contribution",
+      system_component_id: refreshedComponent.id,
+    };
+    const refreshedPlan = {
+      ...plan,
+      title: "Server title",
+      concurrency_version: 3,
+      included_implementations: [
+        {
+          implementation_id: refreshedImplementation.id,
+          oscal_control_id: refreshedImplementation.oscal_control_id,
+          system_component_id: refreshedComponent.id,
+        },
+      ],
+    };
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith("/system-security-plans/plan") && init?.method === "PUT") {
         return new Response(
@@ -568,13 +652,19 @@ describe("Systems workspaces", () => {
         );
       }
       if (url.endsWith("/system-security-plans/plan") && (!init?.method || init.method === "GET")) {
-        return jsonResponse({ ...plan, title: "Server title", concurrency_version: 3 });
+        return jsonResponse(refreshedPlan);
       }
       if (url.endsWith("/system-security-plans/plan/versions")) {
         return jsonResponse([version]);
       }
       if (url.endsWith("/system-security-plans/plan/validation")) {
         return jsonResponse(validation);
+      }
+      if (url.endsWith("/implementations?limit=100&offset=0&tenant_scope=true")) {
+        return jsonResponse(page([refreshedImplementation]));
+      }
+      if (url.endsWith(`/systems/${system.id}/components`)) {
+        return jsonResponse([component, refreshedComponent]);
       }
       return jsonResponse(plan);
     });
@@ -586,11 +676,113 @@ describe("Systems workspaces", () => {
     await user.type(screen.getByLabelText("SSP document title"), "Local edit");
     await user.click(screen.getByRole("button", { name: "Save working state" }));
 
-    expect(await screen.findByText("This Assessment Plan changed in another session. Current server version: 3.")).toBeVisible();
+    expect(await screen.findByText("This SSP changed in another session. Current server version: 3.")).toBeVisible();
     expect(screen.getByLabelText("SSP document title")).toHaveValue("Local edit");
 
     await user.click(screen.getByRole("button", { name: "Discard edits and reload" }));
     expect(confirmSpy).toHaveBeenCalled();
     expect(await screen.findByLabelText("SSP document title")).toHaveValue("Server title");
+    expect(screen.getByText("Requirement contribution: Server contribution")).toBeVisible();
+    expect(screen.getByText("Server component")).toBeVisible();
+  });
+
+  it("keeps unsaved SSP and contribution drafts when conflict reload is cancelled", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/system-security-plans/plan") && init?.method === "PUT") {
+        return new Response(
+          JSON.stringify({
+            detail: {
+              code: "stale_update",
+              plan_id: plan.id,
+              expected_version: 1,
+              current_version: 3,
+            },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return jsonResponse(plan);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    renderPlan();
+    await user.click(screen.getByRole("button", { name: "Control implementation" }));
+    await user.clear(screen.getByLabelText("SSP document title"));
+    await user.type(screen.getByLabelText("SSP document title"), "Local edit");
+    await user.click(screen.getByRole("button", { name: "Edit contribution" }));
+    await user.clear(screen.getByLabelText("Requirement-specific implementation description"));
+    await user.type(
+      screen.getByLabelText("Requirement-specific implementation description"),
+      "Contribution local draft",
+    );
+    await user.click(screen.getByRole("button", { name: "Save working state" }));
+
+    expect(await screen.findByText(/Current server version: 3\./)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Discard edits and reload" }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("SSP document title")).toHaveValue("Local edit");
+    expect(screen.getByLabelText("Requirement-specific implementation description")).toHaveValue(
+      "Contribution local draft",
+    );
+  });
+
+  it("keeps unsaved SSP and contribution drafts when conflict reload fails", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/system-security-plans/plan") && init?.method === "PUT") {
+        return new Response(
+          JSON.stringify({
+            detail: {
+              code: "stale_update",
+              plan_id: plan.id,
+              expected_version: 1,
+              current_version: 3,
+            },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (
+        url.endsWith("/system-security-plans/plan") ||
+        url.endsWith("/system-security-plans/plan/versions") ||
+        url.endsWith("/system-security-plans/plan/validation") ||
+        url.endsWith("/implementations?limit=100&offset=0&tenant_scope=true") ||
+        url.endsWith(`/systems/${system.id}/components`)
+      ) {
+        return new Response(JSON.stringify({ error: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return jsonResponse(plan);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderPlan();
+    await user.click(screen.getByRole("button", { name: "Control implementation" }));
+    await user.clear(screen.getByLabelText("SSP document title"));
+    await user.type(screen.getByLabelText("SSP document title"), "Local edit");
+    await user.click(screen.getByRole("button", { name: "Edit contribution" }));
+    await user.clear(screen.getByLabelText("Requirement-specific implementation description"));
+    await user.type(
+      screen.getByLabelText("Requirement-specific implementation description"),
+      "Contribution local draft",
+    );
+    await user.click(screen.getByRole("button", { name: "Save working state" }));
+
+    expect(await screen.findByText(/Current server version: 3\./)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Discard edits and reload" }));
+
+    expect(
+      await screen.findByText(/The service is temporarily unavailable\. Please try again\./),
+    ).toBeVisible();
+    expect(screen.getByLabelText("SSP document title")).toHaveValue("Local edit");
+    expect(screen.getByLabelText("Requirement-specific implementation description")).toHaveValue(
+      "Contribution local draft",
+    );
   });
 });

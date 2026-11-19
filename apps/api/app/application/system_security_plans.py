@@ -865,6 +865,7 @@ class SystemSecurityPlanService:
                 session.add(record)
                 plan.updated_by = actor
                 plan.updated_at = now
+                plan.concurrency_version = plan.concurrency_version + 1
                 try:
                     session.flush()
                 except StaleDataError as error:

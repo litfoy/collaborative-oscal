@@ -65,6 +65,7 @@ export function SystemSecurityPlanWorkspace({
   const [editingContribution, setEditingContribution] = useState(false);
   const [contributionQuery, setContributionQuery] = useState("");
   const [implementations, setImplementations] = useState(initialImplementations);
+  const [systemComponents, setSystemComponents] = useState(components);
   const [versions, setVersions] = useState(initialVersions);
   const [validation, setValidation] = useState<SystemSecurityPlanValidation | null>(null);
   const [selectedId, setSelectedId] = useState("");
@@ -89,14 +90,14 @@ export function SystemSecurityPlanWorkspace({
   );
   const selected = candidates.find((item) => item.id === selectedId);
   const includedIds = new Set(plan.included_implementations.map((item) => item.implementation_id));
-  const availableComponents = components;
+  const availableComponents = systemComponents;
   const dirtyPlan = plan.title !== savedPlan.title || plan.control_implementation_description !== savedPlan.control_implementation_description;
   const pendingContribution = !!selectedId;
   const validationStale = Boolean(validation && (dirtyPlan || pendingContribution));
   const undocumentedControlCount = Math.max(plan.baseline_control_count - plan.documented_control_count, 0);
   const contributionGroups = useMemo(() => {
     const implementationById = new Map(implementations.map((item) => [item.id, item] as const));
-    const componentById = new Map(components.map((item) => [item.id, item] as const));
+    const componentById = new Map(systemComponents.map((item) => [item.id, item] as const));
     const groups = new Map<string, {
       oscalControlId: string;
       entries: Array<{
@@ -120,7 +121,7 @@ export function SystemSecurityPlanWorkspace({
     return [...groups.values()]
       .map((group) => ({ ...group, entries: group.entries.sort((left, right) => (left.implementation?.description ?? "").localeCompare(right.implementation?.description ?? "")) }))
       .sort((left, right) => left.oscalControlId.localeCompare(right.oscalControlId));
-  }, [components, implementations, plan.included_implementations]);
+  }, [systemComponents, implementations, plan.included_implementations]);
   const filteredGroups = contributionGroups.filter((group) => {
     const haystack = [
       group.oscalControlId,
@@ -312,12 +313,12 @@ export function SystemSecurityPlanWorkspace({
 
   async function reloadAfterConflict() {
     if (!conflict || busy) return;
-    if (!window.confirm(t("assessmentPlans.confirmConflictReload"))) return;
+    if (!window.confirm(t("systems.confirmSspConflictReload"))) return;
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const [refreshedPlan, refreshedVersions, refreshedValidation] = await Promise.all([
+      const [refreshedPlan, refreshedVersions, refreshedValidation, refreshedImplementations, refreshedComponents] = await Promise.all([
         getJson<SystemSecurityPlan>(
           `/bff/tenants/${tenantId}/system-security-plans/${plan.id}`,
           t,
@@ -333,11 +334,23 @@ export function SystemSecurityPlanWorkspace({
           t,
           errorMessage,
         ),
+        getJson<Paged<Implementation>>(
+          `/bff/tenants/${tenantId}/implementations?limit=100&offset=0&tenant_scope=true`,
+          t,
+          errorMessage,
+        ),
+        getJson<SystemComponent[]>(
+          `/bff/tenants/${tenantId}/systems/${system.id}/components`,
+          t,
+          errorMessage,
+        ),
       ]);
       setPlan(refreshedPlan);
       setSavedPlan(refreshedPlan);
       setVersions(refreshedVersions);
       setValidation(refreshedValidation);
+      setImplementations(refreshedImplementations.items);
+      setSystemComponents(refreshedComponents);
       setEditingContribution(false);
       setSelectedId("");
       setComponentId("");
@@ -416,10 +429,10 @@ export function SystemSecurityPlanWorkspace({
       {pendingContribution ? <p role="status">{t("systems.pendingContribution")}</p> : null}
       {conflict ? (
         <div role="alert" className="panel">
-          <p>{t("assessmentPlans.conflictDetected", { version: conflict.currentVersion })}</p>
-          <p className="muted">{t("assessmentPlans.conflictPreserved")}</p>
+          <p>{t("systems.sspConflictDetected", { version: conflict.currentVersion })}</p>
+          <p className="muted">{t("systems.sspConflictPreserved")}</p>
           <button type="button" className="danger-action" disabled={busy} onClick={() => void reloadAfterConflict()}>
-            {t("assessmentPlans.reloadConfirmedState")}
+            {t("systems.sspReloadConfirmedState")}
           </button>
         </div>
       ) : null}
@@ -548,7 +561,7 @@ export function SystemSecurityPlanWorkspace({
             ) : (
               <p className="muted">{t("systems.noImplementationRecords")}</p>
             )}
-            {canWrite && !editingContribution ? <button type="button" onClick={() => setEditingContribution(true)}>{selectedId ? t("systems.resumeContribution") : t("systems.addContribution")}</button> : null}
+            {canWrite && !editingContribution ? <button type="button" disabled={busy} onClick={() => setEditingContribution(true)}>{selectedId ? t("systems.resumeContribution") : t("systems.addContribution")}</button> : null}
           </div>
           {canWrite && editingContribution ? (
             <aside className="panel system-component-editor" aria-live="polite">
@@ -556,7 +569,7 @@ export function SystemSecurityPlanWorkspace({
             <h3>{t("systems.includeExistingRegisterRecord")}</h3>
             <label className="field">
               {t("systems.pinnedBaselineContribution")}
-              <select value={selectedId} onChange={(event) => chooseImplementation(event.target.value)}>
+              <select value={selectedId} disabled={busy} onChange={(event) => chooseImplementation(event.target.value)}>
                 <option value="">{t("systems.selectRequirementContribution")}</option>
                 {candidates.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -568,7 +581,7 @@ export function SystemSecurityPlanWorkspace({
             </label>
             <label className="field">
               {t("systems.actualSystemComponent")}
-              <select value={componentId} disabled={!!selected && includedIds.has(selected.id)} onChange={(event) => setComponentId(event.target.value)}>
+              <select value={componentId} disabled={busy || (!!selected && includedIds.has(selected.id))} onChange={(event) => setComponentId(event.target.value)}>
                 <option value="">{t("systems.selectComponent")}</option>
                 {availableComponents.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -579,11 +592,11 @@ export function SystemSecurityPlanWorkspace({
             </label>
             <label className="field">
               {t("systems.requirementImplementationDescription")}
-              <textarea value={description} onChange={(event) => setDescription(event.target.value)} />
+              <textarea value={description} disabled={busy} onChange={(event) => setDescription(event.target.value)} />
             </label>
             <label className="field">
               {t("systems.oscalImplementationStatus")}
-              <select value={oscalStatus} onChange={(event) => setOscalStatus(event.target.value)}>
+              <select value={oscalStatus} disabled={busy} onChange={(event) => setOscalStatus(event.target.value)}>
                 <option value="">{t("systems.selectOscalStatus")}</option>
                 {OSCAL_STATUSES.map((status) => <option key={status} value={status}>{enumLabel(status)}</option>)}
               </select>
@@ -591,7 +604,7 @@ export function SystemSecurityPlanWorkspace({
             {["planned", "alternative", "not-applicable"].includes(oscalStatus) ? (
               <label className="field">
                 {t("systems.explanationRequired")}
-                <textarea value={statusExplanation} onChange={(event) => setStatusExplanation(event.target.value)} />
+                <textarea value={statusExplanation} disabled={busy} onChange={(event) => setStatusExplanation(event.target.value)} />
               </label>
             ) : null}
             <button disabled={busy || !selected || !componentId || !oscalStatus}>
@@ -599,8 +612,8 @@ export function SystemSecurityPlanWorkspace({
                 ? t("systems.saveContributionChanges")
                 : t("systems.updateAndInclude")}
             </button>
-            <button type="button" className="secondary" onClick={() => setEditingContribution(false)}>{t("systems.close")}</button>
-            <button type="button" className="secondary" onClick={() => { setSelectedId(""); setComponentId(""); setDescription(""); setOscalStatus(""); setStatusExplanation(""); setEditingContribution(false); }}>{t("systems.discardDraft")}</button>
+            <button type="button" className="secondary" disabled={busy} onClick={() => setEditingContribution(false)}>{t("systems.close")}</button>
+            <button type="button" className="secondary" disabled={busy} onClick={() => { setSelectedId(""); setComponentId(""); setDescription(""); setOscalStatus(""); setStatusExplanation(""); setEditingContribution(false); }}>{t("systems.discardDraft")}</button>
           </form>
                 {selected ? (
                   <div className="workspace-actions">

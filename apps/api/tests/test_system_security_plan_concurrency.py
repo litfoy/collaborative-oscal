@@ -4,6 +4,7 @@ import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -11,6 +12,7 @@ import pytest
 from sqlalchemy import select, text, update
 from sqlalchemy.orm.exc import StaleDataError
 
+import app.application.system_security_plans as ssp_module
 from app.application.implementations import ImplementationService
 from app.application.system_security_plans import (
     StaleSystemSecurityPlanUpdate,
@@ -269,6 +271,72 @@ def test_ssp_publish_is_idempotent_and_token_aware(grc_service, session_factory)
     assert len(service.list_versions(context["tenant_id"], plan["id"])) == 1
 
 
+def test_ssp_publish_new_snapshot_advances_token_even_same_second(
+    grc_service, session_factory, monkeypatch
+) -> None:
+    context = _prepare_ssp_context(grc_service, session_factory)
+    service: SystemSecurityPlanService = context["service"]
+    implementation_service = ImplementationService(lambda: session_factory.begin())
+    plan = context["plan"]
+
+    included = service.associate_implementation(
+        context["tenant_id"],
+        context["actor"],
+        plan["id"],
+        context["implementation_id"],
+        context["component_id"],
+        expected_version=int(plan["concurrency_version"]),
+    )
+    token = int(included["concurrency_version"])
+
+    fixed_now = datetime(2026, 11, 19, 12, 0, 0, tzinfo=UTC)
+
+    class _FrozenDateTime:
+        @staticmethod
+        def now(_tz: object = UTC) -> datetime:
+            return fixed_now
+
+    monkeypatch.setattr(ssp_module, "datetime", _FrozenDateTime)
+
+    first = service.create_version(
+        context["tenant_id"],
+        context["actor"],
+        plan["id"],
+        expected_version=token,
+    )
+    assert first["created"] is True
+    assert first["concurrency_version"] == token + 1
+
+    implementation = implementation_service.get(
+        context["tenant_id"],
+        context["implementation_id"],
+    )
+    implementation_service.update(
+        context["tenant_id"],
+        context["actor"],
+        implementation.id,
+        ImplementationInformation(
+            "The identity provider now enforces MFA on privileged paths.",
+            implementation.status,
+            implementation.evidence_references,
+            implementation.responsibilities,
+            implementation.oscal_implementation_status,
+            implementation.oscal_status_explanation,
+        ),
+    )
+
+    second = service.create_version(
+        context["tenant_id"],
+        context["actor"],
+        plan["id"],
+        expected_version=first["concurrency_version"],
+    )
+    assert second["created"] is True
+    assert second["id"] != first["id"]
+    assert second["concurrency_version"] == token + 2
+    assert len(service.list_versions(context["tenant_id"], plan["id"])) == 2
+
+
 def test_ssp_publish_rejects_stale_token_under_concurrent_transactions(
     grc_service, session_factory, monkeypatch
 ) -> None:
@@ -357,6 +425,16 @@ def test_ssp_publish_rejects_stale_token_under_concurrent_transactions(
     versions = service.list_versions(context["tenant_id"], plan["id"])
     assert len(versions) == 1
     assert versions[0]["id"] == published[0]["id"]
+    persisted = service.get_plan(context["tenant_id"], plan["id"])
+    assert persisted["concurrency_version"] == token + 1
+    with session_factory.begin() as session:
+        stored_version = session.scalar(
+            select(SystemSecurityPlanRecord.concurrency_version).where(
+                SystemSecurityPlanRecord.tenant_id == context["tenant_id"],
+                SystemSecurityPlanRecord.id == plan["id"],
+            )
+        )
+    assert int(stored_version) == token + 1
 
 
 def test_ssp_update_translates_mapper_stale_error(
@@ -409,5 +487,104 @@ def test_ssp_update_translates_mapper_stale_error(
     assert error.value.expected_version == token
     assert error.value.current_version == token
     assert service.get_plan(context["tenant_id"], plan["id"])["title"] == plan["title"]
+
+
+def test_ssp_publish_translates_mapper_stale_error_and_rolls_back_snapshot(
+    grc_service, session_factory, monkeypatch
+) -> None:
+    context = _prepare_ssp_context(grc_service, session_factory)
+    service: SystemSecurityPlanService = context["service"]
+    plan = context["plan"]
+    included = service.associate_implementation(
+        context["tenant_id"],
+        context["actor"],
+        plan["id"],
+        context["implementation_id"],
+        context["component_id"],
+        expected_version=int(plan["concurrency_version"]),
+    )
+    token = int(included["concurrency_version"])
+
+    original_get_plan = SystemSecurityPlanService._get_plan
+    loaded_version_unchanged = {"value": False}
+
+    def _stale_mapper_version_get_plan(session, tenant_id, plan_id, *, lock=False):
+        loaded = original_get_plan(session, tenant_id, plan_id, lock=lock)
+        if lock:
+            loaded_version = int(loaded.concurrency_version)
+            session.execute(
+                update(SystemSecurityPlanRecord)
+                .where(
+                    SystemSecurityPlanRecord.tenant_id == tenant_id,
+                    SystemSecurityPlanRecord.id == plan_id,
+                )
+                .values(
+                    concurrency_version=SystemSecurityPlanRecord.concurrency_version + 1,
+                )
+                .execution_options(synchronize_session=False)
+            )
+            loaded_version_unchanged["value"] = int(loaded.concurrency_version) == loaded_version
+        return loaded
+
+    monkeypatch.setattr(
+        SystemSecurityPlanService,
+        "_get_plan",
+        staticmethod(_stale_mapper_version_get_plan),
+    )
+
+    with pytest.raises(StaleSystemSecurityPlanUpdate) as error:
+        service.create_version(
+            context["tenant_id"],
+            context["actor"],
+            plan["id"],
+            expected_version=token,
+        )
+
+    assert loaded_version_unchanged["value"] is True
+    assert isinstance(error.value.__cause__, StaleDataError)
+    assert error.value.expected_version == token
+    assert error.value.current_version == token
+    assert service.list_versions(context["tenant_id"], plan["id"]) == []
+
+
+def test_stale_include_leaves_membership_and_unassigned_context_unchanged(
+    grc_service, session_factory
+) -> None:
+    context = _prepare_ssp_context(grc_service, session_factory)
+    service: SystemSecurityPlanService = context["service"]
+    implementation_service = ImplementationService(lambda: session_factory.begin())
+    plan = context["plan"]
+    token = int(plan["concurrency_version"])
+
+    service.update_plan(
+        context["tenant_id"],
+        context["actor"],
+        plan["id"],
+        expected_version=token,
+        title=f"{plan['title']} updated",
+        control_implementation_description=plan["control_implementation_description"],
+    )
+
+    with pytest.raises(StaleSystemSecurityPlanUpdate) as stale:
+        service.associate_implementation(
+            context["tenant_id"],
+            context["actor"],
+            plan["id"],
+            context["implementation_id"],
+            context["component_id"],
+            expected_version=token,
+        )
+
+    assert stale.value.expected_version == token
+    assert stale.value.current_version == token + 1
+    assert service.get_plan(context["tenant_id"], plan["id"])["included_implementations"] == []
+    implementation = implementation_service.get(
+        context["tenant_id"],
+        context["implementation_id"],
+    )
+    assert implementation.system_id is None
+    assert implementation.system_component_id is None
+
+
 
 

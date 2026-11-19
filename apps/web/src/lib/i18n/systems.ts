@@ -214,6 +214,10 @@ export const en = {
   "systems.workingContentUnchanged": "The working content is unchanged; the existing immutable version was reused.",
   "systems.statusSeverity": "{severity}: {code}",
   "systems.assessmentResultRelationship": "Assessment result from plan: {plan} · plan version reference {reference}",
+  "systems.sspConflictDetected": "This SSP changed in another session. Current server version: {version}.",
+  "systems.sspConflictPreserved": "Your unsaved SSP and contribution edits remain in this page. Reload only after confirmation.",
+  "systems.sspReloadConfirmedState": "Discard edits and reload",
+  "systems.confirmSspConflictReload": "Discard your unsaved SSP edits and reload the server state?",
 } as const;
 
 export const de: Record<keyof typeof en, string> = {
@@ -432,4 +436,8 @@ export const de: Record<keyof typeof en, string> = {
   "systems.workingContentUnchanged": "Der Arbeitsinhalt ist unverändert; die bestehende unveränderliche Version wurde wiederverwendet.",
   "systems.statusSeverity": "{severity}: {code}",
   "systems.assessmentResultRelationship": "Bewertungsergebnis aus Plan: {plan} · Plan-Versionsreferenz {reference}",
+  "systems.sspConflictDetected": "Dieser SSP wurde in einer anderen Sitzung geändert. Aktuelle Serverversion: {version}.",
+  "systems.sspConflictPreserved": "Ihre nicht gespeicherten SSP- und Beitragsänderungen bleiben auf dieser Seite. Laden Sie die Seite erst nach Bestätigung neu.",
+  "systems.sspReloadConfirmedState": "Änderungen verwerfen und neu laden",
+  "systems.confirmSspConflictReload": "Ihre nicht gespeicherten SSP-Änderungen verwerfen und den Serverstatus neu laden?",
 };
