@@ -271,6 +271,7 @@ export interface InformationSystem {
   security_sensitivity_level: string | null;
   created_at: string;
   updated_at: string;
+  concurrency_version: number;
 }
 
 export interface SystemComponent {
@@ -288,6 +289,7 @@ export interface SystemComponent {
   is_system_component: boolean;
   source_snapshot_id: string | null;
   source_component_uuid: string | null;
+  concurrency_version: number;
 }
 
 export interface IncludedImplementation {

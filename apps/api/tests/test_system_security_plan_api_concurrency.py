@@ -173,6 +173,10 @@ def _base(tenant_id: UUID, plan_id: UUID) -> str:
     return f"/api/v1/tenants/{tenant_id}/system-security-plans/{plan_id}"
 
 
+def _system_base(tenant_id: UUID, system_id: UUID) -> str:
+    return f"/api/v1/tenants/{tenant_id}/systems/{system_id}"
+
+
 def _include(api_world, client: TestClient, headers: dict[str, str], token: int) -> int:
     base = _base(api_world["tenant_id"], api_world["plan_id"])
     included = client.post(
@@ -200,6 +204,30 @@ def test_ssp_update_requires_expected_version(client, api_world) -> None:
     assert response.status_code == 422
 
 
+def test_system_update_requires_expected_version(client, api_world) -> None:
+    response = client.put(
+        _system_base(api_world["tenant_id"], api_world["system_id"]),
+        headers=_headers(api_world["subject"]),
+        json={
+            "name": "Updated system",
+            "description": "Updated description",
+            "system_boundary": "Updated boundary",
+            "system_ids": [{"id": "identity.example", "identifier_type": "https://example.test/id-types"}],
+            "information_types": [
+                {
+                    "title": "Employee identity data",
+                    "description": "Information used to authenticate employees.",
+                }
+            ],
+            "operational_status": "operational",
+            "status_remarks": None,
+            "security_sensitivity_level": None,
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_ssp_include_requires_expected_version(client, api_world) -> None:
     response = client.post(
         (
@@ -211,6 +239,129 @@ def test_ssp_include_requires_expected_version(client, api_world) -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_component_update_requires_expected_version(client, api_world) -> None:
+    component_path = (
+        f"{_system_base(api_world['tenant_id'], api_world['system_id'])}"
+        f"/components/{api_world['component_id']}"
+    )
+    response = client.put(
+        component_path,
+        headers=_headers(api_world["subject"]),
+        json={
+            "title": "Identity provider",
+            "description": "Production identity service deployment.",
+            "purpose": "Authenticate employees",
+            "status": "operational",
+            "status_remarks": None,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_system_and_component_updates_return_stale_409(client, api_world) -> None:
+    headers = _headers(api_world["subject"])
+    system_base = _system_base(api_world["tenant_id"], api_world["system_id"])
+
+    current_system = client.get(system_base, headers=headers)
+    assert current_system.status_code == 200
+    system_token = int(current_system.json()["concurrency_version"])
+
+    updated_system = client.put(
+        system_base,
+        headers=headers,
+        json={
+            "expected_version": system_token,
+            "name": "Corporate Identity Management updated",
+            "description": current_system.json()["description"],
+            "system_boundary": current_system.json()["system_boundary"],
+            "system_ids": [
+                {
+                    "id": "identity.example",
+                    "identifier_type": "https://example.test/id-types",
+                }
+            ],
+            "information_types": current_system.json()["information_types"],
+            "operational_status": current_system.json()["operational_status"],
+            "status_remarks": current_system.json()["status_remarks"],
+            "security_sensitivity_level": current_system.json()["security_sensitivity_level"],
+        },
+    )
+    assert updated_system.status_code == 200
+    assert updated_system.json()["concurrency_version"] == system_token + 1
+
+    stale_system = client.put(
+        system_base,
+        headers=headers,
+        json={
+            "expected_version": system_token,
+            "name": "stale",
+            "description": current_system.json()["description"],
+            "system_boundary": current_system.json()["system_boundary"],
+            "system_ids": [
+                {
+                    "id": item["id"],
+                    "identifier_type": item.get("identifier-type"),
+                }
+                for item in current_system.json()["system_ids"]
+            ],
+            "information_types": current_system.json()["information_types"],
+            "operational_status": current_system.json()["operational_status"],
+            "status_remarks": current_system.json()["status_remarks"],
+            "security_sensitivity_level": current_system.json()["security_sensitivity_level"],
+        },
+    )
+    assert stale_system.status_code == 409
+    assert stale_system.json()["detail"] == {
+        "code": "stale_update",
+        "system_id": str(api_world["system_id"]),
+        "expected_version": system_token,
+        "current_version": system_token + 1,
+    }
+
+    components = client.get(f"{system_base}/components", headers=headers)
+    assert components.status_code == 200
+    current_component = next(
+        item for item in components.json() if item["id"] == str(api_world["component_id"])
+    )
+    component_token = int(current_component["concurrency_version"])
+
+    updated_component = client.put(
+        f"{system_base}/components/{api_world['component_id']}",
+        headers=headers,
+        json={
+            "expected_version": component_token,
+            "title": "Identity provider updated",
+            "description": current_component["component"]["description"],
+            "purpose": current_component["component"].get("purpose"),
+            "status": current_component["component"]["status"]["state"],
+            "status_remarks": current_component["component"]["status"].get("remarks"),
+        },
+    )
+    assert updated_component.status_code == 200
+    assert updated_component.json()["concurrency_version"] == component_token + 1
+
+    stale_component = client.put(
+        f"{system_base}/components/{api_world['component_id']}",
+        headers=headers,
+        json={
+            "expected_version": component_token,
+            "title": "stale",
+            "description": current_component["component"]["description"],
+            "purpose": current_component["component"].get("purpose"),
+            "status": current_component["component"]["status"]["state"],
+            "status_remarks": current_component["component"]["status"].get("remarks"),
+        },
+    )
+    assert stale_component.status_code == 409
+    assert stale_component.json()["detail"] == {
+        "code": "stale_update",
+        "component_id": str(api_world["component_id"]),
+        "expected_version": component_token,
+        "current_version": component_token + 1,
+    }
 
 
 def test_ssp_publish_requires_expected_version(client, api_world) -> None:

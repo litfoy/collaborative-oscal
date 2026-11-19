@@ -369,6 +369,7 @@ def test_system_ssp_shared_components_explicit_memberships_and_immutable_version
         actor,
         system["id"],
         concrete["id"],
+        expected_version=concrete["concurrency_version"],
         title="Identity service",
         description="Updated production identity service deployment.",
         purpose="Authenticate employees.",

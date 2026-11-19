@@ -46,7 +46,7 @@ class SystemCreateInput(SystemFields):
 
 
 class SystemInput(SystemFields):
-    pass
+    expected_version: int = Field(ge=1)
 
 
 class SystemResponse(BaseModel):
@@ -63,6 +63,7 @@ class SystemResponse(BaseModel):
     security_sensitivity_level: str | None
     created_at: datetime
     updated_at: datetime
+    concurrency_version: int
 
 
 class SystemComponentInput(BaseModel):
@@ -80,6 +81,7 @@ class SystemComponentInput(BaseModel):
 class SystemComponentUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    expected_version: int = Field(ge=1)
     title: str = Field(min_length=1, max_length=255)
     description: str = Field(min_length=1, max_length=50000)
     purpose: str | None = Field(default=None, max_length=50000)
@@ -107,6 +109,7 @@ class SystemComponentResponse(BaseModel):
     is_system_component: bool
     source_snapshot_id: UUID | None
     source_component_uuid: UUID | None
+    concurrency_version: int
 
 
 class SystemSecurityPlanInput(BaseModel):

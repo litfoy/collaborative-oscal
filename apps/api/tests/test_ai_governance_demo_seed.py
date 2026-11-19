@@ -302,6 +302,7 @@ def test_ai_governance_demo_seed_is_idempotent(grc_service, session_factory) -> 
         tenant.id,
         actor_id,
         first.system_id,
+        expected_version=current["concurrency_version"],
         name=current["name"],
         description=updated_description,
         system_boundary=current["system_boundary"],

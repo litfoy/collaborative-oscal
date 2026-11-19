@@ -27,6 +27,8 @@ from app.api.system_security_plan_schemas import (
 )
 from app.application.system_security_plans import (
     InvalidSystemSecurityPlan,
+    StaleInformationSystemUpdate,
+    StaleSystemComponentUpdate,
     StaleSystemSecurityPlanUpdate,
     SystemSecurityPlanService,
 )
@@ -64,6 +66,30 @@ def _handle_stale(error: StaleSystemSecurityPlanUpdate) -> HTTPException:
         detail={
             "code": "stale_update",
             "plan_id": str(error.plan_id),
+            "expected_version": error.expected_version,
+            "current_version": error.current_version,
+        },
+    )
+
+
+def _handle_system_stale(error: StaleInformationSystemUpdate) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "stale_update",
+            "system_id": str(error.system_id),
+            "expected_version": error.expected_version,
+            "current_version": error.current_version,
+        },
+    )
+
+
+def _handle_component_stale(error: StaleSystemComponentUpdate) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "stale_update",
+            "component_id": str(error.component_id),
             "expected_version": error.expected_version,
             "current_version": error.current_version,
         },
@@ -120,6 +146,7 @@ def update_system(
             context.tenant_id,
             context.membership.user_id,
             system_id,
+            expected_version=request.expected_version,
             name=request.name,
             description=request.description,
             system_boundary=request.system_boundary,
@@ -133,6 +160,8 @@ def update_system(
         raise _handle_not_found(error) from error
     except InvalidSystemSecurityPlan as error:
         raise _handle_invalid(error) from error
+    except StaleInformationSystemUpdate as error:
+        raise _handle_system_stale(error) from error
     return SystemResponse.model_validate(result)
 
 
@@ -197,6 +226,7 @@ def update_system_component(
             context.membership.user_id,
             system_id,
             component_id,
+            expected_version=request.expected_version,
             title=request.title,
             description=request.description,
             purpose=request.purpose,
@@ -207,6 +237,8 @@ def update_system_component(
         raise _handle_not_found(error) from error
     except InvalidSystemSecurityPlan as error:
         raise _handle_invalid(error) from error
+    except StaleSystemComponentUpdate as error:
+        raise _handle_component_stale(error) from error
     return SystemComponentResponse.model_validate(result)
 
 

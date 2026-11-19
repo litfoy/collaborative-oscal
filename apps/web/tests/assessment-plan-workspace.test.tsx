@@ -41,6 +41,7 @@ const system: InformationSystem = {
   security_sensitivity_level: null,
   created_at: "",
   updated_at: "",
+  concurrency_version: 1,
 };
 
 const ssp: SystemSecurityPlan = {

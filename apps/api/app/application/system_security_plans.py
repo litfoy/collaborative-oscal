@@ -79,6 +79,37 @@ class _StaleSystemSecurityPlanFlush(RuntimeError):
         super().__init__("System Security Plan flush detected stale mapper version.")
 
 
+class StaleInformationSystemUpdate(ValueError):
+    def __init__(self, system_id: UUID, expected_version: int, current_version: int) -> None:
+        self.system_id = system_id
+        self.expected_version = expected_version
+        self.current_version = current_version
+        super().__init__("The System changed after it was loaded.")
+
+
+class _StaleInformationSystemFlush(RuntimeError):
+    def __init__(self, system_id: UUID, expected_version: int) -> None:
+        self.system_id = system_id
+        self.expected_version = expected_version
+        super().__init__("System flush detected stale mapper version.")
+
+
+class StaleSystemComponentUpdate(ValueError):
+    def __init__(self, component_id: UUID, expected_version: int, current_version: int) -> None:
+        self.component_id = component_id
+        self.expected_version = expected_version
+        self.current_version = current_version
+        super().__init__("The System component changed after it was loaded.")
+
+
+class _StaleSystemComponentFlush(RuntimeError):
+    def __init__(self, system_id: UUID, component_id: UUID, expected_version: int) -> None:
+        self.system_id = system_id
+        self.component_id = component_id
+        self.expected_version = expected_version
+        super().__init__("System component flush detected stale mapper version.")
+
+
 class SystemSecurityPlanService:
     def __init__(self, session_scope: SessionScope) -> None:
         self._session_scope = session_scope
@@ -143,6 +174,7 @@ class SystemSecurityPlanService:
                 updated_by=actor,
                 created_at=now,
                 updated_at=now,
+                concurrency_version=1,
             )
             session.add(system)
             session.flush()
@@ -154,6 +186,7 @@ class SystemSecurityPlanService:
         actor: UUID,
         system_id: UUID,
         *,
+        expected_version: int,
         name: str,
         description: str | None,
         system_boundary: str | None,
@@ -166,22 +199,56 @@ class SystemSecurityPlanService:
         self._validate_system_fields(
             name, operational_status, status_remarks, system_ids, information_types
         )
-        with self._session_scope() as session:
-            system = self._get_system(session, tenant_id, system_id, lock=True)
-            system.name = name.strip()
-            system.description = description
-            system.system_boundary = system_boundary
-            system.system_ids = self._normalize_system_ids(system_ids)
-            system.information_types = self._normalize_information_types(
-                information_types, system.information_types
-            )
-            system.operational_status = operational_status
-            system.status_remarks = status_remarks
-            system.security_sensitivity_level = security_sensitivity_level
-            system.updated_by = actor
-            system.updated_at = datetime.now(UTC)
-            session.flush()
-            return self._system_payload(system)
+        try:
+            with self._session_scope() as session:
+                system = self._get_system(session, tenant_id, system_id, lock=True)
+                if system.concurrency_version != expected_version:
+                    raise StaleInformationSystemUpdate(
+                        system.id,
+                        expected_version,
+                        system.concurrency_version,
+                    )
+                normalized_system_ids = self._normalize_system_ids(system_ids)
+                normalized_information_types = self._normalize_information_types(
+                    information_types, system.information_types
+                )
+                next_name = name.strip()
+                if (
+                    system.name == next_name
+                    and system.description == description
+                    and system.system_boundary == system_boundary
+                    and system.system_ids == normalized_system_ids
+                    and system.information_types == normalized_information_types
+                    and system.operational_status == operational_status
+                    and system.status_remarks == status_remarks
+                    and system.security_sensitivity_level == security_sensitivity_level
+                ):
+                    return self._system_payload(system)
+                system.name = next_name
+                system.description = description
+                system.system_boundary = system_boundary
+                system.system_ids = normalized_system_ids
+                system.information_types = normalized_information_types
+                system.operational_status = operational_status
+                system.status_remarks = status_remarks
+                system.security_sensitivity_level = security_sensitivity_level
+                system.updated_by = actor
+                system.updated_at = datetime.now(UTC)
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleInformationSystemFlush(system_id, expected_version) from error
+                return self._system_payload(system)
+        except _StaleInformationSystemFlush as stale:
+            current = self._current_system_version(tenant_id, stale.system_id)
+            raise StaleInformationSystemUpdate(
+                stale.system_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
+        except StaleDataError as error:
+            current = self._current_system_version(tenant_id, system_id)
+            raise StaleInformationSystemUpdate(system_id, expected_version, current) from error
 
     def list_components(self, tenant_id: UUID, system_id: UUID) -> list[dict[str, Any]]:
         with self._session_scope() as session:
@@ -276,6 +343,7 @@ class SystemSecurityPlanService:
                 updated_by=actor,
                 created_at=now,
                 updated_at=now,
+                concurrency_version=1,
             )
             session.add(record)
             session.flush()
@@ -288,6 +356,7 @@ class SystemSecurityPlanService:
         system_id: UUID,
         component_id: UUID,
         *,
+        expected_version: int,
         title: str,
         description: str,
         purpose: str | None,
@@ -295,30 +364,52 @@ class SystemSecurityPlanService:
         status_remarks: str | None,
     ) -> dict[str, Any]:
         self._validate_component_fields(title, description, status, status_remarks)
-        with self._session_scope() as session:
-            component = session.scalar(
-                select(SystemComponentRecord)
-                .where(
-                    SystemComponentRecord.tenant_id == tenant_id,
-                    SystemComponentRecord.system_id == system_id,
-                    SystemComponentRecord.id == component_id,
+        try:
+            with self._session_scope() as session:
+                component = self._get_component(
+                    session, tenant_id, system_id, component_id, lock=True
                 )
-                .with_for_update()
+                if component.concurrency_version != expected_version:
+                    raise StaleSystemComponentUpdate(
+                        component.id,
+                        expected_version,
+                        component.concurrency_version,
+                    )
+                actual = copy.deepcopy(component.component)
+                actual["title"] = title.strip()
+                actual["description"] = description.strip()
+                actual["status"] = self._oscal_status(status, status_remarks)
+                actual.pop("purpose", None)
+                if purpose:
+                    actual["purpose"] = purpose
+                if actual == component.component:
+                    return self._component_payload(component)
+                component.component = actual
+                component.updated_by = actor
+                component.updated_at = datetime.now(UTC)
+                try:
+                    session.flush()
+                except StaleDataError as error:
+                    raise _StaleSystemComponentFlush(
+                        system_id, component_id, expected_version
+                    ) from error
+                return self._component_payload(component)
+        except _StaleSystemComponentFlush as stale:
+            current = self._current_component_version(
+                tenant_id, stale.system_id, stale.component_id
             )
-            if component is None:
-                raise EntityNotFoundError("System component not found.")
-            actual = copy.deepcopy(component.component)
-            actual["title"] = title.strip()
-            actual["description"] = description.strip()
-            actual["status"] = self._oscal_status(status, status_remarks)
-            actual.pop("purpose", None)
-            if purpose:
-                actual["purpose"] = purpose
-            component.component = actual
-            component.updated_by = actor
-            component.updated_at = datetime.now(UTC)
-            session.flush()
-            return self._component_payload(component)
+            raise StaleSystemComponentUpdate(
+                stale.component_id,
+                stale.expected_version,
+                current,
+            ) from stale.__cause__
+        except StaleDataError as error:
+            current = self._current_component_version(tenant_id, system_id, component_id)
+            raise StaleSystemComponentUpdate(
+                component_id,
+                expected_version,
+                current,
+            ) from error
 
     def adopt_component_definition(
         self,
@@ -421,6 +512,7 @@ class SystemSecurityPlanService:
                 updated_by=actor,
                 created_at=now,
                 updated_at=now,
+                concurrency_version=1,
             )
             session.add(record)
             session.flush()
@@ -898,6 +990,33 @@ class SystemSecurityPlanService:
                 raise EntityNotFoundError("SSP not found.")
             return int(current)
 
+    def _current_system_version(self, tenant_id: UUID, system_id: UUID) -> int:
+        with self._session_scope() as session:
+            current = session.scalar(
+                select(InformationSystemRecord.concurrency_version).where(
+                    InformationSystemRecord.tenant_id == tenant_id,
+                    InformationSystemRecord.id == system_id,
+                )
+            )
+            if current is None:
+                raise EntityNotFoundError("System not found.")
+            return int(current)
+
+    def _current_component_version(
+        self, tenant_id: UUID, system_id: UUID, component_id: UUID
+    ) -> int:
+        with self._session_scope() as session:
+            current = session.scalar(
+                select(SystemComponentRecord.concurrency_version).where(
+                    SystemComponentRecord.tenant_id == tenant_id,
+                    SystemComponentRecord.system_id == system_id,
+                    SystemComponentRecord.id == component_id,
+                )
+            )
+            if current is None:
+                raise EntityNotFoundError("System component not found.")
+            return int(current)
+
     def list_versions(self, tenant_id: UUID, plan_id: UUID) -> list[dict[str, Any]]:
         with self._session_scope() as session:
             self._get_plan(session, tenant_id, plan_id)
@@ -1302,8 +1421,9 @@ class SystemSecurityPlanService:
                     ]
                 )
             value = {"id": identifier}
-            if item.get("identifier_type"):
-                value["identifier-type"] = item["identifier_type"]
+            identifier_type = item.get("identifier_type") or item.get("identifier-type")
+            if identifier_type:
+                value["identifier-type"] = identifier_type
             normalized.append(value)
         if len({item["id"] for item in normalized}) != len(normalized):
             raise InvalidSystemSecurityPlan(
@@ -1446,6 +1566,25 @@ class SystemSecurityPlanService:
         return plan
 
     @staticmethod
+    def _get_component(
+        session: Session,
+        tenant_id: UUID,
+        system_id: UUID,
+        component_id: UUID,
+        *,
+        lock: bool = False,
+    ) -> SystemComponentRecord:
+        query = select(SystemComponentRecord).where(
+            SystemComponentRecord.tenant_id == tenant_id,
+            SystemComponentRecord.system_id == system_id,
+            SystemComponentRecord.id == component_id,
+        )
+        component = session.scalar(query.with_for_update() if lock else query)
+        if component is None:
+            raise EntityNotFoundError("System component not found.")
+        return component
+
+    @staticmethod
     def _system_payload(system: InformationSystemRecord) -> dict[str, Any]:
         return {
             "id": system.id,
@@ -1461,6 +1600,7 @@ class SystemSecurityPlanService:
             "security_sensitivity_level": system.security_sensitivity_level,
             "created_at": system.created_at,
             "updated_at": system.updated_at,
+            "concurrency_version": system.concurrency_version,
         }
 
     @staticmethod
@@ -1473,6 +1613,7 @@ class SystemSecurityPlanService:
             "is_system_component": component.is_system_component,
             "source_snapshot_id": component.source_snapshot_id,
             "source_component_uuid": component.source_component_uuid,
+            "concurrency_version": component.concurrency_version,
         }
 
     def _plan_payload(

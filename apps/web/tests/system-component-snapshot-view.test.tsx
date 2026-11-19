@@ -15,6 +15,7 @@ const component: SystemComponent = {
   is_system_component: false,
   source_snapshot_id: "11111111-1111-1111-1111-111111111111",
   source_component_uuid: "22222222-2222-2222-2222-222222222222",
+  concurrency_version: 1,
   component: {
     uuid: "component-oscal-uuid",
     type: "service",

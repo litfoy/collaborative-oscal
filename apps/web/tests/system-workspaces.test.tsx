@@ -26,16 +26,19 @@ const system: InformationSystem = {
   system_boundary: null, system_ids: [{ id: "old", "identifier-type": "scheme" }],
   information_types: [{ uuid: "info-uuid", title: "Identity data", description: "Original" }],
   operational_status: null, status_remarks: null, security_sensitivity_level: null, created_at: "", updated_at: "",
+  concurrency_version: 1,
 };
 const component: SystemComponent = {
   id: "component", system_id: system.id, oscal_component_uuid: "component-uuid", is_system_component: false,
   source_snapshot_id: "snapshot", source_component_uuid: "source-uuid",
   component: { uuid: "component-uuid", type: "service", title: "Deployed service", description: "Deployed here", status: { state: "operational" } },
+  concurrency_version: 1,
 };
 const secondComponent: SystemComponent = {
   id: "component-2", system_id: system.id, oscal_component_uuid: "component-uuid-2", is_system_component: true,
   source_snapshot_id: null, source_component_uuid: null,
   component: { uuid: "component-uuid-2", type: "software", title: "Identity app", description: "Supports authentication", status: { state: "operational" } },
+  concurrency_version: 1,
 };
 const definition: ComponentDefinition = {
   id: "definition", tenant_id: TENANT, title: "Guidance", oscal_document_uuid: "doc", oscal_version: "1.2.3",
@@ -193,6 +196,7 @@ describe("Systems workspaces", () => {
     expect(screen.getByLabelText("Title")).toHaveValue("Changed | title");
     await user.click(screen.getByRole("button", { name: "Save System characteristics" }));
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.expected_version).toBe(1);
     expect(body.system_ids).toEqual([{ id: "old", identifier_type: "scheme" }]);
     expect(body.information_types).toEqual([{ uuid: "info-uuid", title: "Changed | title", description: "Data | detail" }]);
     expect(body.operational_status).toBeNull();
@@ -229,6 +233,7 @@ describe("Systems workspaces", () => {
     await user.clear(screen.getByLabelText("Actual deployment description"));
     await user.type(screen.getByLabelText("Actual deployment description"), "Updated deployment");
     await user.click(screen.getByRole("button", { name: "Save component" }));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).expected_version).toBe(1);
     expect(await screen.findByText("Updated deployment")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Security plans" }));
     expect(screen.getByText(/1 immutable versions/)).toBeVisible();
@@ -788,5 +793,127 @@ describe("Systems workspaces", () => {
     expect(screen.getByLabelText("Requirement-specific implementation description")).toHaveValue(
       "Contribution local draft",
     );
+  });
+
+  it("handles stale System updates with explicit reload confirmation and preserves local edits until reload", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const refreshedSystem = {
+      ...system,
+      name: "Server Identity",
+      description: "Server description",
+      concurrency_version: 3,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}`) && init?.method === "PUT") {
+        return new Response(
+          JSON.stringify({
+            detail: {
+              code: "stale_update",
+              system_id: system.id,
+              expected_version: 1,
+              current_version: 3,
+            },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}`) && (!init?.method || init.method === "GET")) {
+        return jsonResponse(refreshedSystem);
+      }
+      return jsonResponse(plan);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderSystem();
+    await user.clear(screen.getByLabelText("System name"));
+    await user.type(screen.getByLabelText("System name"), "Local System Name");
+    await user.click(screen.getByRole("button", { name: "Save System characteristics" }));
+
+    expect(await screen.findByText("This System changed in another session. Current server version: 3.")).toBeVisible();
+    expect(screen.getByLabelText("System name")).toHaveValue("Local System Name");
+
+    await user.click(screen.getByRole("button", { name: "Discard System edits and reload" }));
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(await screen.findByLabelText("System name")).toHaveValue("Server Identity");
+  });
+
+  it("handles stale component updates with explicit reload confirmation and keeps draft until reload", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const refreshedComponent = {
+      ...component,
+      component: {
+        ...component.component,
+        title: "Server component",
+        description: "Server component description",
+      },
+      concurrency_version: 3,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}/components/${component.id}`) && init?.method === "PUT") {
+        return new Response(
+          JSON.stringify({
+            detail: {
+              code: "stale_update",
+              component_id: component.id,
+              expected_version: 1,
+              current_version: 3,
+            },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}/components`) && (!init?.method || init.method === "GET")) {
+        return jsonResponse([refreshedComponent]);
+      }
+      return jsonResponse(plan);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderSystem();
+    await user.click(screen.getByRole("button", { name: "Components" }));
+    await user.click(screen.getByRole("button", { name: "Edit component" }));
+    await user.clear(screen.getByLabelText("Actual deployment description"));
+    await user.type(screen.getByLabelText("Actual deployment description"), "Local component draft");
+    await user.click(screen.getByRole("button", { name: "Save component" }));
+
+    expect(await screen.findByText("This component changed in another session. Current server version: 3.")).toBeVisible();
+    expect(screen.getByLabelText("Actual deployment description")).toHaveValue("Local component draft");
+
+    await user.click(screen.getByRole("button", { name: "Discard component edits and reload" }));
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(await screen.findByLabelText("Component title")).toHaveValue("Server component");
+    expect(screen.getByLabelText("Actual deployment description")).toHaveValue("Server component description");
+  });
+
+  it("renders German system conflict messaging", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith(`/bff/tenants/${TENANT}/systems/${system.id}`) && init?.method === "PUT") {
+        return new Response(
+          JSON.stringify({
+            detail: {
+              code: "stale_update",
+              system_id: system.id,
+              expected_version: 1,
+              current_version: 3,
+            },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return jsonResponse(plan);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderSystem("de");
+    await user.clear(screen.getByLabelText("Systemname"));
+    await user.type(screen.getByLabelText("Systemname"), "Lokale Aenderung");
+    await user.click(screen.getByRole("button", { name: "Systemmerkmale speichern" }));
+
+    expect(await screen.findByText("Dieses System wurde in einer anderen Sitzung geändert. Aktuelle Serverversion: 3.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Systemänderungen verwerfen und neu laden" })).toBeVisible();
   });
 });

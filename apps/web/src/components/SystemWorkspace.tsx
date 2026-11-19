@@ -5,8 +5,9 @@
 
 import { useState, type FormEvent } from "react";
 
+import { bffGet, bffWrite } from "@/lib/bff-client";
+import { ApiError } from "@/lib/errors";
 import { useI18n } from "@/lib/i18n/provider";
-import type { Translate } from "@/lib/i18n";
 import type {
   AssessmentResult,
   AssessmentPlan,
@@ -94,6 +95,12 @@ export function SystemWorkspace({
   const [assessmentSspVersion, setAssessmentSspVersion] = useState("");
   const [systemIds, setSystemIds] = useState(system.system_ids);
   const [informationTypes, setInformationTypes] = useState<Array<{ uuid?: string; title: string; description: string }>>(system.information_types);
+  const [componentVersion, setComponentVersion] = useState<number | null>(null);
+  const [systemConflict, setSystemConflict] = useState<{ currentVersion: number } | null>(null);
+  const [componentConflict, setComponentConflict] = useState<{
+    componentId: string;
+    currentVersion: number;
+  } | null>(null);
 
   function upsertById<T extends { id: string }>(items: T[], next: T): T[] {
     const index = items.findIndex((item) => item.id === next.id);
@@ -104,10 +111,11 @@ export function SystemWorkspace({
   async function saveSystem(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await run(async () => {
-      const result = await request<InformationSystem>(
-        `/bff/tenants/${tenantId}/systems/${system.id}`,
+      const result = await bffWrite<InformationSystem>(
         "PUT",
+        `tenants/${tenantId}/systems/${system.id}`,
         {
+          expected_version: system.concurrency_version,
           name: system.name,
           description: system.description,
           system_boundary: system.system_boundary,
@@ -117,13 +125,22 @@ export function SystemWorkspace({
           status_remarks: system.status_remarks,
           security_sensitivity_level: system.security_sensitivity_level,
         },
-        t,
-        errorMessage,
       );
       setSystem(result);
       setSystemIds(result.system_ids);
       setInformationTypes(result.information_types);
+      setSystemConflict(null);
       return t("systems.characteristicsSaved");
+    }, (reason) => {
+      if (reason instanceof ApiError && reason.kind === "stale_update") {
+        const detail = reason.detail as { current_version?: number } | undefined;
+        setSystemConflict({
+          currentVersion: detail?.current_version ?? system.concurrency_version,
+        });
+        setError("");
+        return;
+      }
+      setError(reason instanceof Error ? errorMessage(reason) : t("systems.requestFailed"));
     });
   }
 
@@ -137,15 +154,15 @@ export function SystemWorkspace({
         status: componentStatus,
         status_remarks: componentRemarks || null,
       };
-      const result = await request<SystemComponent>(
+      const result = await bffWrite<SystemComponent>(
+        editingComponent ? "PUT" : "POST",
         editingComponent
-          ? `/bff/tenants/${tenantId}/systems/${system.id}/components/${editingComponent}`
+          ? `tenants/${tenantId}/systems/${system.id}/components/${editingComponent}`
           : adopting
-            ? `/bff/tenants/${tenantId}/systems/${system.id}/components/adopt`
-            : `/bff/tenants/${tenantId}/systems/${system.id}/components`,
-        editingComponent || adopting ? (editingComponent ? "PUT" : "POST") : "POST",
+            ? `tenants/${tenantId}/systems/${system.id}/components/adopt`
+            : `tenants/${tenantId}/systems/${system.id}/components`,
         editingComponent
-          ? body
+          ? { ...body, expected_version: componentVersion }
           : adopting
             ? {
                 ...body,
@@ -157,13 +174,23 @@ export function SystemWorkspace({
                 component_type: componentType,
                 is_system_component: componentType === "this-system",
               },
-        t,
-        errorMessage,
       );
       setComponents((current) => upsertById(current, result));
+      setComponentConflict(null);
       resetComponentForm();
       setComponentForm(false);
       return editingComponent ? t("systems.systemComponentUpdated") : t("systems.systemComponentAdded");
+    }, (reason) => {
+      if (reason instanceof ApiError && reason.kind === "stale_update" && editingComponent) {
+        const detail = reason.detail as { current_version?: number } | undefined;
+        setComponentConflict({
+          componentId: editingComponent,
+          currentVersion: detail?.current_version ?? componentVersion ?? 1,
+        });
+        setError("");
+        return;
+      }
+      setError(reason instanceof Error ? errorMessage(reason) : t("systems.requestFailed"));
     });
   }
 
@@ -172,12 +199,10 @@ export function SystemWorkspace({
     const [catalog_id, revision_id] = baseline.split("|");
     if (!catalog_id || !revision_id) return;
     await run(async () => {
-      const result = await request<SystemSecurityPlan>(
-        `/bff/tenants/${tenantId}/systems/${system.id}/system-security-plans`,
+      const result = await bffWrite<SystemSecurityPlan>(
         "POST",
+        `tenants/${tenantId}/systems/${system.id}/system-security-plans`,
         { catalog_id, revision_id, title: planTitle, control_implementation_description: controlDescription || null },
-        t,
-        errorMessage,
       );
       setPlans((current) => upsertById(current, result));
       setPlanTitle("");
@@ -187,13 +212,17 @@ export function SystemWorkspace({
     });
   }
 
-  async function run(action: () => Promise<string>) {
+  async function run(action: () => Promise<string>, onError?: (reason: unknown) => void) {
     setBusy(true);
     setError("");
     setNotice("");
     try {
       setNotice(await action());
     } catch (reason) {
+      if (onError) {
+        onError(reason);
+        return;
+      }
       setError(reason instanceof Error ? errorMessage(reason) : t("systems.requestFailed"));
     } finally {
       setBusy(false);
@@ -204,16 +233,14 @@ export function SystemWorkspace({
     event.preventDefault();
     if (!assessmentSspVersion) return;
     await run(async () => {
-      const result = await request<AssessmentPlan>(
-        `/bff/tenants/${tenantId}/systems/${system.id}/assessment-plans`,
+      const result = await bffWrite<AssessmentPlan>(
         "POST",
+        `tenants/${tenantId}/systems/${system.id}/assessment-plans`,
         {
           ssp_version_id: assessmentSspVersion,
           title: assessmentPlanTitle,
           description: assessmentPlanDescription || null,
         },
-        t,
-        errorMessage,
       );
       setAssessmentPlans((current) => upsertById(current, result));
       setAssessmentPlanTitle("");
@@ -270,6 +297,7 @@ export function SystemWorkspace({
     setPurpose("");
     setComponentStatus("");
     setComponentRemarks("");
+    setComponentVersion(null);
     setComponentDraftBaseline(EMPTY_COMPONENT_DRAFT);
   }
 
@@ -299,6 +327,7 @@ export function SystemWorkspace({
         setPurpose(next.purpose);
         setComponentStatus(next.componentStatus);
         setComponentRemarks(next.componentRemarks);
+        setComponentVersion(null);
         setComponentDraftBaseline(serializeComponentDraft(next));
       } else if (mode === "adopt") {
         const next = {
@@ -321,6 +350,7 @@ export function SystemWorkspace({
         setPurpose(next.purpose);
         setComponentStatus(next.componentStatus);
         setComponentRemarks(next.componentRemarks);
+        setComponentVersion(null);
         setComponentDraftBaseline(serializeComponentDraft(next));
       } else {
         const next = {
@@ -343,6 +373,7 @@ export function SystemWorkspace({
         setPurpose(next.purpose);
         setComponentStatus(next.componentStatus);
         setComponentRemarks(next.componentRemarks);
+        setComponentVersion(mode.concurrency_version);
         setComponentDraftBaseline(serializeComponentDraft(next));
       }
     }
@@ -350,12 +381,76 @@ export function SystemWorkspace({
   }
 
   function closeComponentForm() {
+    if (busy) return;
     const hasDraft = serializeComponentDraft() !== componentDraftBaseline;
     if (hasDraft) {
       if (!window.confirm(t("systems.discardComponentDraftConfirm"))) return;
       resetComponentForm();
     }
     setComponentForm(false);
+  }
+
+  async function reloadSystemAfterConflict() {
+    if (!systemConflict || busy) return;
+    if (!window.confirm(t("systems.confirmSystemConflictReload"))) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const refreshed = await bffGet<InformationSystem>(`tenants/${tenantId}/systems/${system.id}`);
+      setSystem(refreshed);
+      setSystemIds(refreshed.system_ids);
+      setInformationTypes(refreshed.information_types);
+      setSystemConflict(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? errorMessage(reason) : t("systems.requestFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reloadComponentAfterConflict() {
+    if (!componentConflict || busy) return;
+    if (!window.confirm(t("systems.confirmComponentConflictReload"))) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const refreshed = await bffGet<SystemComponent[]>(
+        `tenants/${tenantId}/systems/${system.id}/components`,
+      );
+      setComponents(refreshed);
+      const updated = refreshed.find((item) => item.id === componentConflict.componentId);
+      if (updated && editingComponent === updated.id) {
+        const next = {
+          componentType: "service",
+          editingComponent: updated.id,
+          sourceSelection: "",
+          adopting: false,
+          title: updated.component.title,
+          description: updated.component.description,
+          purpose: updated.component.purpose ?? "",
+          componentStatus: updated.component.status.state,
+          componentRemarks: updated.component.status.remarks ?? "",
+        };
+        setComponentType(next.componentType);
+        setEditingComponent(next.editingComponent);
+        setSourceSelection(next.sourceSelection);
+        setAdopting(next.adopting);
+        setTitle(next.title);
+        setDescription(next.description);
+        setPurpose(next.purpose);
+        setComponentStatus(next.componentStatus);
+        setComponentRemarks(next.componentRemarks);
+        setComponentVersion(updated.concurrency_version);
+        setComponentDraftBaseline(serializeComponentDraft(next));
+      }
+      setComponentConflict(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? errorMessage(reason) : t("systems.requestFailed"));
+    } finally {
+      setBusy(false);
+    }
   }
 
   const selectedSource = sourceSelection.split("|");
@@ -410,9 +505,27 @@ export function SystemWorkspace({
       </p>
       {error ? <p role="alert">{error}</p> : null}
       {notice ? <p role="status">{notice}</p> : null}
+      {systemConflict ? (
+        <div role="alert" className="panel">
+          <p>{t("systems.systemConflictDetected", { version: systemConflict.currentVersion })}</p>
+          <p className="muted">{t("systems.systemConflictPreserved")}</p>
+          <button type="button" className="danger-action" disabled={busy} onClick={() => void reloadSystemAfterConflict()}>
+            {t("systems.systemReloadConfirmedState")}
+          </button>
+        </div>
+      ) : null}
+      {componentConflict ? (
+        <div role="alert" className="panel">
+          <p>{t("systems.componentConflictDetected", { version: componentConflict.currentVersion })}</p>
+          <p className="muted">{t("systems.componentConflictPreserved")}</p>
+          <button type="button" className="danger-action" disabled={busy} onClick={() => void reloadComponentAfterConflict()}>
+            {t("systems.componentReloadConfirmedState")}
+          </button>
+        </div>
+      ) : null}
       <nav className="workspace-tabs" aria-label={t("systems.systemSections")}>
         {([["overview", t("systems.overview")], ["components", t("systems.components")], ["plans", t("systems.securityPlans")]] as const).map(([id, label]) => (
-          <button type="button" key={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>{label}</button>
+          <button type="button" key={id} disabled={busy} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>{label}</button>
         ))}
       </nav>
 
@@ -450,10 +563,10 @@ export function SystemWorkspace({
               <div className="repeatable-row" key={index}>
                 <label className="field">{t("systems.identifier")}<input required value={item.id} disabled={!canWrite || busy} onChange={(event) => setSystemIds(systemIds.map((row, i) => i === index ? { ...row, id: event.target.value } : row))} /></label>
                 <label className="field">{t("systems.identifierTypeOptional")}<input value={item["identifier-type"] ?? ""} disabled={!canWrite || busy} onChange={(event) => setSystemIds(systemIds.map((row, i) => i === index ? { ...row, "identifier-type": event.target.value } : row))} /></label>
-                {canWrite ? <button type="button" className="secondary" onClick={() => setSystemIds(systemIds.filter((_, i) => i !== index))}>{t("systems.removeIdentifier")}</button> : null}
+                {canWrite ? <button type="button" className="secondary" disabled={busy} onClick={() => setSystemIds(systemIds.filter((_, i) => i !== index))}>{t("systems.removeIdentifier")}</button> : null}
               </div>
             ))}
-            {canWrite ? <button type="button" className="secondary" onClick={() => setSystemIds([...systemIds, { id: "" }])}>{t("systems.addIdentifier")}</button> : null}
+            {canWrite ? <button type="button" className="secondary" disabled={busy} onClick={() => setSystemIds([...systemIds, { id: "" }])}>{t("systems.addIdentifier")}</button> : null}
           </fieldset>
           <fieldset className="repeatable-fields">
             <legend>{t("systems.informationTypes")}</legend>
@@ -461,10 +574,10 @@ export function SystemWorkspace({
               <div className="repeatable-row" key={index}>
                 <label className="field">{t("systems.title")}<input required value={item.title} disabled={!canWrite || busy} onChange={(event) => setInformationTypes(informationTypes.map((row, i) => i === index ? { ...row, title: event.target.value } : row))} /></label>
                 <label className="field">{t("systems.description")}<textarea required value={item.description} disabled={!canWrite || busy} onChange={(event) => setInformationTypes(informationTypes.map((row, i) => i === index ? { ...row, description: event.target.value } : row))} /></label>
-                {canWrite ? <button type="button" className="secondary" onClick={() => setInformationTypes(informationTypes.filter((_, i) => i !== index))}>{t("systems.removeInformationType")}</button> : null}
+                {canWrite ? <button type="button" className="secondary" disabled={busy} onClick={() => setInformationTypes(informationTypes.filter((_, i) => i !== index))}>{t("systems.removeInformationType")}</button> : null}
               </div>
             ))}
-            {canWrite ? <button type="button" className="secondary" onClick={() => setInformationTypes([...informationTypes, { title: "", description: "" }])}>{t("systems.addInformationType")}</button> : null}
+            {canWrite ? <button type="button" className="secondary" disabled={busy} onClick={() => setInformationTypes([...informationTypes, { title: "", description: "" }])}>{t("systems.addInformationType")}</button> : null}
           </fieldset>
           <label className="field">
             {t("systems.oscalOperationalStatus")}
@@ -508,8 +621,8 @@ export function SystemWorkspace({
         <p className="muted">{t("systems.actualComponentsGuidance")}</p>
         <div className="workspace-actions system-components-toolbar">
           {canWrite ? <>
-            <button type="button" onClick={() => openComponentForm("new")}>{t("systems.addComponent")}</button>
-            <button type="button" className="secondary" disabled={!definitions.some((item) => item.components.length)} onClick={() => openComponentForm("adopt")}>{t("systems.adoptReusableMeasure")}</button>
+            <button type="button" disabled={busy} onClick={() => openComponentForm("new")}>{t("systems.addComponent")}</button>
+            <button type="button" className="secondary" disabled={busy || !definitions.some((item) => item.components.length)} onClick={() => openComponentForm("adopt")}>{t("systems.adoptReusableMeasure")}</button>
           </> : null}
         </div>
         <div className={`system-components-layout${componentForm && canWrite ? " has-editor" : ""}`}>
@@ -550,7 +663,7 @@ export function SystemWorkspace({
                       <div className="workspace-actions system-component-actions">
                         {sourceHref ? <a className="button secondary" href={sourceHref}>{t("systems.viewSourceSnapshot")}</a> : null}
                         {canWrite ? (
-                          <button className="secondary" type="button" onClick={() => openComponentForm(item)}>
+                          <button className="secondary" type="button" disabled={busy} onClick={() => openComponentForm(item)}>
                             {t("systems.editComponent")}
                           </button>
                         ) : null}
@@ -568,7 +681,7 @@ export function SystemWorkspace({
                 {!editingComponent && !adopting ? (
                   <label className="field">
                     {t("systems.componentType")}
-                    <select value={componentType} onChange={(event) => setComponentType(event.target.value)}>
+                    <select value={componentType} disabled={busy} onChange={(event) => setComponentType(event.target.value)}>
                       <option value="service">{enumLabel("service")}</option>
                       <option value="software">{enumLabel("software")}</option>
                       <option value="hardware">{enumLabel("hardware")}</option>
@@ -587,6 +700,7 @@ export function SystemWorkspace({
                     <select
                       required
                       value={sourceSelection}
+                      disabled={busy}
                       onChange={(event) => chooseReusableComponent(event.target.value)}
                     >
                       <option value="">{t("systems.selectSourceComponent")}</option>
@@ -607,19 +721,19 @@ export function SystemWorkspace({
                 ) : null}
                 <label className="field">
                   {t("systems.componentTitle")}
-                  <input required value={title} onChange={(event) => setTitle(event.target.value)} />
+                  <input required disabled={busy} value={title} onChange={(event) => setTitle(event.target.value)} />
                 </label>
                 <label className="field">
                   {t("systems.actualDeploymentDescription")}
-                  <textarea required value={description} onChange={(event) => setDescription(event.target.value)} />
+                  <textarea required disabled={busy} value={description} onChange={(event) => setDescription(event.target.value)} />
                 </label>
                 <label className="field">
                   {t("systems.purposeOptional")}
-                  <input value={purpose} onChange={(event) => setPurpose(event.target.value)} />
+                  <input disabled={busy} value={purpose} onChange={(event) => setPurpose(event.target.value)} />
                 </label>
                 <label className="field">
                   {t("systems.componentOperationalStatus")}
-                  <select required value={componentStatus} onChange={(event) => setComponentStatus(event.target.value)}>
+                  <select required disabled={busy} value={componentStatus} onChange={(event) => setComponentStatus(event.target.value)}>
                     <option value="">{t("systems.selectStatus")}</option>
                     <option value="operational">{enumLabel("operational")}</option>
                     <option value="under-development">{enumLabel("under-development")}</option>
@@ -630,15 +744,15 @@ export function SystemWorkspace({
                 {componentStatus === "other" ? (
                   <label className="field">
                     {t("systems.explainOtherStatus")}
-                    <textarea value={componentRemarks} onChange={(event) => setComponentRemarks(event.target.value)} />
+                    <textarea disabled={busy} value={componentRemarks} onChange={(event) => setComponentRemarks(event.target.value)} />
                   </label>
                 ) : null}
                 <div className="workspace-actions">
                   <button disabled={busy || (adopting && !sourceSelection)}>
                     {busy ? t("systems.saving") : editingComponent ? t("systems.saveComponent") : adopting ? t("systems.adoptComponent") : t("systems.addComponent")}
                   </button>
-                  <button className="secondary" type="button" onClick={closeComponentForm}>{t("systems.cancel")}</button>
-                  <button className="secondary" type="button" onClick={() => { resetComponentForm(); setComponentForm(false); }}>{t("systems.discardDraft")}</button>
+                  <button className="secondary" disabled={busy} type="button" onClick={closeComponentForm}>{t("systems.cancel")}</button>
+                  <button className="secondary" disabled={busy} type="button" onClick={() => { resetComponentForm(); setComponentForm(false); }}>{t("systems.discardDraft")}</button>
                 </div>
               </form>
             </aside>
@@ -649,7 +763,7 @@ export function SystemWorkspace({
       <section className="panel" hidden={tab !== "plans"}>
         <h2>{t("systems.securityPlans")}</h2>
         <p className="muted">{t("systems.baselineExplanation")}</p>
-        {canWrite ? <button type="button" onClick={() => setPlanForm(true)}>{t("systems.newSsp")}</button> : null}
+        {canWrite ? <button type="button" disabled={busy} onClick={() => setPlanForm(true)}>{t("systems.newSsp")}</button> : null}
         {plans.length ? (
           <ul className="profile-list ssp-overview-cards">
             {plans.map((plan) => {
@@ -755,7 +869,7 @@ export function SystemWorkspace({
               />
             </label>
             <button disabled={busy || !baseline}>{t("systems.createSspDraft")}</button>
-            <button type="button" className="secondary" onClick={() => setPlanForm(false)}>{t("systems.close")}</button>
+            <button type="button" className="secondary" disabled={busy} onClick={() => setPlanForm(false)}>{t("systems.close")}</button>
           </form>
         ) : null}
         {catalogs.length === 0 ? <p className="muted">{t("systems.importCatalogFirst")}</p> : null}
@@ -763,7 +877,7 @@ export function SystemWorkspace({
         <h3>{t("assessmentPlans.sectionTitle")}</h3>
         <p className="muted">{t("assessmentPlans.sectionIntro")}</p>
         {canWrite ? (
-          <button type="button" className="secondary" onClick={() => setAssessmentPlanForm(true)}>
+          <button type="button" className="secondary" disabled={busy} onClick={() => setAssessmentPlanForm(true)}>
             {t("assessmentPlans.newPlan")}
           </button>
         ) : null}
@@ -826,7 +940,7 @@ export function SystemWorkspace({
               />
             </label>
             <button disabled={busy || !assessmentSspVersion}>{t("assessmentPlans.createAction")}</button>
-            <button type="button" className="secondary" onClick={() => setAssessmentPlanForm(false)}>
+            <button type="button" className="secondary" disabled={busy} onClick={() => setAssessmentPlanForm(false)}>
               {t("systems.close")}
             </button>
           </form>
@@ -861,33 +975,4 @@ export function SystemWorkspace({
       </section>
     </div>
   );
-}
-
-async function request<T>(
-  path: string,
-  method: "POST" | "PUT",
-  body: unknown,
-  t: Translate,
-  errorMessage: (error: unknown) => string,
-): Promise<T> {
-  const response = await fetch(path, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const result: unknown = response.status === 204 ? null : await response.json();
-  if (!response.ok) throw new Error(readError(result, t, errorMessage));
-  return result as T;
-}
-
-function readError(body: unknown, t: Translate, errorMessage: (error: unknown) => string): string {
-  if (typeof body === "object" && body !== null && "detail" in body) {
-    const detail = (body as { detail?: unknown }).detail;
-    if (typeof detail === "string") return detail;
-    if (typeof detail === "object" && detail !== null && "diagnostics" in detail) {
-      const diagnostics = (detail as { diagnostics?: { message?: string }[] }).diagnostics;
-      if (diagnostics?.length) return diagnostics.map((item) => item.message).join(" ");
-    }
-  }
-  return errorMessage(body) || t("systems.requestFailed");
 }

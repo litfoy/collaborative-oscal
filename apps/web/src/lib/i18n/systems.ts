@@ -221,6 +221,14 @@ export const en = {
   "systems.sspConflictPreserved": "Your unsaved SSP and contribution edits remain in this page. Reload only after confirmation.",
   "systems.sspReloadConfirmedState": "Discard edits and reload",
   "systems.confirmSspConflictReload": "Discard your unsaved SSP edits and reload the server state?",
+  "systems.systemConflictDetected": "This System changed in another session. Current server version: {version}.",
+  "systems.systemConflictPreserved": "Your unsaved System edits remain in this page. Reload only after confirmation.",
+  "systems.systemReloadConfirmedState": "Discard System edits and reload",
+  "systems.confirmSystemConflictReload": "Discard your unsaved System edits and reload the server state?",
+  "systems.componentConflictDetected": "This component changed in another session. Current server version: {version}.",
+  "systems.componentConflictPreserved": "Your unsaved component edits remain in this page. Reload only after confirmation.",
+  "systems.componentReloadConfirmedState": "Discard component edits and reload",
+  "systems.confirmComponentConflictReload": "Discard your unsaved component edits and reload the server state?",
 } as const;
 
 export const de: Record<keyof typeof en, string> = {
@@ -443,4 +451,12 @@ export const de: Record<keyof typeof en, string> = {
   "systems.sspConflictPreserved": "Ihre nicht gespeicherten SSP- und Beitragsänderungen bleiben auf dieser Seite. Laden Sie die Seite erst nach Bestätigung neu.",
   "systems.sspReloadConfirmedState": "Änderungen verwerfen und neu laden",
   "systems.confirmSspConflictReload": "Ihre nicht gespeicherten SSP-Änderungen verwerfen und den Serverstatus neu laden?",
+  "systems.systemConflictDetected": "Dieses System wurde in einer anderen Sitzung geändert. Aktuelle Serverversion: {version}.",
+  "systems.systemConflictPreserved": "Ihre nicht gespeicherten Systemänderungen bleiben auf dieser Seite. Laden Sie die Seite erst nach Bestätigung neu.",
+  "systems.systemReloadConfirmedState": "Systemänderungen verwerfen und neu laden",
+  "systems.confirmSystemConflictReload": "Ihre nicht gespeicherten Systemänderungen verwerfen und den Serverstatus neu laden?",
+  "systems.componentConflictDetected": "Diese Komponente wurde in einer anderen Sitzung geändert. Aktuelle Serverversion: {version}.",
+  "systems.componentConflictPreserved": "Ihre nicht gespeicherten Komponentenänderungen bleiben auf dieser Seite. Laden Sie die Seite erst nach Bestätigung neu.",
+  "systems.componentReloadConfirmedState": "Komponentenänderungen verwerfen und neu laden",
+  "systems.confirmComponentConflictReload": "Ihre nicht gespeicherten Komponentenänderungen verwerfen und den Serverstatus neu laden?",
 };
