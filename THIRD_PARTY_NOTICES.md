@@ -10,13 +10,22 @@ retain their original licenses.
 - Location: `packages/oscal/src/collaborative_oscal_oscal/schemas/`
 - Source: official `usnistgov/OSCAL` release assets
 - Provenance and checksums: `docs/catalog-import.md`
-- License: see upstream project terms and release assets
+- Version-pinned upstream license reference: `https://github.com/usnistgov/OSCAL/blob/v1.2.1/LICENSE.md`
+- Applicable upstream statement (v1.2.1): public domain in the United States
+  (17 U.S.C. 105), worldwide CC0 1.0 dedication, and NIST notice/attribution
+  terms for redistribution and modifications
+- Original notice text included at: `LICENSES/NIST-OSCAL-v1.2.1-LICENSE.md`
 - Redistribution note: preserve provenance and schema integrity checks documented in `docs/catalog-import.md`
 
 ### NIST SP 800-53 Rev. 5 fixture
 - Location: `apps/api/tests/fixtures/NIST_SP-800-53_rev5_catalog-min.json`
 - Source: `usnistgov/oscal-content` release `v1.5.0`
 - Provenance and checksum: `docs/catalog-import.md`
+- Version-pinned upstream license reference: `https://github.com/usnistgov/oscal-content/blob/v1.5.0/LICENSE.md`
+- Applicable upstream statement (v1.5.0): public domain in the United States,
+  worldwide CC0 1.0 dedication, and NIST license notice terms
+- Original notice text included at:
+  `LICENSES/NIST-OSCAL-content-v1.5.0-LICENSE.md`
 - Redistribution note: treat as third-party normative content
 
 ### NIST AI RMF Generative AI catalog
@@ -71,11 +80,15 @@ These findings are documented in detail with release-risk classification in
 - Apache-2.0 text: `LICENSE`
 - CC-BY-4.0 text: `LICENSES/CC-BY-4.0.txt`
 - CC-BY-SA-4.0 text: `LICENSES/CC-BY-SA-4.0.txt`
+- NIST OSCAL v1.2.1 license notice: `LICENSES/NIST-OSCAL-v1.2.1-LICENSE.md`
+- NIST OSCAL content v1.5.0 license notice:
+  `LICENSES/NIST-OSCAL-content-v1.5.0-LICENSE.md`
 - Python dependency full license texts: embedded in
   `docs/python-license-inventory.runtime.json` and
   `docs/python-license-inventory.dev-and-runtime.json` (`LicenseText` fields)
 - npm dependency license file paths are listed in `docs/npm-license-inventory.json`
   (paths are workspace-relative; package files are not committed in this repository)
+
 
 
 

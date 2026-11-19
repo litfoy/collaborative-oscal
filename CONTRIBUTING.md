@@ -16,9 +16,12 @@ approved scope and preserve tenant isolation and OSCAL document integrity.
 
 ## Licensing and attribution
 
-By contributing, you agree that your contribution is licensed under Apache-2.0.
+By contributing, you agree that your contribution is submitted under the
+applicable project license:
+- Apache-2.0 for project software
+- CC-BY-4.0 for project-authored documentation
 
-Project-authored documentation is licensed under CC-BY-4.0. See:
+Project-authored documentation licensing details:
 - `LICENSES/CC-BY-4.0.txt`
 - scope definition in `README.md`
 
@@ -88,5 +91,6 @@ as documented in `docs/dependency-upgrade-progress.md` and
 
 - Security reports: see `SECURITY.md`.
 - Community behavior expectations: see `CODE_OF_CONDUCT.md`.
+
 
 
