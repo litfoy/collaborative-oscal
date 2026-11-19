@@ -390,7 +390,6 @@ def test_ssp_publish_rejects_stale_token_under_concurrent_transactions(
     )
     token = int(included["concurrency_version"])
 
-    release = threading.Barrier(3)
     winner_holding_lock = threading.Event()
     gate_release = threading.Event()
     state_lock = threading.Lock()
@@ -742,7 +741,6 @@ def test_implementation_update_and_association_contention_preserves_winner_state
             with state_lock:
                 backend_pids["update"] = _backend_pid(thread_session)
             service = ImplementationService(lambda: _bound_scope(thread_session))
-            release.wait(timeout=5)
             result = service.update(
                 context["tenant_id"],
                 context["actor"],
@@ -764,7 +762,6 @@ def test_implementation_update_and_association_contention_preserves_winner_state
             with state_lock:
                 backend_pids["associate"] = _backend_pid(thread_session)
             service = SystemSecurityPlanService(lambda: _bound_scope(thread_session))
-            release.wait(timeout=5)
             return service.associate_implementation(
                 context["tenant_id"],
                 context["actor"],
@@ -777,10 +774,16 @@ def test_implementation_update_and_association_contention_preserves_winner_state
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         future_update = executor.submit(_update_worker)
-        future_associate = executor.submit(_associate_worker)
-        release.wait(timeout=5)
         try:
             assert winner_holding_lock.wait(timeout=5)
+            future_associate = executor.submit(_associate_worker)
+            for _ in range(200):
+                with state_lock:
+                    if "associate" in backend_pids:
+                        break
+                threading.Event().wait(0.01)
+            with state_lock:
+                assert "associate" in backend_pids
             _assert_blocked_by(
                 session_factory,
                 blocked_pid=backend_pids["associate"],

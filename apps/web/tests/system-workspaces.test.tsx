@@ -530,6 +530,119 @@ describe("Systems workspaces", () => {
     await screen.findByText("SSP working state saved.");
   });
 
+  it("propagates association tokens to subsequent SSP and implementation mutations", async () => {
+    const user = userEvent.setup();
+    const unassignedPlan: SystemSecurityPlan = {
+      ...plan,
+      included_implementations: [],
+      documented_control_count: 0,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/implementations/implementation") && init?.method === "PUT") {
+        const body = JSON.parse((init.body as string) ?? "{}");
+        if (body.expected_version === 1) {
+          return jsonResponse({
+            ...implementation,
+            description: body.description,
+            oscal_implementation_status: body.oscal_implementation_status,
+            system_id: null,
+            system_component_id: null,
+            concurrency_version: 2,
+          });
+        }
+        expect(body.expected_version).toBe(4);
+        return jsonResponse({
+          ...implementation,
+          description: body.description,
+          oscal_implementation_status: body.oscal_implementation_status,
+          system_id: system.id,
+          system_component_id: component.id,
+          concurrency_version: 5,
+        });
+      }
+      if (
+        url.endsWith("/system-security-plans/plan/implementations/implementation") &&
+        init?.method === "POST"
+      ) {
+        const body = JSON.parse((init.body as string) ?? "{}");
+        if (body.expected_version === 1) {
+          expect(body.expected_implementation_version).toBe(2);
+          return jsonResponse({
+            implementation_id: implementation.id,
+            oscal_control_id: implementation.oscal_control_id,
+            system_component_id: component.id,
+            concurrency_version: 3,
+            implementation_concurrency_version: 4,
+          });
+        }
+        expect(body.expected_version).toBe(6);
+        expect(body.expected_implementation_version).toBe(5);
+        return jsonResponse({
+          implementation_id: implementation.id,
+          oscal_control_id: implementation.oscal_control_id,
+          system_component_id: component.id,
+          concurrency_version: 7,
+          implementation_concurrency_version: 8,
+        });
+      }
+      if (url.endsWith("/system-security-plans/plan") && init?.method === "PUT") {
+        const body = JSON.parse((init.body as string) ?? "{}");
+        expect(body.expected_version).toBe(3);
+        return jsonResponse({ ...unassignedPlan, title: body.title, concurrency_version: 6 });
+      }
+      return jsonResponse(validation);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <LocaleProvider locale="en">
+        <SystemSecurityPlanWorkspace
+          tenantId={TENANT}
+          system={system}
+          initialPlan={unassignedPlan}
+          components={[component]}
+          initialImplementations={[implementation]}
+          initialVersions={[version]}
+          revision={revision()}
+          initialRoot={page([])}
+          canWrite
+        />
+      </LocaleProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Control implementation" }));
+    await user.click(screen.getByRole("button", { name: "Add contribution" }));
+    await user.selectOptions(
+      screen.getByLabelText("Requirement contribution from the exact pinned baseline"),
+      "implementation",
+    );
+    await user.selectOptions(screen.getByLabelText("Actual system component"), "component");
+    await user.selectOptions(
+      screen.getByLabelText("OSCAL implementation status (separate from application workflow status)"),
+      "implemented",
+    );
+    await user.click(screen.getByRole("button", { name: "Update record and include in SSP" }));
+    await screen.findByText("The requirement contribution was explicitly added to this SSP.");
+
+    await user.clear(screen.getByLabelText("SSP document title"));
+    await user.type(screen.getByLabelText("SSP document title"), "Updated after include");
+    await user.click(screen.getByRole("button", { name: "Save working state" }));
+    await screen.findByText("SSP working state saved.");
+
+    await user.click(screen.getByRole("button", { name: "Add contribution" }));
+    await user.selectOptions(
+      screen.getByLabelText("Requirement contribution from the exact pinned baseline"),
+      "implementation",
+    );
+    await user.selectOptions(screen.getByLabelText("Actual system component"), "component");
+    await user.selectOptions(
+      screen.getByLabelText("OSCAL implementation status (separate from application workflow status)"),
+      "implemented",
+    );
+    await user.click(screen.getByRole("button", { name: "Update record and include in SSP" }));
+    await screen.findByText("The requirement contribution was explicitly added to this SSP.");
+  });
+
   it("reports partial success for stale association and preserves unsaved inputs", async () => {
     const user = userEvent.setup();
     const unassignedPlan: SystemSecurityPlan = {
@@ -626,6 +739,92 @@ describe("Systems workspaces", () => {
     ).toHaveValue("Edited");
   });
 
+  it("handles implementation stale conflicts in SSP workflow and preserves SSP edits until confirmed reload", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm");
+    const unassignedPlan: SystemSecurityPlan = {
+      ...plan,
+      included_implementations: [],
+      documented_control_count: 0,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/implementations/implementation") && init?.method === "PUT") {
+        return new Response(
+          JSON.stringify({
+            detail: {
+              code: "stale_update",
+              implementation_id: implementation.id,
+              expected_version: 1,
+              current_version: 4,
+            },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (
+        url.endsWith("/implementations/implementation") &&
+        (!init?.method || init.method === "GET")
+      ) {
+        return jsonResponse({
+          ...implementation,
+          description: "Server contribution",
+          concurrency_version: 4,
+        });
+      }
+      return jsonResponse(validation);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <LocaleProvider locale="en">
+        <SystemSecurityPlanWorkspace
+          tenantId={TENANT}
+          system={system}
+          initialPlan={unassignedPlan}
+          components={[component]}
+          initialImplementations={[implementation]}
+          initialVersions={[version]}
+          revision={revision()}
+          initialRoot={page([])}
+          canWrite
+        />
+      </LocaleProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Control implementation" }));
+    await user.type(screen.getByLabelText("SSP document title"), " changed");
+    await user.click(screen.getByRole("button", { name: "Add contribution" }));
+    await user.selectOptions(
+      screen.getByLabelText("Requirement contribution from the exact pinned baseline"),
+      "implementation",
+    );
+    await user.selectOptions(screen.getByLabelText("Actual system component"), "component");
+    await user.selectOptions(
+      screen.getByLabelText("OSCAL implementation status (separate from application workflow status)"),
+      "implemented",
+    );
+    await user.click(screen.getByRole("button", { name: "Update record and include in SSP" }));
+
+    expect(
+      await screen.findByText(
+        "This implementation changed in another session. Current server version: 4.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByLabelText("SSP document title")).toHaveValue("Identity SSP changed");
+
+    confirmSpy.mockReturnValueOnce(false);
+    await user.click(screen.getByRole("button", { name: "Reload implementation" }));
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(screen.getByLabelText("SSP document title")).toHaveValue("Identity SSP changed");
+
+    confirmSpy.mockReturnValueOnce(true);
+    await user.click(screen.getByRole("button", { name: "Reload implementation" }));
+    expect(await screen.findByLabelText("SSP document title")).toHaveValue("Identity SSP changed");
+    expect(screen.getByLabelText("Requirement-specific implementation description")).toHaveValue(
+      "Server contribution",
+    );
+  });
+
   it("shows explicit conflict handling and keeps unsaved SSP edits until reload is confirmed", async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -637,6 +836,14 @@ describe("Systems workspaces", () => {
       ...implementation,
       description: "Server contribution",
       system_component_id: refreshedComponent.id,
+    };
+    const organizationScopedImplementation = {
+      ...implementation,
+      id: "implementation-org",
+      description: "Org-scoped contribution",
+      organization_id: "organization-1",
+      system_id: null,
+      system_component_id: null,
     };
     const refreshedPlan = {
       ...plan,
@@ -674,7 +881,20 @@ describe("Systems workspaces", () => {
         return jsonResponse(validation);
       }
       if (url.endsWith("/implementations?limit=100&offset=0")) {
-        return jsonResponse(page([refreshedImplementation]));
+        return jsonResponse({
+          items: [refreshedImplementation],
+          total: 2,
+          limit: 100,
+          offset: 0,
+        });
+      }
+      if (url.endsWith("/implementations?limit=100&offset=1")) {
+        return jsonResponse({
+          items: [organizationScopedImplementation],
+          total: 2,
+          limit: 100,
+          offset: 1,
+        });
       }
       if (url.endsWith(`/systems/${system.id}/components`)) {
         return jsonResponse([component, refreshedComponent]);
@@ -697,6 +917,14 @@ describe("Systems workspaces", () => {
     expect(await screen.findByLabelText("SSP document title")).toHaveValue("Server title");
     expect(screen.getByText("Requirement contribution: Server contribution")).toBeVisible();
     expect(screen.getByText("Server component")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Add contribution" }));
+    expect(
+      await screen.findByRole("option", { name: /ac-1 · Org-scoped contribution/ }),
+    ).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/implementations?limit=100&offset=1"),
+      expect.anything(),
+    );
   });
 
   it("keeps unsaved SSP and contribution drafts when conflict reload is cancelled", async () => {
