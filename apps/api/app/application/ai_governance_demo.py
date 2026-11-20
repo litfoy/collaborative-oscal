@@ -966,6 +966,7 @@ class _GovernanceCoverageSeedState:
     mapping_entry_count: int
     system_count: int
     system_component_count: int
+    consistency_issues: tuple[str, ...] = ()
 
     @property
     def is_empty(self) -> bool:
@@ -985,15 +986,19 @@ class _GovernanceCoverageSeedState:
             and self.mapping_entry_count == GOVERNANCE_COVERAGE_MAPPING_COUNT
             and self.system_count == 1
             and self.system_component_count == 1
+            and not self.consistency_issues
         )
 
     def diagnostic(self) -> str:
-        return (
+        base = (
             "collections="
             f"{self.mapping_collection_count}, members={self.mapping_member_count}, "
             f"entries={self.mapping_entry_count}, systems={self.system_count}, "
             f"components={self.system_component_count}"
         )
+        if not self.consistency_issues:
+            return base
+        return f"{base}; issues: {'; '.join(self.consistency_issues)}"
 
 
 def _latest_catalog_revision_for_document(
@@ -1246,6 +1251,7 @@ def _resolve_mapping_target_catalog_revision(
 def _governance_coverage_seed_state(
     session: Session, *, tenant_id: UUID
 ) -> _GovernanceCoverageSeedState:
+    issues: list[str] = []
     collections = [
         item
         for item in session.scalars(
@@ -1254,42 +1260,183 @@ def _governance_coverage_seed_state(
         if item.document.get("mapping-collection", {}).get("metadata", {}).get("title")
         == GOVERNANCE_COVERAGE_MAPPING_TITLE
     ]
-    collection_ids = [item.id for item in collections]
-    mapping_member_count = 0
-    if collection_ids:
-        mapping_member_count = len(
-            session.scalars(
-                select(MappingMemberRecord.id).where(
-                    MappingMemberRecord.tenant_id == tenant_id,
-                    MappingMemberRecord.collection_id.in_(collection_ids),
-                )
-            ).all()
-        )
+    if len(collections) > 1:
+        issues.append("multiple governance mapping collections are present")
 
+    source_catalog_id: UUID | None = None
+    source_revision_id: UUID | None = None
+    target_catalog_id: UUID | None = None
+    target_revision_id: UUID | None = None
     mapping_entry_count = 0
+    mapping_doc_members: dict[tuple[UUID, UUID], dict[str, set[str]]] = {}
     if len(collections) == 1:
         mappings = collections[0].document.get("mapping-collection", {}).get("mappings", [])
-        if isinstance(mappings, list) and len(mappings) == 1 and isinstance(mappings[0], dict):
-            maps = mappings[0].get("maps", [])
-            if isinstance(maps, list):
-                mapping_entry_count = len(maps)
+        if (
+            not isinstance(mappings, list)
+            or len(mappings) != 1
+            or not isinstance(mappings[0], dict)
+        ):
+            issues.append("mapping collection document must contain exactly one mapping pair")
+        else:
+            mapping = mappings[0]
+            try:
+                source_catalog_id, source_revision_id = _catalog_revision_from_catalog_export_href(
+                    str(mapping["source-resource"]["href"]), expected_tenant_id=tenant_id
+                )
+            except (KeyError, RuntimeError) as error:
+                issues.append(f"invalid source-resource href: {error}")
+            try:
+                target_catalog_id, target_revision_id = _catalog_revision_from_catalog_export_href(
+                    str(mapping["target-resource"]["href"]), expected_tenant_id=tenant_id
+                )
+            except (KeyError, RuntimeError) as error:
+                issues.append(f"invalid target-resource href: {error}")
 
-    system_ids = session.scalars(
-        select(InformationSystemRecord.id).where(
+            maps = mapping.get("maps", [])
+            if not isinstance(maps, list):
+                issues.append("mapping pair maps payload must be an array")
+            else:
+                mapping_entry_count = len(maps)
+                raw_mapping_uuid = mapping.get("uuid")
+                try:
+                    mapping_uuid = UUID(str(raw_mapping_uuid))
+                except (TypeError, ValueError):
+                    mapping_uuid = None
+                    issues.append("mapping pair UUID is missing or invalid")
+
+                seen_entry_keys: set[tuple[UUID, UUID]] = set()
+                for index, entry in enumerate(maps):
+                    if not isinstance(entry, dict):
+                        issues.append(f"mapping entry #{index + 1} is not an object")
+                        continue
+                    raw_entry_uuid = entry.get("uuid")
+                    try:
+                        entry_uuid = UUID(str(raw_entry_uuid))
+                    except (TypeError, ValueError):
+                        issues.append(f"mapping entry #{index + 1} UUID is missing or invalid")
+                        continue
+                    if mapping_uuid is None:
+                        continue
+                    key = (mapping_uuid, entry_uuid)
+                    if key in seen_entry_keys:
+                        issues.append(f"mapping entry UUID is duplicated: {entry_uuid}")
+                        continue
+                    seen_entry_keys.add(key)
+                    sources = {
+                        str(item.get("id-ref"))
+                        for item in entry.get("sources", [])
+                        if isinstance(item, dict) and isinstance(item.get("id-ref"), str)
+                    }
+                    targets = {
+                        str(item.get("id-ref"))
+                        for item in entry.get("targets", [])
+                        if isinstance(item, dict) and isinstance(item.get("id-ref"), str)
+                    }
+                    if not sources or not targets:
+                        issues.append(
+                            "mapping entry "
+                            f"{entry_uuid} must include source and target control references"
+                        )
+                    mapping_doc_members[key] = {"source": sources, "target": targets}
+
+    collection_ids = [item.id for item in collections]
+    mapping_member_count = 0
+    member_rows: list[MappingMemberRecord] = []
+    if collection_ids:
+        member_rows = session.scalars(
+            select(MappingMemberRecord).where(
+                MappingMemberRecord.tenant_id == tenant_id,
+                MappingMemberRecord.collection_id.in_(collection_ids),
+            )
+        ).all()
+        mapping_member_count = len(member_rows)
+
+    projected_members: dict[tuple[UUID, UUID], dict[str, set[str]]] = {}
+    for row in member_rows:
+        key = (row.mapping_uuid, row.entry_uuid)
+        sides = projected_members.setdefault(key, {"source": set(), "target": set()})
+        if row.side not in sides:
+            issues.append(f"mapping member {row.id} has unsupported side '{row.side}'")
+            continue
+        sides[row.side].add(row.oscal_member_id)
+
+        if row.side == "source":
+            if source_catalog_id is not None and row.catalog_id != source_catalog_id:
+                issues.append(
+                    "mapping member "
+                    f"{row.id} source catalog mismatch ({row.catalog_id} != {source_catalog_id})"
+                )
+            if source_revision_id is not None and row.revision_id != source_revision_id:
+                issues.append(
+                    "mapping member "
+                    f"{row.id} source revision mismatch ({row.revision_id} != {source_revision_id})"
+                )
+        elif row.side == "target":
+            if target_catalog_id is not None and row.catalog_id != target_catalog_id:
+                issues.append(
+                    "mapping member "
+                    f"{row.id} target catalog mismatch ({row.catalog_id} != {target_catalog_id})"
+                )
+            if target_revision_id is not None and row.revision_id != target_revision_id:
+                issues.append(
+                    "mapping member "
+                    f"{row.id} target revision mismatch ({row.revision_id} != {target_revision_id})"
+                )
+
+    if mapping_doc_members and projected_members:
+        missing_projection_keys = set(mapping_doc_members) - set(projected_members)
+        if missing_projection_keys:
+            issues.append(
+                f"mapping projection is missing {len(missing_projection_keys)} document entries"
+            )
+        extra_projection_keys = set(projected_members) - set(mapping_doc_members)
+        if extra_projection_keys:
+            issues.append(
+                "mapping projection has "
+                f"{len(extra_projection_keys)} extra entries not present in the OSCAL document"
+            )
+        for key in set(mapping_doc_members) & set(projected_members):
+            doc_sources = mapping_doc_members[key]["source"]
+            doc_targets = mapping_doc_members[key]["target"]
+            row_sources = projected_members[key]["source"]
+            row_targets = projected_members[key]["target"]
+            if doc_sources != row_sources:
+                issues.append(
+                    f"mapping source projection mismatch for mapping {key[0]} entry {key[1]}"
+                )
+            if doc_targets != row_targets:
+                issues.append(
+                    f"mapping target projection mismatch for mapping {key[0]} entry {key[1]}"
+                )
+
+    systems = session.scalars(
+        select(InformationSystemRecord).where(
             InformationSystemRecord.tenant_id == tenant_id,
             InformationSystemRecord.name == GOVERNANCE_COVERAGE_SYSTEM_NAME,
         )
     ).all()
+    system_ids = [item.id for item in systems]
+    if len(systems) > 1:
+        issues.append("multiple governance coverage systems are present")
+
+    components: list[SystemComponentRecord] = []
     system_component_count = 0
     if system_ids:
-        system_component_count = len(
-            session.scalars(
-                select(SystemComponentRecord.id).where(
-                    SystemComponentRecord.tenant_id == tenant_id,
-                    SystemComponentRecord.system_id.in_(system_ids),
-                )
-            ).all()
+        components = session.scalars(
+            select(SystemComponentRecord).where(
+                SystemComponentRecord.tenant_id == tenant_id,
+                SystemComponentRecord.system_id.in_(system_ids),
+            )
+        ).all()
+        system_component_count = len(components)
+
+    if len(systems) == 1 and system_component_count != 1:
+        issues.append(
+            "governance coverage system must have exactly one component "
+            f"(found {system_component_count})"
         )
+    if len(systems) == 1 and len(components) == 1 and not components[0].is_system_component:
+        issues.append("governance coverage component must be marked as a system component")
 
     return _GovernanceCoverageSeedState(
         mapping_collection_count=len(collections),
@@ -1297,6 +1444,7 @@ def _governance_coverage_seed_state(
         mapping_entry_count=mapping_entry_count,
         system_count=len(system_ids),
         system_component_count=system_component_count,
+        consistency_issues=tuple(issues),
     )
 
 
