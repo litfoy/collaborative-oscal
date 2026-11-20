@@ -51,7 +51,7 @@ class ComplianceExplorerService:
                 select(ProfileRecord).where(
                     ProfileRecord.tenant_id == tenant_id,
                     ProfileRecord.id.in_(profile_ids),
-                )
+                ).with_for_update(read=True)
             ).all()
             if len(profile_records) != len(profile_ids):
                 raise EntityNotFoundError("Profile not found.")
@@ -85,11 +85,29 @@ class ComplianceExplorerService:
                 ),
             )
 
+            imports_by_profile: dict[UUID, list] = {profile_id: [] for profile_id in profile_ids}
+            for row in ordered_import_rows:
+                imports_by_profile[row.profile_id].append(row)
+
+            for profile_id in profile_ids:
+                profile = profile_by_id[profile_id]
+                document_imports = profile.document["profile"]["imports"]
+                active_imports = imports_by_profile[profile_id]
+                if len(active_imports) != len(document_imports) or [
+                    row.position for row in active_imports
+                ] != list(range(len(active_imports))):
+                    raise RuntimeError("Profile import registry does not match document.")
+                for row in active_imports:
+                    href = (
+                        f"/api/v1/tenants/{tenant_id}/catalogs/{row.catalog_id}"
+                        f"/revisions/{row.revision_id}/export"
+                    )
+                    if document_imports[row.position]["href"] != href:
+                        raise RuntimeError("Profile import source does not match document.")
+
             memberships_by_control: dict[tuple[UUID, UUID, str], list[dict]] = {}
             for row in ordered_import_rows:
                 document_imports = profile_by_id[row.profile_id].document["profile"]["imports"]
-                if row.position >= len(document_imports):
-                    raise RuntimeError("Profile import registry does not match document.")
                 control_ids = document_imports[row.position]["include-controls"][0]["with-ids"]
                 for control_id in control_ids:
                     key = (row.catalog_id, row.revision_id, control_id)
@@ -251,6 +269,7 @@ class ComplianceExplorerService:
                 ControlImplementationRecord.id,
             )
         )
+
 
 
 
