@@ -19,7 +19,7 @@ from collaborative_oscal_oscal.component_definition import (
 from collaborative_oscal_oscal.system_security_plan import (
     validate_system_security_plan_document,
 )
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 
 from app.application import ai_governance_demo as ai_demo_module
 from app.application.ai_governance_demo import (
@@ -689,6 +689,125 @@ def test_governance_coverage_extension_aligns_to_historical_nist_revision(
             )
             == 1
         )
+
+
+def test_governance_coverage_extension_repairs_safe_marker_only_gap(
+    grc_service, session_factory
+) -> None:
+    tenant = grc_service.create_tenant("AI Governance Marker Repair", f"ai-marker-{uuid4().hex}")
+    actor_id = _actor(session_factory, tenant.id)
+
+    seeded = _seed_demo(session_factory, tenant.id, actor_id)
+    assert seeded.applied is True
+    assert seeded.governance_coverage_mapping_collection_id is not None
+    assert seeded.governance_coverage_system_id is not None
+
+    with session_factory.begin() as session:
+        system_ids = session.scalars(
+            select(InformationSystemRecord.id).where(
+                InformationSystemRecord.tenant_id == tenant.id,
+                InformationSystemRecord.name == GOVERNANCE_COVERAGE_SYSTEM_NAME,
+            )
+        ).all()
+        if system_ids:
+            session.execute(
+                delete(SystemComponentRecord).where(
+                    SystemComponentRecord.tenant_id == tenant.id,
+                    SystemComponentRecord.system_id.in_(system_ids),
+                )
+            )
+            session.execute(
+                delete(InformationSystemRecord).where(
+                    InformationSystemRecord.tenant_id == tenant.id,
+                    InformationSystemRecord.id.in_(system_ids),
+                )
+            )
+
+        collection_ids = [
+            item.id
+            for item in session.scalars(
+                select(MappingCollectionRecord).where(
+                    MappingCollectionRecord.tenant_id == tenant.id,
+                )
+            ).all()
+            if item.document.get("mapping-collection", {}).get("metadata", {}).get("title")
+            == GOVERNANCE_COVERAGE_MAPPING_TITLE
+        ]
+        if collection_ids:
+            session.execute(
+                delete(MappingMemberRecord).where(
+                    MappingMemberRecord.tenant_id == tenant.id,
+                    MappingMemberRecord.collection_id.in_(collection_ids),
+                )
+            )
+            session.execute(
+                delete(MappingCollectionRecord).where(
+                    MappingCollectionRecord.tenant_id == tenant.id,
+                    MappingCollectionRecord.id.in_(collection_ids),
+                )
+            )
+
+    repaired = _seed_demo(session_factory, tenant.id, actor_id)
+    assert repaired.applied is True
+    assert repaired.governance_coverage_mapping_collection_id is not None
+    assert repaired.governance_coverage_system_id is not None
+
+    with session_factory() as session:
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(MappingCollectionRecord)
+                .where(MappingCollectionRecord.tenant_id == tenant.id)
+            )
+            == 1
+        )
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(InformationSystemRecord)
+                .where(
+                    InformationSystemRecord.tenant_id == tenant.id,
+                    InformationSystemRecord.name == GOVERNANCE_COVERAGE_SYSTEM_NAME,
+                )
+            )
+            == 1
+        )
+
+
+def test_governance_coverage_extension_fails_when_marker_state_is_partially_present(
+    grc_service, session_factory
+) -> None:
+    tenant = grc_service.create_tenant(
+        "AI Governance Marker Partial", f"ai-marker-partial-{uuid4().hex}"
+    )
+    actor_id = _actor(session_factory, tenant.id)
+
+    seeded = _seed_demo(session_factory, tenant.id, actor_id)
+    assert seeded.applied is True
+
+    with session_factory.begin() as session:
+        system_ids = session.scalars(
+            select(InformationSystemRecord.id).where(
+                InformationSystemRecord.tenant_id == tenant.id,
+                InformationSystemRecord.name == GOVERNANCE_COVERAGE_SYSTEM_NAME,
+            )
+        ).all()
+        if system_ids:
+            session.execute(
+                delete(SystemComponentRecord).where(
+                    SystemComponentRecord.tenant_id == tenant.id,
+                    SystemComponentRecord.system_id.in_(system_ids),
+                )
+            )
+            session.execute(
+                delete(InformationSystemRecord).where(
+                    InformationSystemRecord.tenant_id == tenant.id,
+                    InformationSystemRecord.id.in_(system_ids),
+                )
+            )
+
+    with pytest.raises(RuntimeError, match="marker exists but persisted data is incomplete"):
+        _seed_demo(session_factory, tenant.id, actor_id)
 
 
 def test_governance_coverage_extension_rolls_back_on_invalid_mapping_reference(

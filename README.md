@@ -41,16 +41,10 @@ In the future, both could explicitly reuse the same suitable, versioned configur
 With Docker Compose v2 or newer installed, run from the repository root:
 
 ```bash
-docker compose up --build -d credentials db db-init api web
+docker compose up --build -d
 ```
 
-Or start the stack with the optional AI Governance demo dataset:
-
-```bash
-docker compose --profile ai-governance-demo up --build -d
-```
-
-Open [http://localhost:3000](http://localhost:3000). The standard demo includes a NIST SP 800-53 catalog. No external identity provider is required for local demo mode.
+Open [http://localhost:3000](http://localhost:3000). Local demo startup initializes the Acme workspace, imports the NIST SP 800-53 baseline, and applies the AI Governance/Governance Coverage seed (including the NIST GenAI and EU AI Act catalogs, demo mappings, and fictional systems) before `api` and `web` start. No external identity provider is required for local demo mode.
 
 **Local demo only:** anyone who can access the demo frontend acts as the same demo user. Do not expose it publicly or use production or confidential data. The UI is available in English and German; the language setting does not translate imported OSCAL content or user-authored text.
 
@@ -58,7 +52,7 @@ See the [development guide](docs/development.md) for setup, configuration and te
 
 ## AI Governance demo
 
-The optional demo illustrates a fictional internal AI-assisted software development platform using selected controls from an OSCAL catalog based on the [NIST AI RMF Generative AI Profile](https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence).
+The included demo illustrates a fictional internal AI-assisted software development platform using selected controls from an OSCAL catalog based on the [NIST AI RMF Generative AI Profile](https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence).
 
 It connects model and dataset versioning, human oversight, acceptable use policies, risk measurement and AI red teaming to reusable safeguards, concrete components and requirement-specific implementation contributions. It includes a versioned System Security Plan (SSP), Assessment Plan (AP) and Assessment Results (AR).
 

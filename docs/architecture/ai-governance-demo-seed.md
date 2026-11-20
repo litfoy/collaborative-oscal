@@ -7,31 +7,26 @@ This note records lifecycle verification commands and empirical outcomes for the
 From the repository root:
 
 ```bash
-docker compose up --build -d credentials db db-init api web
+docker compose up --build -d
 ```
 
-This starts the standard local demo stack and does not run the AI governance demo seed automatically.
-
-To opt in to AI governance demo seed execution during startup:
-
-```bash
-docker compose --profile ai-governance-demo up --build -d
-```
-
-The optional one-shot `ai-governance-seed` service runs `python -m app.cli seed-ai-governance-demo-local` after `db-init` completes successfully.
+Standard local startup now runs `python -m app.cli seed-ai-governance-demo-local`
+inside `db-init` after migrations, demo identity bootstrap, and baseline catalog
+import complete successfully. `api` depends on successful `db-init` completion,
+and `web` depends on `api` health, so startup is blocked on seed failures.
 
 ## Troubleshooting
 
-Check one-shot service completion state:
+Check one-shot initialization completion state:
 
 ```bash
-docker compose ps -a ai-governance-seed
+docker compose ps -a db-init
 ```
 
-Inspect logs for successful apply or idempotent reruns (`already applied`):
+Inspect initialization logs for successful apply or idempotent reruns (`already applied`):
 
 ```bash
-docker compose logs ai-governance-seed
+docker compose logs db-init
 ```
 
 If the service exits non-zero, keep the stack running for diagnosis and review the error in logs; the failure is intentionally observable via service exit status and logs.
@@ -107,7 +102,7 @@ The corrected scenario applies to fresh demo initialization only.
 
   ```bash
   docker compose down -v
-  docker compose --profile ai-governance-demo up --build -d
+  docker compose up --build -d
   ```
 
   Do not run this against an installation whose data must be retained.
