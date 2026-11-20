@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright The Collaborative OSCAL Authors.
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 
@@ -15,12 +15,29 @@ vi.mock("@/lib/bff-client", () => ({ bffGet: mocks.bffGet }));
 
 const tenantId = "11111111-1111-4111-8111-111111111111";
 const systemId = "22222222-2222-4222-8222-222222222222";
+const secondSystemId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const systems: InformationSystem[] = [
   {
     id: systemId,
     tenant_id: tenantId,
     organization_id: null,
     name: "Payments System",
+    description: null,
+    system_boundary: null,
+    system_ids: [],
+    information_types: [],
+    operational_status: null,
+    status_remarks: null,
+    security_sensitivity_level: null,
+    created_at: "",
+    updated_at: "",
+    concurrency_version: 1,
+  },
+  {
+    id: secondSystemId,
+    tenant_id: tenantId,
+    organization_id: null,
+    name: "Analytics System",
     description: null,
     system_boundary: null,
     system_ids: [],
@@ -162,7 +179,8 @@ it("applies system/profile selection and renders shared memberships with impleme
 
   expect(await screen.findByRole("table", { name: "Compliance explorer requirements" })).toBeVisible();
   expect(screen.getByText("ac-1")).toBeVisible();
-  expect(screen.getByText("Security baseline, Privacy baseline")).toBeVisible();
+  const requirementsTable = screen.getByRole("table", { name: "Compliance explorer requirements" });
+  expect(within(requirementsTable).getByText("Security baseline, Privacy baseline")).toBeVisible();
   expect(screen.getByText("No system implementation documented")).toBeVisible();
 
   await user.click(screen.getByRole("button", { name: "Toggle details for ac-1" }));
@@ -258,5 +276,56 @@ it("surfaces request errors", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "You do not have access to this workspace.",
   );
+});
+
+it("keeps applied System context explicit after changing the draft System", async () => {
+  const user = userEvent.setup();
+  mocks.bffGet.mockResolvedValue(explorerPage);
+
+  render(
+    <LocaleProvider locale="en">
+      <ComplianceExplorerRequirementsView tenantId={tenantId} systems={systems} profiles={profiles} />
+    </LocaleProvider>,
+  );
+
+  await user.selectOptions(screen.getByLabelText("System"), systemId);
+  await user.click(screen.getByLabelText("Security baseline"));
+  await user.click(screen.getByRole("button", { name: "Apply selection" }));
+  await screen.findByRole("table", { name: "Compliance explorer requirements" });
+
+  await user.selectOptions(screen.getByLabelText("System"), secondSystemId);
+
+  const appliedContext = screen.getByRole("status", { name: "Applied results context" });
+  expect(within(appliedContext).getByText("Applied System")).toBeVisible();
+  expect(within(appliedContext).getByText("Payments System")).toBeVisible();
+  expect(screen.getByText(/The draft selection differs from the applied scope/)).toBeVisible();
+  expect(screen.getByRole("table", { name: "Compliance explorer requirements" })).toBeVisible();
+});
+
+it("keeps applied Profile context explicit after changing the draft Profiles", async () => {
+  const user = userEvent.setup();
+  mocks.bffGet.mockResolvedValue({
+    ...explorerPage,
+    profiles: [{ id: profiles[0].id, title: profiles[0].title }],
+  });
+
+  render(
+    <LocaleProvider locale="en">
+      <ComplianceExplorerRequirementsView tenantId={tenantId} systems={systems} profiles={profiles} />
+    </LocaleProvider>,
+  );
+
+  await user.selectOptions(screen.getByLabelText("System"), systemId);
+  await user.click(screen.getByLabelText("Security baseline"));
+  await user.click(screen.getByRole("button", { name: "Apply selection" }));
+  await screen.findByRole("table", { name: "Compliance explorer requirements" });
+
+  await user.click(screen.getByLabelText("Privacy baseline"));
+
+  const appliedContext = screen.getByRole("status", { name: "Applied results context" });
+  expect(within(appliedContext).getByText("Applied Profiles")).toBeVisible();
+  expect(within(appliedContext).getByText("Security baseline")).toBeVisible();
+  expect(screen.getByText(/The draft selection differs from the applied scope/)).toBeVisible();
+  expect(screen.getByRole("table", { name: "Compliance explorer requirements" })).toBeVisible();
 });
 
