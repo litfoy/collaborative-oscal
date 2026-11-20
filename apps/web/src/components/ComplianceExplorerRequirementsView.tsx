@@ -95,6 +95,13 @@ export function ComplianceExplorerRequirementsView({
 
   const pages = page ? Math.max(1, Math.ceil(page.total / page.limit)) : 1;
   const pageNumber = page ? Math.floor(page.offset / page.limit) + 1 : 1;
+  const profileSelectionDiffers = applied
+    ? applied.profileIds.length !== selectedProfileIds.length ||
+      applied.profileIds.some((profileId) => !selectedProfileIds.includes(profileId))
+    : false;
+  const draftDiffers = applied
+    ? applied.systemId !== selectedSystemId || profileSelectionDiffers
+    : false;
 
   return (
     <div className="workspace">
@@ -161,6 +168,19 @@ export function ComplianceExplorerRequirementsView({
       {error ? <p role="alert">{error}</p> : null}
       {!applied && !loading && !error ? (
         <div className="empty">{t("complianceExplorer.selectionRequired")}</div>
+      ) : null}
+
+      {applied && page ? (
+        <section className="panel" role="status" aria-label={t("complianceExplorer.appliedContext")}>
+          <h2>{t("complianceExplorer.appliedContext")}</h2>
+          <dl className="meta-list">
+            <dt>{t("complianceExplorer.appliedSystem")}</dt>
+            <dd>{page.system.name}</dd>
+            <dt>{t("complianceExplorer.appliedProfiles")}</dt>
+            <dd>{page.profiles.map((profile) => profile.title).join(", ")}</dd>
+          </dl>
+          {draftDiffers ? <p className="muted">{t("complianceExplorer.draftDiffers")}</p> : null}
+        </section>
       ) : null}
 
       {applied && page && page.items.length === 0 && !loading ? (
@@ -262,6 +282,7 @@ export function ComplianceExplorerRequirementsView({
           ) : null}
         </>
       ) : null}
+
     </div>
   );
 }
@@ -314,7 +335,4 @@ function renderDetails(
     </div>
   );
 }
-
-
-
 

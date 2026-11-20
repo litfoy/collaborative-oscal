@@ -6,6 +6,10 @@ export const en = {
   "complianceExplorer.title": "Compliance explorer",
   "complianceExplorer.intro": "Select one System and 1 to 5 Profiles to review selected source Controls and documented system-specific implementation records.",
   "complianceExplorer.scopeNote": "Selected Profiles define explored scope only. This view does not assert applicability, effectiveness, or compliance.",
+  "complianceExplorer.appliedContext": "Applied results context",
+  "complianceExplorer.appliedSystem": "Applied System",
+  "complianceExplorer.appliedProfiles": "Applied Profiles",
+  "complianceExplorer.draftDiffers": "The draft selection differs from the applied scope. These results still reflect the previous applied System and Profiles until you click Apply.",
   "complianceExplorer.system": "System",
   "complianceExplorer.selectSystem": "Select a System",
   "complianceExplorer.profiles": "Profiles",
@@ -42,8 +46,12 @@ export const en = {
 export const de: Record<keyof typeof en, string> = {
   "nav.complianceExplorer": "Konformitäts-Explorer",
   "complianceExplorer.title": "Konformitäts-Explorer",
-  "complianceExplorer.intro": "Wählen Sie ein System und 1 bis 5 Anforderungsprofile aus, um ausgewählte Quellanforderungen und dokumentierte systembezogene Umsetzungsnachweise zu prüfen.",
+  "complianceExplorer.intro": "Wählen Sie ein System und 1 bis 5 Anforderungsprofile aus, um ausgewählte Quellanforderungen und dokumentierte systembezogene Umsetzungen zu prüfen.",
   "complianceExplorer.scopeNote": "Ausgewählte Anforderungsprofile definieren nur den Betrachtungsumfang. Diese Ansicht trifft keine Aussage zu Anwendbarkeit, Wirksamkeit oder Konformität.",
+  "complianceExplorer.appliedContext": "Kontext der angewendeten Ergebnisse",
+  "complianceExplorer.appliedSystem": "Angewendetes System",
+  "complianceExplorer.appliedProfiles": "Angewendete Anforderungsprofile",
+  "complianceExplorer.draftDiffers": "Die Entwurfsauswahl unterscheidet sich vom angewendeten Umfang. Diese Ergebnisse beziehen sich weiterhin auf das zuvor angewendete System und die zuvor angewendeten Anforderungsprofile, bis Sie Auswahl anwenden anklicken.",
   "complianceExplorer.system": "System",
   "complianceExplorer.selectSystem": "System auswählen",
   "complianceExplorer.profiles": "Anforderungsprofile",
@@ -76,4 +84,3 @@ export const de: Record<keyof typeof en, string> = {
   "complianceExplorer.pageLabel": "Seitennavigation der Anforderungen",
   "complianceExplorer.pageSummary": "{count} von {total} ausgewählten Anforderungen werden angezeigt",
 };
-
