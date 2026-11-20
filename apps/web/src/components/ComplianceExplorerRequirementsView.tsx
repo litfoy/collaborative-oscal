@@ -14,6 +14,7 @@ import type {
   InformationSystem,
   Profile,
 } from "@/lib/types";
+import { ComplianceExplorerMeasuresView } from "./ComplianceExplorerMeasuresView";
 
 const PAGE_SIZE = 20;
 
@@ -32,6 +33,7 @@ export function ComplianceExplorerRequirementsView({
   const [applied, setApplied] = useState<{ systemId: string; profileIds: string[] } | null>(null);
   const [page, setPage] = useState<ComplianceExplorerPage | null>(null);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"requirements" | "measures">("requirements");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -183,11 +185,34 @@ export function ComplianceExplorerRequirementsView({
         </section>
       ) : null}
 
+      {applied && page ? (
+        <div className="workspace-actions" role="tablist" aria-label={t("complianceExplorer.viewSwitch")}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={viewMode === "requirements"}
+            aria-controls="compliance-explorer-results"
+            onClick={() => setViewMode("requirements")}
+          >
+            {t("complianceExplorer.requirementsView")}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={viewMode === "measures"}
+            aria-controls="compliance-explorer-results"
+            onClick={() => setViewMode("measures")}
+          >
+            {t("complianceExplorer.measuresView")}
+          </button>
+        </div>
+      ) : null}
+
       {applied && page && page.items.length === 0 && !loading ? (
         <div className="empty">{t("complianceExplorer.emptyResult")}</div>
       ) : null}
 
-      {applied && page && page.items.length > 0 ? (
+      {applied && page && page.items.length > 0 && viewMode === "requirements" ? (
         <>
           <p className="muted" role="status">
             {t("complianceExplorer.pageSummary", {
@@ -195,7 +220,7 @@ export function ComplianceExplorerRequirementsView({
               total: number(page.total),
             })}
           </p>
-          <table aria-label={t("complianceExplorer.tableLabel")}>
+          <table id="compliance-explorer-results" aria-label={t("complianceExplorer.tableLabel")}>
             <thead>
               <tr>
                 <th>{t("complianceExplorer.control")}</th>
@@ -259,30 +284,35 @@ export function ComplianceExplorerRequirementsView({
             </tbody>
           </table>
 
-          {page.total > page.limit ? (
-            <nav className="pagination" aria-label={t("complianceExplorer.pageLabel")}>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => void changePage(Math.max(0, page.offset - page.limit))}
-                disabled={loading || page.offset === 0}
-              >
-                {t("common.previous")}
-              </button>
-              <span>{t("common.page", { page: number(pageNumber), pages: number(pages) })}</span>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => void changePage(page.offset + page.limit)}
-                disabled={loading || page.offset + page.limit >= page.total}
-              >
-                {t("common.next")}
-              </button>
-            </nav>
-          ) : null}
         </>
       ) : null}
 
+      {applied && page && page.items.length > 0 && viewMode === "measures" ? (
+        <div id="compliance-explorer-results" role="tabpanel" aria-label={t("complianceExplorer.measuresView")}>
+          <ComplianceExplorerMeasuresView page={page} />
+        </div>
+      ) : null}
+      {applied && page && page.items.length > 0 && page.total > page.limit ? (
+        <nav className="pagination" aria-label={t("complianceExplorer.pageLabel")}>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void changePage(Math.max(0, page.offset - page.limit))}
+            disabled={loading || page.offset === 0}
+          >
+            {t("common.previous")}
+          </button>
+          <span>{t("common.page", { page: number(pageNumber), pages: number(pages) })}</span>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void changePage(page.offset + page.limit)}
+            disabled={loading || page.offset + page.limit >= page.total}
+          >
+            {t("common.next")}
+          </button>
+        </nav>
+      ) : null}
     </div>
   );
 }
@@ -335,4 +365,3 @@ function renderDetails(
     </div>
   );
 }
-

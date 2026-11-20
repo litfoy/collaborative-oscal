@@ -41,6 +41,17 @@ export const en = {
   "complianceExplorer.na": "N/A",
   "complianceExplorer.pageLabel": "Requirements pagination",
   "complianceExplorer.pageSummary": "Showing {count} of {total} selected Controls",
+  "complianceExplorer.requirementsView": "Requirements",
+  "complianceExplorer.measuresView": "Measures",
+  "complianceExplorer.viewSwitch": "Compliance explorer view",
+  "complianceExplorer.measuresTableLabel": "Measures grouped by explicitly linked System Components",
+  "complianceExplorer.currentPageMeasuresNotice": "Measures grouping covers the current page only: {shown} of {total} selected Controls. Unloaded pages are not included.",
+  "complianceExplorer.measureComponentTitle": "System Component: {title}",
+  "complianceExplorer.measureComponentUnnamed": "Unnamed System Component",
+  "complianceExplorer.componentId": "System Component ID",
+  "complianceExplorer.implementationIds": "Implementation IDs",
+  "complianceExplorer.unlinkedImplementations": "Implementations without an assigned System Component",
+  "complianceExplorer.controlsWithoutImplementations": "Selected Controls without documented system Implementations",
 } as const;
 
 export const de: Record<keyof typeof en, string> = {
@@ -83,4 +94,15 @@ export const de: Record<keyof typeof en, string> = {
   "complianceExplorer.na": "k. A.",
   "complianceExplorer.pageLabel": "Seitennavigation der Anforderungen",
   "complianceExplorer.pageSummary": "{count} von {total} ausgewählten Anforderungen werden angezeigt",
+  "complianceExplorer.requirementsView": "Anforderungen",
+  "complianceExplorer.measuresView": "Maßnahmen",
+  "complianceExplorer.viewSwitch": "Konformitäts-Explorer Ansicht",
+  "complianceExplorer.measuresTableLabel": "Maßnahmen gruppiert nach explizit zugeordneten Systemkomponenten",
+  "complianceExplorer.currentPageMeasuresNotice": "Die Gruppierung der Maßnahmen betrifft nur die aktuelle Seite: {shown} von {total} ausgewählten Kontrollen. Nicht geladene Seiten sind nicht enthalten.",
+  "complianceExplorer.measureComponentTitle": "Systemkomponente: {title}",
+  "complianceExplorer.measureComponentUnnamed": "Unbenannte Systemkomponente",
+  "complianceExplorer.componentId": "Systemkomponenten-ID",
+  "complianceExplorer.implementationIds": "Umsetzungs-IDs",
+  "complianceExplorer.unlinkedImplementations": "Umsetzungen ohne zugeordnete Systemkomponente",
+  "complianceExplorer.controlsWithoutImplementations": "Ausgewählte Kontrollen ohne dokumentierte Systemumsetzungen",
 };
