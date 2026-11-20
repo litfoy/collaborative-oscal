@@ -29,6 +29,7 @@ const READ_PATHS = [
   new RegExp(`^tenants/${UUID}/implementations/${UUID}(/control)?$`),
   new RegExp(`^tenants/${UUID}/systems$`),
   new RegExp(`^tenants/${UUID}/systems/${UUID}$`),
+  new RegExp(`^tenants/${UUID}/systems/${UUID}/compliance-explorer$`),
   new RegExp(`^tenants/${UUID}/systems/${UUID}/components$`),
   new RegExp(`^tenants/${UUID}/systems/${UUID}/components/${UUID}$`),
   new RegExp(`^tenants/${UUID}/systems/${UUID}/system-security-plans$`),

@@ -166,8 +166,9 @@ export function getControl(tenantId: string, catalogId: string, revisionId: stri
 export function listProfiles(
   tenantId: string,
   returnTo: string,
+  query: { limit?: number; offset?: number } = { limit: 200, offset: 0 },
 ): Promise<Paged<Profile>> {
-  return getJson(`/api/v1/tenants/${tenantId}/profiles`, returnTo, { limit: 200 });
+  return getJson(`/api/v1/tenants/${tenantId}/profiles`, returnTo, query);
 }
 
 export function listComponentDefinitions(

@@ -43,6 +43,7 @@ export function AppShell({
               <a href={`/t/${current.id}/mappings`}>{t("nav.mappings")}</a>
               <a href={`/t/${current.id}/profiles`}>{t("nav.profiles")}</a>
               <a href={`/t/${current.id}/systems`}>{t("nav.systems")}</a>
+              <a href={`/t/${current.id}/compliance-explorer`}>{t("nav.complianceExplorer")}</a>
               <a href={`/t/${current.id}/assessment-plans`}>{t("nav.assessmentPlans")}</a>
               <a href={`/t/${current.id}/assessment-results`}>{t("nav.assessmentResults")}</a>
               <span className="muted">{t("nav.workspace")} {current.name}</span>

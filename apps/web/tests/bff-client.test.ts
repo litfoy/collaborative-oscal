@@ -3,7 +3,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { bffWrite } from "@/lib/bff-client";
+import { bffGet, bffWrite } from "@/lib/bff-client";
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -68,6 +68,22 @@ describe("bff client conflict classification", () => {
       kind: "conflict",
       status: 409,
     });
+  });
+
+  it("serializes repeated query parameters for profile selections", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }, 200));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await bffGet("tenants/x/systems/y/compliance-explorer", {
+      profile_id: ["p1", "p2"],
+      limit: 20,
+      offset: 0,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/bff/tenants/x/systems/y/compliance-explorer?profile_id=p1&profile_id=p2&limit=20&offset=0",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
   });
 });
 
