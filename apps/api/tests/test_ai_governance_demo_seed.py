@@ -691,7 +691,7 @@ def test_governance_coverage_extension_aligns_to_historical_nist_revision(
         )
 
 
-def test_governance_coverage_extension_repairs_safe_marker_only_gap(
+def test_governance_coverage_extension_restores_missing_marker_for_complete_state(
     grc_service, session_factory
 ) -> None:
     tenant = grc_service.create_tenant("AI Governance Marker Repair", f"ai-marker-{uuid4().hex}")
@@ -702,57 +702,116 @@ def test_governance_coverage_extension_repairs_safe_marker_only_gap(
     assert seeded.governance_coverage_mapping_collection_id is not None
     assert seeded.governance_coverage_system_id is not None
 
-    with session_factory.begin() as session:
-        system_ids = session.scalars(
-            select(InformationSystemRecord.id).where(
-                InformationSystemRecord.tenant_id == tenant.id,
-                InformationSystemRecord.name == GOVERNANCE_COVERAGE_SYSTEM_NAME,
+    with session_factory() as session:
+        mapping_collection = session.scalar(
+            select(MappingCollectionRecord).where(
+                MappingCollectionRecord.tenant_id == tenant.id,
+                MappingCollectionRecord.id == seeded.governance_coverage_mapping_collection_id,
             )
-        ).all()
-        if system_ids:
-            session.execute(
-                delete(SystemComponentRecord).where(
-                    SystemComponentRecord.tenant_id == tenant.id,
-                    SystemComponentRecord.system_id.in_(system_ids),
-                )
+        )
+        assert mapping_collection is not None
+        before_collection_updated_at = mapping_collection.updated_at
+        before_collection_document = json.dumps(mapping_collection.document, sort_keys=True)
+        before_member_fingerprint = sorted(
+            (
+                str(item.id),
+                str(item.mapping_uuid),
+                str(item.entry_uuid),
+                item.side,
+                str(item.catalog_id),
+                str(item.revision_id),
+                item.oscal_member_id,
             )
-            session.execute(
-                delete(InformationSystemRecord).where(
-                    InformationSystemRecord.tenant_id == tenant.id,
-                    InformationSystemRecord.id.in_(system_ids),
-                )
-            )
-
-        collection_ids = [
-            item.id
             for item in session.scalars(
-                select(MappingCollectionRecord).where(
-                    MappingCollectionRecord.tenant_id == tenant.id,
-                )
-            ).all()
-            if item.document.get("mapping-collection", {}).get("metadata", {}).get("title")
-            == GOVERNANCE_COVERAGE_MAPPING_TITLE
-        ]
-        if collection_ids:
-            session.execute(
-                delete(MappingMemberRecord).where(
+                select(MappingMemberRecord).where(
                     MappingMemberRecord.tenant_id == tenant.id,
-                    MappingMemberRecord.collection_id.in_(collection_ids),
+                    MappingMemberRecord.collection_id == mapping_collection.id,
                 )
             )
-            session.execute(
-                delete(MappingCollectionRecord).where(
-                    MappingCollectionRecord.tenant_id == tenant.id,
-                    MappingCollectionRecord.id.in_(collection_ids),
-                )
+        )
+        coverage_system = session.scalar(
+            select(InformationSystemRecord).where(
+                InformationSystemRecord.tenant_id == tenant.id,
+                InformationSystemRecord.id == seeded.governance_coverage_system_id,
             )
+        )
+        assert coverage_system is not None
+        before_system_updated_at = coverage_system.updated_at
+        coverage_component = session.scalar(
+            select(SystemComponentRecord).where(
+                SystemComponentRecord.tenant_id == tenant.id,
+                SystemComponentRecord.system_id == coverage_system.id,
+            )
+        )
+        assert coverage_component is not None
+        before_component_updated_at = coverage_component.updated_at
+
+    with session_factory.begin() as session:
+        session.execute(
+            delete(DemoSeedRunRecord).where(
+                DemoSeedRunRecord.tenant_id == tenant.id,
+                DemoSeedRunRecord.seed_name == GOVERNANCE_COVERAGE_SEED_NAME,
+            )
+        )
 
     repaired = _seed_demo(session_factory, tenant.id, actor_id)
-    assert repaired.applied is True
-    assert repaired.governance_coverage_mapping_collection_id is not None
-    assert repaired.governance_coverage_system_id is not None
+    assert repaired.applied is False
 
     with session_factory() as session:
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(DemoSeedRunRecord)
+                .where(
+                    DemoSeedRunRecord.tenant_id == tenant.id,
+                    DemoSeedRunRecord.seed_name == GOVERNANCE_COVERAGE_SEED_NAME,
+                )
+            )
+            == 1
+        )
+        mapping_collection = session.scalar(
+            select(MappingCollectionRecord).where(
+                MappingCollectionRecord.tenant_id == tenant.id,
+                MappingCollectionRecord.id == seeded.governance_coverage_mapping_collection_id,
+            )
+        )
+        assert mapping_collection is not None
+        assert mapping_collection.updated_at == before_collection_updated_at
+        assert json.dumps(mapping_collection.document, sort_keys=True) == before_collection_document
+        after_member_fingerprint = sorted(
+            (
+                str(item.id),
+                str(item.mapping_uuid),
+                str(item.entry_uuid),
+                item.side,
+                str(item.catalog_id),
+                str(item.revision_id),
+                item.oscal_member_id,
+            )
+            for item in session.scalars(
+                select(MappingMemberRecord).where(
+                    MappingMemberRecord.tenant_id == tenant.id,
+                    MappingMemberRecord.collection_id == mapping_collection.id,
+                )
+            )
+        )
+        assert after_member_fingerprint == before_member_fingerprint
+        coverage_system = session.scalar(
+            select(InformationSystemRecord).where(
+                InformationSystemRecord.tenant_id == tenant.id,
+                InformationSystemRecord.id == seeded.governance_coverage_system_id,
+            )
+        )
+        assert coverage_system is not None
+        assert coverage_system.updated_at == before_system_updated_at
+        coverage_component = session.scalar(
+            select(SystemComponentRecord).where(
+                SystemComponentRecord.tenant_id == tenant.id,
+                SystemComponentRecord.system_id == coverage_system.id,
+            )
+        )
+        assert coverage_component is not None
+        assert coverage_component.updated_at == before_component_updated_at
         assert (
             session.scalar(
                 select(func.count())
@@ -772,6 +831,165 @@ def test_governance_coverage_extension_repairs_safe_marker_only_gap(
             )
             == 1
         )
+
+
+def test_governance_coverage_extension_fails_for_missing_marker_with_partial_state(
+    grc_service, session_factory
+) -> None:
+    tenant = grc_service.create_tenant(
+        "AI Governance Marker Partial Missing", f"ai-marker-partial-missing-{uuid4().hex}"
+    )
+    actor_id = _actor(session_factory, tenant.id)
+
+    seeded = _seed_demo(session_factory, tenant.id, actor_id)
+    assert seeded.applied is True
+    assert seeded.governance_coverage_mapping_collection_id is not None
+
+    with session_factory.begin() as session:
+        session.execute(
+            delete(DemoSeedRunRecord).where(
+                DemoSeedRunRecord.tenant_id == tenant.id,
+                DemoSeedRunRecord.seed_name == GOVERNANCE_COVERAGE_SEED_NAME,
+            )
+        )
+        removed_member = session.scalar(
+            select(MappingMemberRecord).where(
+                MappingMemberRecord.tenant_id == tenant.id,
+                MappingMemberRecord.collection_id
+                == seeded.governance_coverage_mapping_collection_id,
+                MappingMemberRecord.side == "target",
+            )
+        )
+        assert removed_member is not None
+        session.execute(
+            delete(MappingMemberRecord).where(
+                MappingMemberRecord.tenant_id == tenant.id,
+                MappingMemberRecord.id == removed_member.id,
+            )
+        )
+
+    with session_factory() as session:
+        before_counts = (
+            session.scalar(
+                select(func.count())
+                .select_from(MappingCollectionRecord)
+                .where(MappingCollectionRecord.tenant_id == tenant.id)
+            ),
+            session.scalar(
+                select(func.count())
+                .select_from(MappingMemberRecord)
+                .where(MappingMemberRecord.tenant_id == tenant.id)
+            ),
+            session.scalar(
+                select(func.count())
+                .select_from(DemoSeedRunRecord)
+                .where(
+                    DemoSeedRunRecord.tenant_id == tenant.id,
+                    DemoSeedRunRecord.seed_name == GOVERNANCE_COVERAGE_SEED_NAME,
+                )
+            ),
+        )
+
+    with pytest.raises(RuntimeError, match="marker is missing but persisted data is incomplete"):
+        _seed_demo(session_factory, tenant.id, actor_id)
+
+    with session_factory() as session:
+        after_counts = (
+            session.scalar(
+                select(func.count())
+                .select_from(MappingCollectionRecord)
+                .where(MappingCollectionRecord.tenant_id == tenant.id)
+            ),
+            session.scalar(
+                select(func.count())
+                .select_from(MappingMemberRecord)
+                .where(MappingMemberRecord.tenant_id == tenant.id)
+            ),
+            session.scalar(
+                select(func.count())
+                .select_from(DemoSeedRunRecord)
+                .where(
+                    DemoSeedRunRecord.tenant_id == tenant.id,
+                    DemoSeedRunRecord.seed_name == GOVERNANCE_COVERAGE_SEED_NAME,
+                )
+            ),
+        )
+    assert after_counts == before_counts
+
+
+def test_governance_coverage_extension_rejects_count_matching_inconsistent_projection(
+    grc_service, session_factory
+) -> None:
+    tenant = grc_service.create_tenant(
+        "AI Governance Inconsistent Projection", f"ai-inconsistent-{uuid4().hex}"
+    )
+    actor_id = _actor(session_factory, tenant.id)
+
+    seeded = _seed_demo(session_factory, tenant.id, actor_id)
+    assert seeded.applied is True
+    assert seeded.governance_coverage_mapping_collection_id is not None
+
+    with session_factory.begin() as session:
+        session.execute(
+            delete(DemoSeedRunRecord).where(
+                DemoSeedRunRecord.tenant_id == tenant.id,
+                DemoSeedRunRecord.seed_name == GOVERNANCE_COVERAGE_SEED_NAME,
+            )
+        )
+        mapping_collection = session.scalar(
+            select(MappingCollectionRecord).where(
+                MappingCollectionRecord.tenant_id == tenant.id,
+                MappingCollectionRecord.id == seeded.governance_coverage_mapping_collection_id,
+            )
+        )
+        assert mapping_collection is not None
+        mapping_document = json.loads(json.dumps(mapping_collection.document))
+        mapping_pair = mapping_document["mapping-collection"]["mappings"][0]
+        mapping_pair["target-resource"]["href"] = mapping_pair["source-resource"]["href"]
+        mapping_collection.document = mapping_document
+
+    with session_factory() as session:
+        before_document = session.scalar(
+            select(MappingCollectionRecord.document).where(
+                MappingCollectionRecord.tenant_id == tenant.id,
+                MappingCollectionRecord.id == seeded.governance_coverage_mapping_collection_id,
+            )
+        )
+        assert before_document is not None
+        before_document_serialized = json.dumps(before_document, sort_keys=True)
+        before_member_count = session.scalar(
+            select(func.count())
+            .select_from(MappingMemberRecord)
+            .where(MappingMemberRecord.tenant_id == tenant.id)
+        )
+
+    with pytest.raises(RuntimeError, match="marker is missing but persisted data is incomplete"):
+        _seed_demo(session_factory, tenant.id, actor_id)
+
+    with session_factory() as session:
+        marker_count = session.scalar(
+            select(func.count())
+            .select_from(DemoSeedRunRecord)
+            .where(
+                DemoSeedRunRecord.tenant_id == tenant.id,
+                DemoSeedRunRecord.seed_name == GOVERNANCE_COVERAGE_SEED_NAME,
+            )
+        )
+        after_document = session.scalar(
+            select(MappingCollectionRecord.document).where(
+                MappingCollectionRecord.tenant_id == tenant.id,
+                MappingCollectionRecord.id == seeded.governance_coverage_mapping_collection_id,
+            )
+        )
+        assert after_document is not None
+        after_member_count = session.scalar(
+            select(func.count())
+            .select_from(MappingMemberRecord)
+            .where(MappingMemberRecord.tenant_id == tenant.id)
+        )
+    assert int(marker_count or 0) == 0
+    assert json.dumps(after_document, sort_keys=True) == before_document_serialized
+    assert after_member_count == before_member_count
 
 
 def test_governance_coverage_extension_fails_when_marker_state_is_partially_present(

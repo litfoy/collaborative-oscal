@@ -41,16 +41,10 @@ Perspektivisch könnten beide denselben geeigneten, versionierten Konfigurations
 Voraussetzung ist Docker Compose v2 oder neuer. Im Repository-Verzeichnis:
 
 ```bash
-docker compose up --build -d credentials db db-init api web
+docker compose up --build -d
 ```
 
-Alternativ lässt sich der Stack mit dem optionalen AI-Governance-Demodatensatz starten:
-
-```bash
-docker compose --profile ai-governance-demo up --build -d
-```
-
-Die Anwendung ist unter [http://localhost:3000](http://localhost:3000) erreichbar. Die Standarddemo enthält einen NIST-SP-800-53-Katalog. Für den lokalen Demomodus ist kein externer Identity Provider erforderlich.
+Die Anwendung ist unter [http://localhost:3000](http://localhost:3000) erreichbar. Der lokale Demo-Start initialisiert den Acme-Workspace, importiert den NIST-SP-800-53-Basiskatalog und führt den AI-Governance-/Governance-Coverage-Seed (inklusive NIST-GenAI- und EU-AI-Act-Katalog, Mapping-Sammlung und fiktiver Systeme) aus, bevor `api` und `web` starten. Für den lokalen Demomodus ist kein externer Identity Provider erforderlich.
 
 **Nur für lokale Demonstrationen:** Alle Personen mit Zugriff auf die Demo-Oberfläche verwenden dieselbe Demo-Identität. Die Demo darf weder öffentlich bereitgestellt noch mit produktiven oder vertraulichen Daten betrieben werden. Die Oberfläche ist auf Englisch und Deutsch verfügbar; die Sprachauswahl übersetzt weder importierte OSCAL-Inhalte noch selbst verfasste Texte.
 
@@ -58,7 +52,7 @@ Der [Entwicklerleitfaden](docs/development.md) beschreibt Einrichtung, Konfigura
 
 ## AI-Governance-Demo
 
-Die optionale Demo beschreibt eine fiktive interne Plattform für KI-gestützte Softwareentwicklung anhand ausgewählter Controls aus einem OSCAL-Katalog auf Grundlage des [NIST AI RMF Generative AI Profile](https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence).
+Die enthaltene Demo beschreibt eine fiktive interne Plattform für KI-gestützte Softwareentwicklung anhand ausgewählter Controls aus einem OSCAL-Katalog auf Grundlage des [NIST AI RMF Generative AI Profile](https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence).
 
 Das Szenario verbindet die Versionierung von Modellen und Datensätzen, menschliche Aufsicht (Human Oversight), Acceptable Use Policies, Risikomessung und AI Red Teaming mit wiederverwendbaren Schutzmaßnahmen, konkreten Komponenten und anforderungsspezifischen Umsetzungsbeiträgen. Es umfasst einen versionierten Systemsicherheitsplan (SSP), einen Prüfplan (AP) und Prüfergebnisse (AR).
 
