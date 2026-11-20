@@ -347,6 +347,57 @@ export interface SystemSecurityPlanVersion {
   concurrency_version?: number | null;
 }
 
+export interface ComplianceExplorerSystem {
+  id: string;
+  name: string;
+}
+
+export interface ComplianceExplorerProfile {
+  id: string;
+  title: string;
+}
+
+export interface ComplianceExplorerControlReference {
+  catalog_id: string;
+  revision_id: string;
+  oscal_control_id: string;
+}
+
+export interface ComplianceExplorerMembership {
+  profile_id: string;
+  profile_title: string;
+  profile_import_id: string;
+}
+
+export interface ComplianceExplorerSystemComponent {
+  id: string;
+  title: string | null;
+}
+
+export interface ComplianceExplorerImplementation {
+  id: string;
+  status: ImplementationStatus;
+  oscal_implementation_status: OscalImplementationStatus | null;
+  oscal_status_explanation: string | null;
+  profile_id: string | null;
+  profile_import_id: string | null;
+  system_component_id: string | null;
+  system_component: ComplianceExplorerSystemComponent | null;
+}
+
+export interface ComplianceExplorerControlItem {
+  reference: ComplianceExplorerControlReference;
+  title: string;
+  memberships: ComplianceExplorerMembership[];
+  implementations: ComplianceExplorerImplementation[];
+}
+
+export interface ComplianceExplorerPage extends Page {
+  system: ComplianceExplorerSystem;
+  profiles: ComplianceExplorerProfile[];
+  items: ComplianceExplorerControlItem[];
+}
+
 export type AssessmentMethod = "EXAMINE" | "INTERVIEW" | "TEST";
 
 export interface AssessmentSourceObjective {

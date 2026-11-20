@@ -358,4 +358,26 @@ describe("BFF proxy", () => {
     );
     expect(updateResponse.status).toBe(200);
   });
+
+  it("forwards repeated profile_id query parameters for compliance explorer reads", async () => {
+    mocks.readSession.mockResolvedValue(session);
+    mocks.backendFetch.mockResolvedValue(
+      new Response('{"items":[],"total":0,"limit":20,"offset":0}', {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const systemId = "22222222-2222-4222-8222-222222222222";
+    const profileA = "33333333-3333-4333-8333-333333333333";
+    const profileB = "44444444-4444-4444-8444-444444444444";
+    const path = ["tenants", U, "systems", systemId, "compliance-explorer"];
+    const request = new NextRequest(
+      `http://localhost:3000/bff/${path.join("/")}?profile_id=${profileA}&profile_id=${profileB}&limit=20&offset=0`,
+    );
+    const response = await bff(request, ctx(path));
+    expect(response.status).toBe(200);
+    const forwardedQuery = mocks.backendFetch.mock.calls[0][2] as URLSearchParams;
+    expect(forwardedQuery.getAll("profile_id")).toEqual([profileA, profileB]);
+    expect(forwardedQuery.get("limit")).toBe("20");
+    expect(forwardedQuery.get("offset")).toBe("0");
+  });
 });

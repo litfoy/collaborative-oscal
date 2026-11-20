@@ -6,12 +6,18 @@ import { ApiError, ERROR_MESSAGES, kindForStatus } from "./errors";
 /** Browser-side client for the same-origin BFF. It never sees any token. */
 export async function bffGet<T>(
   path: string,
-  query?: Record<string, string | number | undefined>,
+  query?: Record<string, string | number | (string | number)[] | undefined>,
   signal?: AbortSignal,
 ): Promise<T> {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(query ?? {})) {
-    if (value !== undefined && value !== "") search.set(key, String(value));
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== "") search.append(key, String(item));
+      }
+      continue;
+    }
+    if (value !== undefined && value !== "") search.append(key, String(value));
   }
   const suffix = search.size > 0 ? `?${search.toString()}` : "";
   let response: Response;
