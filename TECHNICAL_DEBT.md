@@ -25,6 +25,10 @@ This list is maintained by the Author and formatted by AI
 | TB-09g-05 | Improvement | `ImplementationRegister.tsx`: refresh list cache after save/reload while preserving local draft/token guarantees. | Deferred |
 | TB-09g-06 | Improvement | Add a lock compatibility test for two SSPs sharing a referenced implementation (`test_system_security_plan_concurrency.py`). | Deferred |
 | TB-09g-07 | Improvement | Extend mapper rollback assertions to entire aggregates, audit fields, and responsibility row IDs. | Deferred |
+| TB-SEED-01 | High | Product Decision | Define whether governance demo data is an immutable reference scenario or an editable starting point. Current strict seed cardinalities may block subsequent Compose initialization after legitimate user modifications. | Decision pending |
+| TB-SEED-02 | Minor | Document safe cleanup of orphaned ai-governance-seed Docker containers after removal of the optional Compose service. Avoid destructive volume resets. | Deferred |
+| TB-SEED-03 | Release Check | Verify EU AI Act catalog provenance, source version, scope, and redistribution rights before broader demo publication or distribution. Investigate the separate untracked catalog variant. | Deferred |
+
 
 ## B. Earlier Technical Debt / Release Hardening - if it will ever be released
 
