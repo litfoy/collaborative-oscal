@@ -6,6 +6,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from app.api.catalog_routes import Pagination
+from app.api.compliance_explorer_schemas import ComplianceExplorerPageResponse
 from app.api.dependencies import require_tenant_permission
 from app.api.system_security_plan_schemas import (
     ComponentAdoptionInput,
@@ -25,6 +27,7 @@ from app.api.system_security_plan_schemas import (
     SystemSecurityPlanVersionInput,
     SystemSecurityPlanVersionResponse,
 )
+from app.application.compliance_explorer import ComplianceExplorerService
 from app.application.implementations import StaleImplementationUpdate
 from app.application.system_security_plans import (
     InvalidSystemSecurityPlan,
@@ -51,6 +54,16 @@ def get_system_security_plan_service() -> SystemSecurityPlanService:
 
 
 Service = Annotated[SystemSecurityPlanService, Depends(get_system_security_plan_service)]
+
+
+def get_compliance_explorer_service() -> ComplianceExplorerService:
+    return ComplianceExplorerService(lambda: create_session_factory().begin())
+
+
+ComplianceExplorer = Annotated[
+    ComplianceExplorerService,
+    Depends(get_compliance_explorer_service),
+]
 
 
 def _handle_not_found(error: EntityNotFoundError) -> HTTPException:
@@ -145,6 +158,32 @@ def get_system(context: ReadContext, service: Service, system_id: UUID) -> Syste
         return SystemResponse.model_validate(service.get_system(context.tenant_id, system_id))
     except EntityNotFoundError as error:
         raise _handle_not_found(error) from error
+
+
+@router.get(
+    "/systems/{system_id}/compliance-explorer",
+    response_model=ComplianceExplorerPageResponse,
+)
+def get_compliance_explorer(
+    context: ReadContext,
+    service: ComplianceExplorer,
+    pagination: Pagination,
+    system_id: UUID,
+    profile_id: list[UUID] = Query(min_length=1, max_length=5),
+) -> ComplianceExplorerPageResponse:
+    if len(set(profile_id)) != len(profile_id):
+        raise HTTPException(status_code=422, detail="profile_id values must be unique.")
+    try:
+        payload = service.project(
+            context.tenant_id,
+            system_id,
+            profile_id,
+            limit=pagination.limit,
+            offset=pagination.offset,
+        )
+    except EntityNotFoundError as error:
+        raise _handle_not_found(error) from error
+    return ComplianceExplorerPageResponse.model_validate(payload)
 
 
 @router.put("/systems/{system_id}", response_model=SystemResponse)
