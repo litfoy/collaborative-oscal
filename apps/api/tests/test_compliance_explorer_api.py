@@ -14,9 +14,11 @@ from fastapi.testclient import TestClient
 
 from app.api import dependencies
 from app.application.catalog_import import CatalogImportService
+from app.application.compliance_explorer import ComplianceExplorerService
 from app.application.profiles import ProfileService
 from app.application.system_security_plans import SystemSecurityPlanService
 from app.config import get_settings
+from app.domain.profiles.models import ProfileImport
 from app.persistence.database import create_session_factory
 from app.persistence.identity import SQLIdentityRepository, SQLMembershipRepository
 from app.persistence.models import ControlImplementationRecord
@@ -41,8 +43,10 @@ class _StubValidator:
 class ExplorerWorld:
     tenant_id: UUID
     other_tenant_id: UUID
+    catalog_id: UUID
     system_id: UUID
     other_system_id: UUID
+    editor_user_id: UUID
     profile_one_id: UUID
     profile_two_id: UUID
     profile_three_id: UUID
@@ -409,8 +413,10 @@ def explorer_world(monkeypatch, postgres_url, session_factory, grc_service) -> E
     world = ExplorerWorld(
         tenant_id=tenant.id,
         other_tenant_id=other_tenant.id,
+        catalog_id=revision_one.catalog.id,
         system_id=system["id"],
         other_system_id=other_system["id"],
+        editor_user_id=actor,
         profile_one_id=profile_one.id,
         profile_two_id=profile_two.id,
         profile_three_id=profile_three.id,
@@ -692,6 +698,97 @@ def test_compliance_explorer_pagination_is_stable_and_reports_total(client, expl
     assert empty_page.status_code == 200
     assert empty_page.json()["items"] == []
     assert empty_page.json()["total"] == full_body["total"]
+
+
+def test_compliance_explorer_honors_multi_import_reorder_and_deactivation(
+    client, explorer_world, session_factory
+) -> None:
+    profile_service = ProfileService(lambda: session_factory.begin())
+    explorer_service = ComplianceExplorerService(lambda: session_factory.begin())
+
+    first_import = ProfileImport(
+        id=uuid4(),
+        catalog_id=explorer_world.catalog_id,
+        revision_id=explorer_world.revision_one_id,
+        control_ids=["ac-2"],
+    )
+    second_import = ProfileImport(
+        id=uuid4(),
+        catalog_id=explorer_world.catalog_id,
+        revision_id=explorer_world.revision_two_id,
+        control_ids=["ac-1"],
+    )
+    profile = profile_service.create(
+        explorer_world.tenant_id,
+        None,
+        None,
+        "Multi import profile",
+        None,
+        imports=[first_import, second_import],
+    )
+
+    reordered = profile_service.update(
+        explorer_world.tenant_id,
+        profile.id,
+        profile.concurrency_version,
+        "Multi import profile",
+        None,
+        imports=[second_import, first_import],
+    )
+    reordered_payload = explorer_service.project(
+        explorer_world.tenant_id,
+        explorer_world.system_id,
+        [reordered.id],
+        limit=10,
+        offset=0,
+    )
+    reordered_items = reordered_payload["items"]
+    assert reordered_payload["total"] == 2
+    assert {
+        (
+            item["reference"]["revision_id"],
+            item["reference"]["oscal_control_id"],
+            item["memberships"][0]["profile_import_id"],
+        )
+        for item in reordered_items
+    } == {
+        (explorer_world.revision_one_id, "ac-2", first_import.id),
+        (explorer_world.revision_two_id, "ac-1", second_import.id),
+    }
+
+    deactivated = profile_service.update(
+        explorer_world.tenant_id,
+        reordered.id,
+        reordered.concurrency_version,
+        "Multi import profile",
+        None,
+        imports=[second_import],
+    )
+    endpoint = (
+        f"/api/v1/tenants/{explorer_world.tenant_id}/systems/"
+        f"{explorer_world.system_id}/compliance-explorer"
+    )
+    response = client.get(
+        endpoint,
+        headers=explorer_world.headers("alice"),
+        params=_params([deactivated.id]),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["reference"] == {
+        "catalog_id": str(explorer_world.catalog_id),
+        "revision_id": str(explorer_world.revision_two_id),
+        "oscal_control_id": "ac-1",
+    }
+    assert body["items"][0]["memberships"] == [
+        {
+            "profile_id": str(deactivated.id),
+            "profile_title": "Multi import profile",
+            "profile_import_id": str(second_import.id),
+        }
+    ]
+
 
 
 
