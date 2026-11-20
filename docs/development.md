@@ -41,14 +41,14 @@ docker compose up
 
 Once startup completes, open **http://localhost:3000**. The first run builds the
 application images, generates server-only credentials, starts PostgreSQL, applies
-the migrations, and creates the Acme Corp demo workspace. No `.env` file or
-Keycloak is needed. The workspace includes the official NIST SP 800-53 Rev. 5.2.0
-catalog; use Catalog Explorer to browse it or import other OSCAL Catalog JSON
-files, for example `examples/catalogs/sample-data-handling.json`. The bundled
-NIST catalog is imported once per demo database; restarts do not replace changes
-or re-import a catalog that was later removed. After updating an existing checkout,
-run `docker compose up --build` to rebuild its images; existing demo databases
-then acquire the seed unless they already contain that OSCAL document.
+the migrations, and creates the Acme Corp demo workspace. It then imports the
+official NIST SP 800-53 Rev. 5.2.0 baseline and runs `seed-ai-governance-demo-local`
+to initialize the AI Governance/Governance Coverage demo dataset. No `.env` file
+or Keycloak is needed. The bundled seeds are idempotent and use versioned markers;
+restarts do not create duplicate records. If initialization fails, `db-init` exits
+non-zero and `api`/`web` do not start, so incomplete demo startup stays visible.
+Use Catalog Explorer to browse the catalogs or import other OSCAL Catalog JSON
+files, for example `examples/catalogs/sample-data-handling.json`.
 
 This is **only a local demonstration**, not a production deployment. Anyone who
 can access the frontend can act as the demo user and make changes. Only the

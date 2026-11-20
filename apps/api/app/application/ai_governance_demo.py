@@ -39,6 +39,9 @@ from app.persistence.models import (
     CatalogRevisionRecord,
     DemoSeedRunRecord,
     InformationSystemRecord,
+    MappingCollectionRecord,
+    MappingMemberRecord,
+    SystemComponentRecord,
     SystemSecurityPlanRecord,
     SystemSecurityPlanVersionRecord,
     TenantMembershipRecord,
@@ -956,6 +959,43 @@ class _GovernanceCoverageExtensionResult:
     mapping_collection_id: UUID | None
 
 
+@dataclass(frozen=True, slots=True)
+class _GovernanceCoverageSeedState:
+    mapping_collection_count: int
+    mapping_member_count: int
+    mapping_entry_count: int
+    system_count: int
+    system_component_count: int
+
+    @property
+    def is_empty(self) -> bool:
+        return (
+            self.mapping_collection_count == 0
+            and self.mapping_member_count == 0
+            and self.mapping_entry_count == 0
+            and self.system_count == 0
+            and self.system_component_count == 0
+        )
+
+    @property
+    def is_complete(self) -> bool:
+        return (
+            self.mapping_collection_count == 1
+            and self.mapping_member_count == GOVERNANCE_COVERAGE_MAPPING_COUNT * 2
+            and self.mapping_entry_count == GOVERNANCE_COVERAGE_MAPPING_COUNT
+            and self.system_count == 1
+            and self.system_component_count == 1
+        )
+
+    def diagnostic(self) -> str:
+        return (
+            "collections="
+            f"{self.mapping_collection_count}, members={self.mapping_member_count}, "
+            f"entries={self.mapping_entry_count}, systems={self.system_count}, "
+            f"components={self.system_component_count}"
+        )
+
+
 def _latest_catalog_revision_for_document(
     session: Session,
     *,
@@ -1013,16 +1053,42 @@ def _seed_governance_coverage_extension(
     begin_scope: Callable[[], AbstractContextManager[Session]],
     unit_of_work_factory: Callable[[], SQLAlchemyUnitOfWork],
 ) -> _GovernanceCoverageExtensionResult:
-    if session.scalar(
+    marker_present = bool(
+        session.scalar(
         select(DemoSeedRunRecord.seed_name).where(
             DemoSeedRunRecord.tenant_id == tenant_id,
             DemoSeedRunRecord.seed_name == GOVERNANCE_COVERAGE_SEED_NAME,
         )
-    ):
+        )
+    )
+    existing = _governance_coverage_seed_state(session, tenant_id=tenant_id)
+    if marker_present:
+        if existing.is_complete:
+            return _GovernanceCoverageExtensionResult(
+                applied=False,
+                system_id=None,
+                mapping_collection_id=None,
+            )
+        if not existing.is_empty:
+            raise RuntimeError(
+                "Governance coverage seed marker exists but persisted data is incomplete. "
+                f"Refusing unsafe repair ({existing.diagnostic()})."
+            )
+    elif existing.is_complete:
+        session.execute(
+            insert(DemoSeedRunRecord)
+            .values(tenant_id=tenant_id, seed_name=GOVERNANCE_COVERAGE_SEED_NAME)
+            .on_conflict_do_nothing(index_elements=["tenant_id", "seed_name"])
+        )
         return _GovernanceCoverageExtensionResult(
             applied=False,
             system_id=None,
             mapping_collection_id=None,
+        )
+    elif not existing.is_empty:
+        raise RuntimeError(
+            "Governance coverage seed marker is missing but persisted data is incomplete. "
+            f"Refusing unsafe repair ({existing.diagnostic()})."
         )
 
     actor = SQLIdentityRepository(session).get_by_id(actor_id)
@@ -1175,6 +1241,63 @@ def _resolve_mapping_target_catalog_revision(
         ),
     )
     return pinned.catalog_id, pinned.id
+
+
+def _governance_coverage_seed_state(
+    session: Session, *, tenant_id: UUID
+) -> _GovernanceCoverageSeedState:
+    collections = [
+        item
+        for item in session.scalars(
+            select(MappingCollectionRecord).where(MappingCollectionRecord.tenant_id == tenant_id)
+        ).all()
+        if item.document.get("mapping-collection", {}).get("metadata", {}).get("title")
+        == GOVERNANCE_COVERAGE_MAPPING_TITLE
+    ]
+    collection_ids = [item.id for item in collections]
+    mapping_member_count = 0
+    if collection_ids:
+        mapping_member_count = len(
+            session.scalars(
+                select(MappingMemberRecord.id).where(
+                    MappingMemberRecord.tenant_id == tenant_id,
+                    MappingMemberRecord.collection_id.in_(collection_ids),
+                )
+            ).all()
+        )
+
+    mapping_entry_count = 0
+    if len(collections) == 1:
+        mappings = collections[0].document.get("mapping-collection", {}).get("mappings", [])
+        if isinstance(mappings, list) and len(mappings) == 1 and isinstance(mappings[0], dict):
+            maps = mappings[0].get("maps", [])
+            if isinstance(maps, list):
+                mapping_entry_count = len(maps)
+
+    system_ids = session.scalars(
+        select(InformationSystemRecord.id).where(
+            InformationSystemRecord.tenant_id == tenant_id,
+            InformationSystemRecord.name == GOVERNANCE_COVERAGE_SYSTEM_NAME,
+        )
+    ).all()
+    system_component_count = 0
+    if system_ids:
+        system_component_count = len(
+            session.scalars(
+                select(SystemComponentRecord.id).where(
+                    SystemComponentRecord.tenant_id == tenant_id,
+                    SystemComponentRecord.system_id.in_(system_ids),
+                )
+            ).all()
+        )
+
+    return _GovernanceCoverageSeedState(
+        mapping_collection_count=len(collections),
+        mapping_member_count=mapping_member_count,
+        mapping_entry_count=mapping_entry_count,
+        system_count=len(system_ids),
+        system_component_count=system_component_count,
+    )
 
 
 def _mapping_target_control_ids(mapping_draft_path: Path) -> set[str]:
