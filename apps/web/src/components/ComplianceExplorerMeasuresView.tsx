@@ -3,14 +3,15 @@
 
 import type { Translate } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/provider";
-import type { ComplianceExplorerControlItem, ComplianceExplorerPage } from "@/lib/types";
+import type {
+  ComplianceExplorerControlItem,
+  ComplianceExplorerImplementation,
+  ComplianceExplorerPage,
+} from "@/lib/types";
 
 interface MeasuresControlAssociation {
   control: ComplianceExplorerControlItem;
-  implementationIds: string[];
-  statuses: string[];
-  oscalStatuses: (string | null)[];
-  provenance: { profileId: string | null; importId: string | null }[];
+  implementations: ComplianceExplorerImplementation[];
 }
 
 interface MeasuresComponentGroup {
@@ -33,13 +34,7 @@ export function ComplianceExplorerMeasuresView({ page }: { page: ComplianceExplo
     for (const implementation of control.implementations) {
       const association: MeasuresControlAssociation = {
         control,
-        implementationIds: [implementation.id],
-        statuses: [implementation.status],
-        oscalStatuses: [implementation.oscal_implementation_status],
-        provenance: [{
-          profileId: implementation.profile_id,
-          importId: implementation.profile_import_id,
-        }],
+        implementations: [implementation],
       };
 
       if (implementation.system_component_id === null || implementation.system_component === null) {
@@ -49,10 +44,7 @@ export function ComplianceExplorerMeasuresView({ page }: { page: ComplianceExplo
           && item.control.reference.oscal_control_id === control.reference.oscal_control_id
         );
         if (existing) {
-          existing.implementationIds.push(...association.implementationIds);
-          existing.statuses.push(...association.statuses);
-          existing.oscalStatuses.push(...association.oscalStatuses);
-          existing.provenance.push(...association.provenance);
+          existing.implementations.push(...association.implementations);
         } else {
           unlinked.push(association);
         }
@@ -76,10 +68,7 @@ export function ComplianceExplorerMeasuresView({ page }: { page: ComplianceExplo
         && item.control.reference.oscal_control_id === control.reference.oscal_control_id
       );
       if (existingControl) {
-        existingControl.implementationIds.push(...association.implementationIds);
-        existingControl.statuses.push(...association.statuses);
-        existingControl.oscalStatuses.push(...association.oscalStatuses);
-        existingControl.provenance.push(...association.provenance);
+        existingControl.implementations.push(...association.implementations);
       } else {
         group.controls.push(association);
       }
@@ -175,32 +164,31 @@ function renderControlAssociation(
       <div className="muted">
         {t("complianceExplorer.memberships")}: {control.memberships.map((membership) => membership.profile_title).join(", ")}
       </div>
-      <dl className="meta-list">
-        <dt>{t("complianceExplorer.implementationIds")}</dt>
-        <dd className="mono">{association.implementationIds.join(", ")}</dd>
-        <dt>{t("complianceExplorer.statuses")}</dt>
-        <dd>
-          {association.statuses.map((status, index) => (
-            <span key={`${association.implementationIds[index]}-${status}`}>
-              {index > 0 ? " · " : ""}
-              {enumLabel(status)}
-              {association.oscalStatuses[index]
-                ? ` / ${enumLabel(association.oscalStatuses[index] as string)}`
-                : ""}
-            </span>
-          ))}
-        </dd>
-        <dt>{t("complianceExplorer.provenance")}</dt>
-        <dd className="mono">
-          {association.provenance.map((item, index) => (
-            <span key={`${item.profileId}-${item.importId}-${index}`}>
-              {index > 0 ? " · " : ""}
-              {item.profileId ?? t("complianceExplorer.na")}/{item.importId ?? t("complianceExplorer.na")}
-            </span>
-          ))}
-        </dd>
-      </dl>
+      <ul className="stack" aria-label={t("complianceExplorer.implementations")}>
+        {association.implementations.map((implementation) => (
+          <li className="panel" key={implementation.id}>
+            <dl className="meta-list">
+              <dt>{t("complianceExplorer.implementationId")}</dt>
+              <dd className="mono">{implementation.id}</dd>
+              <dt>{t("complianceExplorer.workflowStatus")}</dt>
+              <dd>{enumLabel(implementation.status)}</dd>
+              <dt>{t("complianceExplorer.oscalStatus")}</dt>
+              <dd>
+                {implementation.oscal_implementation_status
+                  ? enumLabel(implementation.oscal_implementation_status)
+                  : t("complianceExplorer.na")}
+              </dd>
+              <dt>{t("complianceExplorer.oscalExplanation")}</dt>
+              <dd>{implementation.oscal_status_explanation ?? t("complianceExplorer.na")}</dd>
+              <dt>{t("complianceExplorer.provenance")}</dt>
+              <dd className="mono">
+                {implementation.profile_id ?? t("complianceExplorer.na")} /{" "}
+                {implementation.profile_import_id ?? t("complianceExplorer.na")}
+              </dd>
+            </dl>
+          </li>
+        ))}
+      </ul>
     </>
   );
 }
-

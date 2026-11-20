@@ -186,21 +186,17 @@ export function ComplianceExplorerRequirementsView({
       ) : null}
 
       {applied && page ? (
-        <div className="workspace-actions" role="tablist" aria-label={t("complianceExplorer.viewSwitch")}>
+        <div className="workspace-actions" role="group" aria-label={t("complianceExplorer.viewSwitch")}>
           <button
             type="button"
-            role="tab"
-            aria-selected={viewMode === "requirements"}
-            aria-controls="compliance-explorer-results"
+            aria-pressed={viewMode === "requirements"}
             onClick={() => setViewMode("requirements")}
           >
             {t("complianceExplorer.requirementsView")}
           </button>
           <button
             type="button"
-            role="tab"
-            aria-selected={viewMode === "measures"}
-            aria-controls="compliance-explorer-results"
+            aria-pressed={viewMode === "measures"}
             onClick={() => setViewMode("measures")}
           >
             {t("complianceExplorer.measuresView")}
@@ -288,7 +284,7 @@ export function ComplianceExplorerRequirementsView({
       ) : null}
 
       {applied && page && page.items.length > 0 && viewMode === "measures" ? (
-        <div id="compliance-explorer-results" role="tabpanel" aria-label={t("complianceExplorer.measuresView")}>
+        <div id="compliance-explorer-results">
           <ComplianceExplorerMeasuresView page={page} />
         </div>
       ) : null}
