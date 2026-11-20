@@ -51,6 +51,21 @@ retain their original licenses.
 - Redistribution status: redistributed unmodified from the pinned upstream file
 - Provenance manifest: `examples/catalogs/Grundschutz++-resolved_catalog.provenance.json`
 
+### EU AI Act catalog
+- Location: `examples/catalogs/eu_ai_act_catalog.json`
+- Provenance metadata: `examples/catalogs/eu_ai_act_catalog.provenance.json`
+- Upstream repository: `olon-standards/eu-ai-act-oscal`
+- Pinned upstream commit: `120c1126a83283ac180d3d5724ac1d57791b00cf`
+- Pinned upstream file:
+  - `catalogs/eu-ai-act/catalog.json`
+  - blob URL: `https://github.com/olon-standards/eu-ai-act-oscal/blob/120c1126a83283ac180d3d5724ac1d57791b00cf/catalogs/eu-ai-act/catalog.json`
+- License: `Apache-2.0`
+  - license URL: `https://github.com/olon-standards/eu-ai-act-oscal/blob/120c1126a83283ac180d3d5724ac1d57791b00cf/LICENSE`
+- Attribution: eu-ai-act-oscal contributors
+- Redistribution status: bundled with local OSCAL metadata enrichment; upstream provenance and SHA-256 are recorded in the provenance manifest
+- Source notice: the upstream project states that its catalog contains condensed, non-authoritative restatements of the regulation and directs users to the European Union Official Journal
+  - notice URL: `https://github.com/olon-standards/eu-ai-act-oscal/blob/120c1126a83283ac180d3d5724ac1d57791b00cf/NOTICE`
+
 ## Dependency license inventories
 
 The dependency license inventories are generated from lockfiles and normalized to
@@ -88,7 +103,3 @@ These findings are documented in detail with release-risk classification in
   `docs/python-license-inventory.dev-and-runtime.json` (`LicenseText` fields)
 - npm dependency license file paths are listed in `docs/npm-license-inventory.json`
   (paths are workspace-relative; package files are not committed in this repository)
-
-
-
-

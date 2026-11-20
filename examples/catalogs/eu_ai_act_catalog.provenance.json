@@ -1,0 +1,15 @@
+{
+  "upstream_repository": "https://github.com/olon-standards/eu-ai-act-oscal",
+  "upstream_commit": "120c1126a83283ac180d3d5724ac1d57791b00cf",
+  "upstream_path": "catalogs/eu-ai-act/catalog.json",
+  "source_uri": "https://github.com/olon-standards/eu-ai-act-oscal/blob/120c1126a83283ac180d3d5724ac1d57791b00cf/catalogs/eu-ai-act/catalog.json",
+  "upstream_license_path": "https://github.com/olon-standards/eu-ai-act-oscal/blob/120c1126a83283ac180d3d5724ac1d57791b00cf/LICENSE",
+  "upstream_notice_path": "https://github.com/olon-standards/eu-ai-act-oscal/blob/120c1126a83283ac180d3d5724ac1d57791b00cf/NOTICE",
+  "license_identifier": "Apache-2.0",
+  "attribution": "eu-ai-act-oscal contributors",
+  "upstream_sha256": "54fc233fdc4810227be28efd08dd1b0dca7b1eb85b55a337d5d0ad15062243f5",
+  "bundled_sha256": "fe586104db2a3f783694a942ffa169805868638dc5d05530841f226d15655312",
+  "redistributed_unmodified": false,
+  "notes": "Bundled for EU AI Act demonstration and mapping workflows. The upstream catalog is preserved with native OSCAL metadata and controls; this bundle adds native OSCAL type=regulation properties to the two regulation resources in back matter. The upstream NOTICE states that condensed restatements are not authoritative and directs users to the European Union Official Journal.",
+  "bundled_location": "examples/catalogs/eu_ai_act_catalog.json"
+}
