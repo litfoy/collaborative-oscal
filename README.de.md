@@ -4,298 +4,193 @@
 
 [English](README.md) · [Architektur](docs/architecture/overview.md) · [AI-Governance-Demo](docs/architecture/ai-governance-demo-seed.md)
 
-Collaborative OSCAL ist eine unabhängige, Open-Source-GRC-Plattform für kollaborative Governance-, Risiko- und
-Compliance-Prozesse, die sich selbst betreiben lässt. Das Projekt befindet sich in der Alpha-Entwicklung und
-verwendet [NIST OSCAL (Open Security Controls Assessment Language)](https://pages.nist.gov/OSCAL/) als native gemeinsame
-Informationsgrundlage.
+Collaborative OSCAL ist eine unabhängige, selbst hostbare Open-Source-Plattform für die Zusammenarbeit in Governance, Risk und Compliance (GRC). Das Projekt befindet sich in der **Alpha-Entwicklung** und verwendet [NIST OSCAL (Open Security Controls Assessment Language)](https://pages.nist.gov/OSCAL/) als natives Informationsmodell – nicht lediglich als Import- und Exportformat.
 
-Das Projekt soll redundante Governance- und Compliance-Arbeit in den Bereichen Datenschutz, Informationssicherheit,
-KI-Sicherheit, AI Governance und weiteren Governance-Domänen reduzieren. Gemeinsame Systeminformationen, Schutzmaßnahmen
-und Umsetzungsdaten können domänenübergreifend wiederverwendet werden, während Anforderungen, Verantwortlichkeiten und
-Prüfurteile jeder Domäne unabhängig bleiben.
+Das Ziel ist, redundante Arbeit in Datenschutz, Informationssicherheit, KI-Sicherheit, AI Governance und weiteren Governance-Domänen zu reduzieren. Darüber hinaus wird eine API zur Automatisierung von Compliance angeboten. Informationen zu Systemen, Schutzmaßnahmen und Umsetzungen lassen sich dort wiederverwenden, wo dies fachlich sinnvoll ist. Anforderungen, Verantwortlichkeiten und Prüfurteile bleiben dabei eigenständig.
 
-Die zentrale Idee: **Umsetzungen dort, wo es sinnvoll ist, einmal dokumentieren, Informationen regelwerksübergreifend
-wiederverwenden und im jeweiligen fachlichen Kontext unabhängig bewerten.** OSCAL dient dabei als gemeinsame
-maschinenlesbare Datengrundlage und nicht lediglich als Exportformat.
+**Umsetzungen dort, wo es sinnvoll ist, einmal dokumentieren, geeignete Informationen regelwerksübergreifend wiederverwenden und jede Anforderung im eigenen Kontext unabhängig bewerten.**
 
 ![Collaborative OSCAL](./assets/Collaborative%20OSCAL%20Governance%20Framework.png)
 
-*Konzeptioneller Überblick: gemeinsame Schutzmaßnahmen und Systeminformationen, getrennte Prüfungen. Unabhängige
-Feststellungen werden auf Datenmodellebene unterstützt; gemeinsame Nachweisverwaltung und differenzierte
-Stakeholder-Berechtigungen sind noch geplant.*
+*Konzeptioneller Überblick: gemeinsame Schutzmaßnahmen und Systeminformationen, getrennte Prüfungen. Unabhängige Feststellungen werden im Datenmodell unterstützt; eine gemeinsame Nachweisverwaltung und differenzierte Stakeholder-Berechtigungen sind noch geplant.*
 
-> **Alpha-Status:** Noch nicht für den Produktivbetrieb, vertrauliche Daten oder verbindliche Compliance-Entscheidungen
-> vorgesehen. Die Implementierung bietet noch keine vollständige differenzierte Funktionstrennung, keine komplette
-> Lifecycle-Abdeckung und keine abschließende operative Härtung.
+> **Alpha-Status:** Collaborative OSCAL ist nicht für den Produktivbetrieb, vertrauliche Daten oder verbindliche Compliance-Entscheidungen vorgesehen. Ein unabhängiges Sicherheitsaudit und die für produktive GRC-Software erforderliche Härtung und Funktionstrennung sind noch nicht abgeschlossen. Es wird weder Produktionsreife noch regulatorische Konformität behauptet.
 
 ## Motivation
 
-Organisationen müssen häufig überlappende Anforderungen aus unterschiedlichen Standards, regulatorischen Vorgaben und
-internen Richtlinien berücksichtigen. Verschiedene Stakeholder betrachten dasselbe System, dieselbe technische
-Konfiguration oder dieselbe organisatorische Maßnahme, verfolgen jedoch unterschiedliche Prüfziele und können zu
-unterschiedlichen Bewertungen gelangen.
+Organisationen müssen Anforderungen aus verschiedenen Standards, Gesetzen und internen Richtlinien berücksichtigen. Unterschiedliche Fachdisziplinen können dasselbe System oder dieselbe Schutzmaßnahme betrachten, dabei aber verschiedene Mandate, Prüfkriterien und Ergebnisse haben.
 
-Collaborative OSCAL unterscheidet drei Ebenen:
+Collaborative OSCAL trennt drei Ebenen:
 
-- **Anforderungen:** Jeder normative oder organisationsspezifische Katalog behält seine Identität, seinen Inhalt und
-  seine Revisionshistorie. Explizite Mappings beschreiben Beziehungen, ohne Compliance-Bewertungen gleichzusetzen.
-- **Umsetzung:** Wiederverwendbare Maßnahmen, konkrete Systemkomponenten und anforderungsspezifische Umsetzungsbeiträge
-  werden getrennt betrachtet. Eine Umsetzung kann zu mehreren Anforderungen beitragen, ohne diese automatisch zu
-  erfüllen.
-- **Prüfung:** Prüfpläne, Beobachtungen und Feststellungen behalten ihren jeweiligen Prüfumfang und historischen
-  Kontext. Eine dokumentierte Umsetzung ist kein Nachweis ihrer Wirksamkeit; eine Feststellung bestimmt nicht
-  automatisch das Ergebnis einer anderen Prüfung.
+- **Anforderungen:** Quellkataloge und ihre Revisionen behalten ihre Identität. OSCAL Profiles wählen Controls für einen Betrachtungsumfang aus; diese Auswahl begründet noch keine rechtliche Anwendbarkeit. Explizite katalogübergreifende Mappings beschreiben Beziehungen, ohne Gleichwertigkeit zu unterstellen.
+- **Umsetzung:** Wiederverwendbare Komponentendefinitionen, konkrete Systemkomponenten und anforderungsspezifische Implementierungen sind unterschiedliche Konzepte. Eine Schutzmaßnahme kann mehrere Controls unterstützen, ohne diese automatisch zu erfüllen.
+- **Prüfung:** Prüfpläne und Prüfergebnisse behalten ihren eigenen Umfang, ihre Beobachtungen, Feststellungen und historischen Referenzen. Eine dokumentierte Umsetzung ist kein Wirksamkeitsnachweis, und ein Prüfurteil bestimmt nicht automatisch ein anderes.
 
-Die langfristige Vision ist eine gemeinsame Informationsgrundlage mit expliziter Wiederverwendung geeigneter Nachweise,
-klaren Verantwortlichkeiten und unabhängiger Bewertungshoheit. Dies ist insbesondere für Organisationen mit mehreren
-Governance- und Kontrollfunktionen relevant, auch in regulierten Branchen.
+Langfristig soll eine gemeinsame Informationsgrundlage mit expliziter Wiederverwendung geeigneter Nachweise, klaren Verantwortlichkeiten und unabhängiger Bewertungshoheit entstehen.
 
-Mögliche Regelwerke sind BSI IT-Grundschutz++, DSGVO, ISO/IEC 27001 und 27002, NIST SP 800-53, NIST AI RMF, ISO/IEC
-42001, der EU AI Act sowie interne Richtlinien. Voraussetzung sind geeignete OSCAL-Inhalte und entsprechende
-Nutzungsrechte. Dies sind angestrebte Anwendungsfälle, keine Aussage über vollständige Regelwerksabdeckung oder
-regulatorische Konformität.
+Mögliche Anwendungsbereiche sind BSI IT-Grundschutz++, DSGVO, ISO/IEC 27001 und 27002, NIST SP 800-53, NIST AI RMF, ISO/IEC 42001, der EU AI Act und interne Richtlinien – sofern geeignete OSCAL-Inhalte mit entsprechenden Nutzungsrechten vorliegen. Dies ist **keine** Zusage vollständiger Regelwerksabdeckung oder regulatorischer Konformität.
 
 ### Beispiel: Multifaktor-Authentifizierung
 
-Ein Informationssicherheitsbeauftragter (ISB) prüft den Schutz privilegierter Zugänge. Ein Datenschutzbeauftragter (DSB)
-betrachtet die Sicherheit der Verarbeitung personenbezogener Daten nach Art. 32 DSGVO. Beide können dieselbe
-MFA-Maßnahme und denselben Identity Provider referenzieren, dokumentieren aber separate Beiträge zu ihren jeweiligen
-Anforderungen und führen getrennte Prüfungen durch.
+Ein Informationssicherheitsbeauftragter prüft privilegierte Zugriffe. Ein Datenschutzbeauftragter betrachtet die Sicherheit personenbezogener Datenverarbeitung nach Art. 32 DSGVO. Beide können dieselbe MFA-Maßnahme und denselben Identity Provider referenzieren, dokumentieren jedoch eigenständige Beiträge und kommen gegebenenfalls zu unterschiedlichen Prüfurteilen.
 
-Perspektivisch könnten beide denselben geeigneten, versionierten Konfigurationsexport oder dasselbe Testprotokoll
-ausdrücklich wiederverwenden und dennoch unterschiedliche Feststellungen treffen. MFA allein begründet keine Konformität
-mit Art. 32 DSGVO.
+Eine künftige gemeinsame Nachweisbibliothek könnte die ausdrückliche Wiederverwendung desselben geeigneten, versionierten Konfigurationsexports oder Testprotokolls ermöglichen. MFA allein begründet keine DSGVO-Konformität.
 
 ## Schnellstart
 
-Voraussetzung ist Docker Compose v2 oder neuer. Im Repository-Verzeichnis:
+Mit Docker Compose v2 oder neuer im Repository-Verzeichnis ausführen:
 
 ```bash
 docker compose up --build -d
 ```
 
-Die Anwendung ist unter [http://localhost:3000](http://localhost:3000) erreichbar. Der lokale Demo-Start initialisiert
-den Acme-Workspace, importiert den NIST-SP-800-53-Basiskatalog und führt den AI-Governance-/Governance-Coverage-Seed (
-inklusive NIST-GenAI- und EU-AI-Act-Katalog, Mapping-Sammlung und fiktiver Systeme) aus, bevor `api` und `web` starten.
-Für den lokalen Demomodus ist kein externer Identity Provider erforderlich.
+Die Anwendung ist unter [http://localhost:3000](http://localhost:3000) erreichbar. Beim lokalen Start werden der Acme-Workspace initialisiert, der NIST-SP-800-53-Basiskatalog importiert und der AI-Governance-/Governance-Coverage-Seed angewendet, bevor API und Webanwendung starten. Der Seed enthält NIST-GenAI- und EU-AI-Act-Kataloge, Demo-Mappings und fiktive Systeme. Ein externer Identity Provider ist im lokalen Demomodus nicht erforderlich.
 
-**Nur für lokale Demonstrationen:** Alle Personen mit Zugriff auf die Demo-Oberfläche verwenden dieselbe Demo-Identität.
-Die Demo darf weder öffentlich bereitgestellt noch mit produktiven oder vertraulichen Daten betrieben werden. Die
-Oberfläche ist auf Englisch und Deutsch verfügbar; die Sprachauswahl übersetzt weder importierte OSCAL-Inhalte noch
-selbst verfasste Texte.
+**Nur für lokale Demonstrationen:** Alle Personen mit Zugang zur Demo-Oberfläche handeln unter derselben Demo-Identität. Der Modus darf nicht öffentlich erreichbar sein und nicht mit realen, produktiven oder vertraulichen Daten betrieben werden. Die Oberfläche unterstützt Deutsch und Englisch; die Sprachauswahl übersetzt weder importierte OSCAL-Inhalte noch selbst verfasste Texte.
 
-Der [Entwicklerleitfaden](docs/development.md) beschreibt Einrichtung, Konfiguration und Tests. Hinweise zum
-Seed-Status, zur Fehlersuche und zu bestehenden Demo-Installationen finden sich in
-der [AI-Governance-Dokumentation](docs/architecture/ai-governance-demo-seed.md).
+Der Compliance Explorer ist über die Anwendungsnavigation erreichbar. Er benötigt ein Informationssystem und **ein bis fünf bereits vorhandene Profiles**. Der standardmäßige Governance-Seed erstellt noch keine direkt auswählbaren Explorer-Profile; diese müssen zunächst erstellt oder ausgewählt werden. Die explorative Auswahl eines Profiles bedeutet nicht, dass dieses für das ausgewählte System verbindlich oder anwendbar ist.
+
+Einrichtung und Tests beschreibt der [Entwicklerleitfaden](docs/development.md). Informationen zu Seed-Verhalten und Fehlerbehebung bietet die [AI-Governance-Dokumentation](docs/architecture/ai-governance-demo-seed.md). Bereits vorhandene lokale Demodaten sollten nicht ohne Prüfung der Folgen zurückgesetzt werden.
 
 ## AI-Governance-Demo
 
-Die enthaltene Demo beschreibt eine fiktive interne Plattform für KI-gestützte Softwareentwicklung anhand ausgewählter
-Controls aus einem OSCAL-Katalog auf Grundlage
-des [NIST AI RMF Generative AI Profile](https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence).
+Das enthaltene Szenario beschreibt eine **fiktive** interne Plattform für KI-gestützte Softwareentwicklung mit ausgewählten Controls aus einem OSCAL-Katalog auf Grundlage des [NIST AI RMF Generative AI Profile](https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence).
 
-Das Szenario verbindet die Versionierung von Modellen und Datensätzen, menschliche Aufsicht (Human Oversight),
-Acceptable Use Policies, Risikomessung und AI Red Teaming mit wiederverwendbaren Schutzmaßnahmen, konkreten Komponenten
-und anforderungsspezifischen Umsetzungsbeiträgen. Es umfasst einen versionierten Systemsicherheitsplan (SSP), einen
-Prüfplan (AP) und Prüfergebnisse (AR).
+Es verbindet Modell- und Datensatzversionierung, menschliche Aufsicht (Human Oversight), Acceptable Use Policies, Risikomessung und AI Red Teaming mit wiederverwendbaren Schutzmaßnahmen, konkreten Komponenten und anforderungsspezifischen Umsetzungsbeiträgen. Das Szenario enthält einen versionierten Systemsicherheitsplan (SSP), einen Prüfplan (AP) und Prüfergebnisse (AR).
 
-Eine beispielhafte Feststellung betrifft die Nachvollziehbarkeit von Modellversionen: Zwei von drei stichprobenartig
-geprüften fiktiven Release-Datensätzen erfüllen ein lokales Prüfziel, einer nicht. Die Feststellung bezieht sich
-ausschließlich auf dieses Prüfziel und trifft keine Aussage über den Status des gesamten Controls oder der übrigen
-geplanten Controls.
+Eine beispielhafte Feststellung betrifft die Nachvollziehbarkeit von Modellversionen: Zwei von drei fiktiven Release-Datensätzen erfüllen ein lokales Prüfziel, einer nicht. Diese Feststellung bezieht sich **auf das konkrete Prüfziel**, nicht automatisch auf das gesamte Control oder andere Anforderungen.
 
-Das Szenario demonstriert Dokumentation und Prüfung, nicht den Betrieb einer KI-Agentenplattform. Alle Szenariodaten und
-Nachweislinks sind fiktiv. Es stellt weder einen realen Compliance-Nachweis noch eine Zertifizierung oder automatisierte
-KI-Sicherheitsprüfung dar.
+Die Governance-Coverage-Erweiterung ergänzt EU-AI-Act-Controls und explizite katalogübergreifende Demo-Mappings. Mapping-Beziehungen sind keine fachlich bestätigten Aussagen regulatorischer Gleichwertigkeit. Das Szenario ist keine laufende KI-Agentenplattform; alle Daten und Nachweislinks sind fiktiv. Es belegt weder Compliance noch Zertifizierung oder tatsächliche KI-Sicherheitsleistung.
 
-Weitere Informationen: [Szenario und Seed-Dokumentation](docs/architecture/ai-governance-demo-seed.md)
-und [Herkunft des Katalogs](examples/catalogs/nist-ai-rmf-gen-ai-1.0.0-catalog.provenance.json).
+Siehe [Szenario- und Seed-Dokumentation](docs/architecture/ai-governance-demo-seed.md) und [Katalog-Provenienz](examples/catalogs/nist-ai-rmf-gen-ai-1.0.0-catalog.provenance.json).
 
 ## Aktueller Funktionsumfang
 
-Alle implementierten Funktionen befinden sich in experimenteller Alpha-Qualität.
+Alle Funktionen haben experimentellen Alpha-Status. Es wird nicht jeder OSCAL-Bestandteil oder Workflow vollständig unterstützt.
 
-| Bereich                                  | Funktion                                                                                                                                                                                                                                                                                                                                                                                                                             | Status                                               |
-|------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------|
-| Anforderungskataloge                     | Import, hierarchische Darstellung und unveränderliche Quellrevisionen                                                                                                                                                                                                                                                                                                                                                                | Implementiert                                        |
-| Anforderungsprofile                      | Explizite Control-Auswahl aus verschiedenen Katalogrevisionen                                                                                                                                                                                                                                                                                                                                                                        | Implementiert; vollständige Auflösung zurückgestellt |
-| Anforderungszuordnungen                  | Explizite katalogübergreifende Beziehungen; keine automatische Compliance-Ableitung                                                                                                                                                                                                                                                                                                                                                  | Implementiert                                        |
-| Komponentendefinitionen                  | Wiederverwendbare Schutzmaßnahmen und Controls                                                                                                                                                                                                                                                                                                                                                                                       | Implementiert                                        |
-| Umsetzungsregister                       | Anforderungsspezifische Umsetzungsbeiträge                                                                                                                                                                                                                                                                                                                                                                                           | Implementiert                                        |
-| Systeme                                  | Konkrete Systemkomponenten                                                                                                                                                                                                                                                                                                                                                                                                           | Implementiert                                        |
-| Systemsicherheitspläne (SSP)             | Katalogbasierte SSP, Validierung und unveränderliche Dokumentversionen                                                                                                                                                                                                                                                                                                                                                               | Implementiert                                        |
-| Prüfpläne (AP)                           | Prüfumfang, Prüfziele, Prüfgegenstände, Aktivitäten, Aufgaben, Rollen sowie fest referenzierter SSP-/SSP-Versionskontext                                                                                                                                                                                                                                                                                                             | Implementiert                                        |
-| Prüfergebnisse (AR)                      | Menschlich erstellte oder importierte geprüfte Controls, Beobachtungen, Nachweisreferenzen, Feststellungen und fest referenzierte AP-Versionen                                                                                                                                                                                                                                                                                       | Implementiert                                        |
-| Automatisierte Prüfung                   | Mandantenbezogene REST-Übermittlung nativer OSCAL-1.2.1-Prüfergebnis-JSON-Dokumente in den Prüfergebnis-Lebenszyklus                                                                                                                                                                                                                                                                                                                 | Implementiert                                        |
-| Menschliche und automatisierte Prüfungen | Beide folgen demselben Arbeitsstand-, Veröffentlichungs-, Validierungs- und Historienmodell, bei dem eine Veröffentlichung einen unveränderlichen Snapshot erzeugt, während der Arbeitsstand für nachfolgende Änderungen bearbeitbar bleibt                                                                                                                                                                                          | Implementiert                                        |
-| Historische Integrität                   | Importierte Katalogrevisionen und veröffentlichte SSP-, AP- und AR-Dokumentstände sind unveränderlich. Eine Veröffentlichung erzeugt einen unveränderlichen historischen Snapshot, während der Arbeitsstand für nachfolgende Änderungen bearbeitbar bleibt. Importierte Prüfergebnis-Arbeitsstände bleiben bis zur ersten Veröffentlichung bearbeitbar. Historische Referenzen bleiben an den ursprünglichen Dokumentstand gebunden. | Implementiert                                        |
-| Optimistische Nebenläufigkeit            | Implementiert für Prüfpläne, Prüfergebnisse, SSPs, Profile und Mapping-Sammlungen. Geprüft und akzeptiert für Prüfpläne, Prüfergebnisse und SSPs; Profile und Mapping-Sammlungen warten auf Prüfung                                                                                                                                                                                                                                  | Implementiert                                        |
-| SBOM-Sichtbarkeit in der CI              | Automatisierte CycloneDX-SBOM-Erzeugung für API- und Web-Abhängigkeiten in Entwicklungs- und Laufzeitumfang                                                                                                                                                                                                                                                                                                                          | In der CI implementiert                              |
-| Gemeinsame Prüfnachweise                 | Verwaltete, versionierte Nachweisbibliothek und prüfungsübergreifende Wiederverwendung                                                                                                                                                                                                                                                                                                                                               | Langfristiger Plan                                   |
+| Bereich | Implementierter Funktionsumfang oder Status |
+| --- | --- |
+| Anforderungskataloge | Import, hierarchische Darstellung und unveränderliche Quellrevisionen. |
+| Anforderungsprofile | Explizite Control-Auswahl aus mehreren gepinnten Katalogrevisionen; vollständige OSCAL Profile Resolution ist zurückgestellt. |
+| Anforderungszuordnungen | Explizite katalogübergreifende Beziehungen ohne automatische Gleichwertigkeits- oder Compliance-Ableitung. |
+| Komponentendefinitionen | Wiederverwendbare Schutzmaßnahmen als OSCAL Component Definitions. |
+| Systeme und Umsetzungsregister | Informationssysteme, konkrete Systemkomponenten und anforderungsspezifische Implementierungen. |
+| Compliance Explorer (C-light) | **Lesende** Requirements- und Measures-Ansichten für ein ausgewähltes System und ein bis fünf Profiles. Identische Quell-Controls werden zusammengeführt, ihre Profile-Mitgliedschaften bleiben sichtbar; nur explizit mit dem System verknüpfte Implementierungen werden angezeigt. |
+| Systemsicherheitspläne (SSP) | Katalogbasierte Pläne, Validierung, explizite Implementation-Mitgliedschaften und unveränderliche veröffentlichte Dokumentversionen. |
+| Prüfpläne (AP) | Prüfumfang, Prüfziele, Prüfgegenstände, Aktivitäten, Aufgaben, Rollen und Referenzen auf historische SSP-Versionen. |
+| Prüfergebnisse (AR) | Menschlich erstellte oder importierte geprüfte Controls, Beobachtungen, Nachweisreferenzen und Feststellungen mit Verweisen auf historische AP-Versionen. |
+| Assessment-Automatisierung | Authentifizierter, mandantenbezogener REST-Import unterstützter nativer OSCAL-1.2.1-Assessment-Results-JSON-Dokumente in den bestehenden Arbeits- und Veröffentlichungslebenszyklus. |
+| Veröffentlichung und Historie | Änderbare Arbeitsstände mit unveränderlichen publizierten SSP-/AP-/AR-Snapshots und gepinnten historischen Referenzen. |
+| Optimistische Nebenläufigkeit | Aggregatbezogener Schutz implementiert und abgenommen für APs, ARs, SSPs, Profiles, Mapping Collections, Component Definitions, Information Systems, einzelne System Components und Control Implementations (einschließlich Responsibilities). |
+| Supply-Chain-Transparenz | CycloneDX-Abhängigkeits-SBOMs für Python/API und npm/Web, jeweils Laufzeit- und Entwicklungsabhängigkeiten; Erzeugung in der CI konfiguriert. |
+| Gemeinsame Nachweisverwaltung | Verwaltete, versionierte Dateiablage mit prüfungsübergreifender Wiederverwendung: **nicht implementiert**. |
+| Risiko- und POA&M-Management | Eigenständige Prozesse zur Risikobehandlung und Maßnahmenverfolgung: **nicht implementiert**. |
 
-Die authentifizierte REST-API akzeptiert native OSCAL-Prüfergebnis-JSON-Dokumente für die automatisierte
-Prüfungseingabe. Der Import verwendet dasselbe Aggregate, dieselbe Validierung, denselben fest referenzierten
-Prüfplan-Kontext und denselben Veröffentlichungs-Lebenszyklus wie der manuelle Arbeitsplatz.
-Siehe [REST-Import von Prüfergebnissen](docs/assessment-result-import.md). Nachweise werden derzeit als
-OSCAL-Nachweisreferenzen abgebildet, nicht als verwaltete Dateiablage.
+Die **Measures View** des Compliance Explorers gruppiert nur Controls der aktuell geladenen, serverseitig paginierten Seite; sie ist noch keine vollständige, global paginierte Maßnahmenübersicht. Der Explorer zeigt weder Prüfurteile noch katalogübergreifende Mappings, berechnet keine Compliance-Scores, leitet keine Anwendbarkeit ab und erzeugt keine dauerhafte System/Profile-Zuordnung. Controls ohne systembezogene Implementation erscheinen als **für dieses System nicht dokumentiert** – nicht automatisch als nicht konform.
 
-Weitere Funktionen sind OIDC-Authentifizierung, mandantenbezogene Autorisierung, englisch- und deutschsprachige
-Oberflächen sowie OSCAL-JSON-Import und/oder -Export, soweit das jeweilige Dokumentmodell dies unterstützt. Die
-Validierung verwendet gepflegte OSCAL-Modelle und geeignete offizielle NIST-Schemas je OSCAL-Version sowie
-anwendungsspezifische Integritätsprüfungen.
+Der native REST-Import von OSCAL Assessment Results nutzt dieselbe Arbeitsstandsvalidierung, den gepinnten AP-Kontext und den Veröffentlichungslebenszyklus wie manuell erstellte Prüfergebnisse. Nachweise werden derzeit als OSCAL-Referenzen abgebildet, nicht als verwaltete Dateien. Siehe [REST-Import von Prüfergebnissen](docs/assessment-result-import.md).
+
+Weitere Funktionen sind OIDC-Authentifizierung, mandantenbezogene Autorisierung, eine deutsch- und englischsprachige Oberfläche sowie nativer OSCAL-JSON-Import/-Export für unterstützte Dokumentmodelle. Die Validierung verbindet gepflegte OSCAL-Modelle, geeignete offizielle NIST-Schemas und anwendungsspezifische Integritätsprüfungen; sie deckt nicht jede denkbare semantische Bedingung ab.
 
 ## Architektur
 
-Die Anwendung ist als modularer Monolith mit Next.js / TypeScript im Frontend, FastAPI / Python im Backend und
-PostgreSQL zur Datenhaltung aufgebaut. Sie
-verwendet [Compliance Trestle](https://github.com/oscal-compass/compliance-trestle), OpenID Connect und Docker Compose.
+Collaborative OSCAL ist ein **modularer Monolith** mit Next.js / React / TypeScript im Frontend, Python / FastAPI im Backend, SQLAlchemy und PostgreSQL als Persistenz sowie einem Browser-BFF. OpenID Connect und Docker Compose werden unterstützt.
 
-Zentrale Architekturentscheidungen:
+Zentrale Architekturprinzipien:
 
-- Importierte Katalogrevisionen und veröffentlichte SSP-, AP- und AR-Dokumentversionen sind unveränderlich. Eine
-  Veröffentlichung erzeugt einen unveränderlichen historischen Snapshot, während der Arbeitsstand für nachfolgende
-  Änderungen bearbeitbar bleibt. Importierte Prüfergebnis-Arbeitsstände bleiben bis zur ersten Veröffentlichung
-  bearbeitbar. Historische Referenzen bleiben an den ursprünglichen Dokumentstand gebunden.
-- Wiederverwendbare Maßnahmen, konkrete Komponenten und anforderungsspezifische Umsetzungsbeiträge bleiben getrennt.
-  Mappings übertragen weder Umsetzungsstatus noch Prüfergebnisse automatisch.
-- PostgreSQL verbindet maßgebliche OSCAL-JSONB-Dokumentstände mit relationalen Identitäten, Mandantengrenzen und
-  expliziten Referenzen. Bearbeitbare Arbeitsstände ermöglichen Änderungen vor der Erstellung einer Dokumentversion.
-- Die OSCAL-Verarbeitung folgt einem Trestle-first-Ansatz, ergänzt durch offizielle versionsspezifische
-  NIST-JSON-Schemas sowie anwendungsspezifische Referenz- und Integritätsprüfungen. Dies ist keine vollständige
-  semantische OSCAL-Validierung.
-- Neue Dokumente verwenden OSCAL 1.2.1, soweit dies der festgelegten Authoring-Strategie entspricht. Importierte und
-  historische Dokumente behalten ihre deklarierte Version und werden nicht stillschweigend konvertiert.
+- **OSCAL First:** OSCAL-Konzepte, Identitäten und Dokumentsemantik möglichst erhalten. Anwendungsspezifische Persistenz-, Autorisierungs- und Arbeitsstandsbelange bleiben separat.
+- **Historische Unveränderlichkeit:** Importierte Katalogrevisionen und publizierte SSP-/AP-/AR-Snapshots sind unveränderlich. Änderungen an gemeinsamen Daten schreiben historische Veröffentlichungen nicht um. Arbeitsstände können zwischen Publikationen weiterentwickelt werden.
+- **Explizite Referenzen:** Profile-Auswahlen, Katalogrevisionen, Mappings, Systemkomponenten und Implementierungen besitzen typisierte, überprüfbare Beziehungen. Gleiche Titel bedeuten keine identischen Entitäten.
+- **Unabhängige Prüfungen:** Gemeinsame Schutzmaßnahmen, Systemkomponenten oder Implementierungen begründen weder gleichwertige Anforderungen noch identische Prüfergebnisse.
+- **Nebenläufigkeit und Mandantentrennung:** Änderbare Aggregate verwenden – soweit implementiert – den vereinbarten Optimistic-Concurrency-Vertrag und mandantenbezogene Autorisierung. Konfliktbehandlung im Frontend darf ungespeicherte Arbeit nicht stillschweigend verwerfen.
+- **Wiederverwenden statt Neuerfinden:** OSCAL-Verarbeitung mit Compliance Trestle hinter einer Adaptergrenze, offiziellen versionsspezifischen NIST-JSON-Schemas und eigenen Integritätsprüfungen.
 
-Siehe [Architekturübersicht](docs/architecture/overview.md), [Domänenmodell](docs/architecture/domain-model.md)
-und [Architecture Decision Records](docs/adr/),
-insbesondere [SSP](docs/adr/0017-system-security-plans.md), [Prüfpläne](docs/adr/0019-assessment-plans.md)
-und [Prüfergebnisse](docs/adr/0020-assessment-results.md).
+Neue Dokumente verwenden im Regelfall OSCAL 1.2.1 entsprechend der unterstützten Authoring-Strategie. Importierte und historische Dokumente behalten ihre deklarierte Version und werden nicht stillschweigend konvertiert.
 
-### OSCAL Compass und Compliance Trestle
+Siehe [Architekturübersicht](docs/architecture/overview.md), [Domänenmodell](docs/architecture/domain-model.md), [Architecture Decision Records](docs/adr/), [Concurrency-ADR](docs/adr/0022-aggregate-optimistic-concurrency.md), [SSP-ADR](docs/adr/0017-system-security-plans.md), [AP-ADR](docs/adr/0019-assessment-plans.md) und [AR-ADR](docs/adr/0020-assessment-results.md).
 
-[OSCAL Compass](https://oscal-compass.dev/) ist ein Open-Source-Projekt unter dem Dach der Cloud Native Computing
-Foundation (CNCF). Seine Werkzeuge unterstützen die OSCAL-basierte Erstellung, Validierung und Automatisierung von
-Compliance-Artefakten. Insbesondere stellt [Compliance Trestle](https://github.com/oscal-compass/compliance-trestle)
-eine CLI und ein SDK zur Verarbeitung von OSCAL-Artefakten bereit,
-während [Agile Authoring](https://github.com/oscal-compass/compliance-trestle-agile-authoring) kollaborative Erstellung
-auf Grundlage von GitOps unterstützt.
+### Warum Python? OSCAL Compass und Compliance Trestle
 
-Eine der ursprünglichen Ideen hinter Collaborative OSCAL war es, möglichst weitgehend auf dem OSCAL-Compass-Ökosystem
-aufzubauen und dessen Werkzeuge wiederzuverwenden, anstatt die OSCAL-Verarbeitung neu zu entwickeln. Die generierten
-Modelle und Validierungsfunktionen von Trestle sind über eine eigene Adapterschicht
-eingebunden ([ADR 0002](docs/adr/0002-oscal-adapter-boundary.md)). Offizielle Schemas und anwendungsspezifische
-Prüfungen ergänzen sie, wo erforderlich.
+Python wurde **bewusst** als Backend-Sprache gewählt, um das bestehende OSCAL-Tooling-Ökosystem, insbesondere [Compliance Trestle](https://github.com/oscal-compass/compliance-trestle), nutzen zu können, statt eine separate OSCAL-Verarbeitung aufzubauen oder die Technologie allein nach der bisherigen Sprachpraxis des Maintainers auszuwählen.
 
-Collaborative OSCAL untersucht einen ergänzenden Ansatz: einen browserbasierten, datenbankgestützten Web-Service für
-Stakeholder, die nicht unbedingt mit Git arbeiten. Maßgebliche Datenquelle für die Compliance-Dokumente ist die
-Anwendungsdatenbank, nicht ein Git-Repository; GitOps wird für die tägliche Nutzung bewusst nicht vorausgesetzt. Das ist
-eine Architekturentscheidung für diesen Anwendungsfall, keine Abkehr von GitOps oder Compliance as Code. Git-basierte
-Workflows und weitergehende Integrationen mit OSCAL-Compass-Werkzeugen können perspektivisch sinnvoll
-sein. [Compliance to Policy (C2P)](https://github.com/oscal-compass/compliance-to-policy) ist noch nicht integriert.
+[OSCAL Compass](https://oscal-compass.dev/) stellt Open-Source-Werkzeuge für OSCAL-basiertes Authoring, Validierung und Automatisierung bereit. Trestle bietet eine Python-CLI und ein SDK; [Agile Authoring](https://github.com/oscal-compass/compliance-trestle-agile-authoring) unterstützt kollaborative GitOps-basierte Erstellung. Collaborative OSCAL baut auf diesem Ökosystem auf, ist aber ein **eigenständiges Projekt** und weder Teilprojekt von OSCAL Compass noch eine offiziell unterstützte CNCF-/LF-Initiative.
+
+Die Trestle-Modelle und Validierungsfunktionen sind über eine eigene [Adaptergrenze (ADR 0002)](docs/adr/0002-oscal-adapter-boundary.md) eingebunden und werden durch offizielle OSCAL-Schemas und anwendungsspezifische Referenzprüfungen ergänzt.
+
+Collaborative OSCAL verfolgt ergänzend einen **browserbasierten, datenbankgestützten** Ansatz für Stakeholder, die nicht täglich mit Git arbeiten. Die maßgebliche operative Datenquelle ist die Anwendungsdatenbank, nicht ein Git-Repository. Das ist keine Ablehnung von GitOps oder Compliance as Code. Weitere Integrationen mit OSCAL-Werkzeugen bleiben möglich; [Compliance to Policy (C2P)](https://github.com/oscal-compass/compliance-to-policy) ist derzeit nicht integriert.
 
 ## Bekannte Einschränkungen und Roadmap
 
-Zu den Alpha-Einschränkungen gehören unvollständige semantische Validierung, differenzierte Stakeholder-Berechtigungen
-und Funktionstrennung, teilweise noch fehlende Workflow-Abdeckung sowie weitere operative Härtung. Optimistische
-Nebenläufigkeit ist für Prüfpläne, Prüfergebnisse, SSPs, Profile und Mapping-Sammlungen implementiert; überprüfte und
-verifizierte Nachweise bestehen für Prüfpläne, Prüfergebnisse und SSPs, während Profile und Mapping-Sammlungen auf
-Prüfung warten.
+Das Projekt befindet sich in der Alpha-Entwicklung: Die semantische Validierung ist unvollständig, differenzierte Stakeholder-Berechtigungen und Funktionstrennung fehlen teilweise, mehrere Workflows sind noch nicht vorhanden, und zusätzliche Security- sowie operative Härtung ist erforderlich. Tests und Architekturdokumentation allein belegen keine Produktionsreife.
 
-### Kurzfristige Prioritäten
+Die **Aggregate-Level Optimistic Concurrency ist für die oben aufgeführten Aggregate implementiert und abgenommen**. Einzelne ältere Rollout-Statuspassagen in ADRs und Architekturleitfäden wurden noch nicht mit allen abgeschlossenen Implementierungsreviews synchronisiert; der normative Architekturvertrag gilt unverändert.
 
-- Gemeinsame Verwaltung von Parties, Rollen und Verantwortlichkeiten ergänzen.
-- Native OSCAL-Inventaritems und erweiterte Prüfgegenstände implementieren.
-- Eine gemeinsame System- und Inventarübersicht bereitstellen.
-- Bearbeitbare eigene Kataloge ermöglichen.
-- Die Katalogauswahl erweitern und eine domänenübergreifende Governance-Demo bereitstellen.
-- Frontend-UX und UI-Arbeitsabläufe konsolidieren.
-- Sicherheit, CI/CD und Release-Härtung verbessern.
+### Aktuelle und mögliche nächste Arbeiten
+
+Reihenfolge und genauer Umfang stehen unter dem Entscheidungsvorbehalt des Maintainers:
+
+- Den manuellen Akzeptanzdurchlauf des Compliance Explorers mit den fiktiven Demodaten abschließen und anschließend Informationsarchitektur und Frontend-UX verbessern.
+- Den Explorer perspektivisch über die seitenbezogene Measures-Gruppierung hinaus erweitern; mögliche Ergänzungen sind ein Control/Profile-Diff und reichhaltigere, explizit belegte domänenübergreifende Beziehungen.
+- Gemeinsame Verwaltung von Parties, Rollen und Responsibilities ergänzen.
+- Native OSCAL Inventory Items, erweiterte Prüfgegenstände sowie eine System-/Inventarübersicht einführen.
+- Benutzerfreundliches Authoring eigener OSCAL-Kataloge mit klarer Identitäts- und Revisionssemantik ermöglichen.
+- Die domänenübergreifende Governance-Demo weiter fachlich kuratieren und zulässig verfügbare Kataloginhalte ergänzen.
+- Security-, Entwicklungsverifikations-, CI-/Release- und operative Härtung bedarfsorientiert fortsetzen.
 
 ### Langfristige Pläne
 
-- Gemeinsame, versionierte Prüfnachweise und prüfungsübergreifende Wiederverwendung ergänzen.
-- Risikomanagement und POA&M-Workflows ergänzen.
-- OSCAL-Interoperabilität, portable Dokumentworkflows und Berichte ausweiten.
-- Differenzierte Autorisierung und formale Freigaben erweitern.
-- Die semantische Validierung von Prüfzielen, Methoden, Prüfschritten und geprüftem Umfang verbessern.
-- Profilauflösung und Parameterbearbeitung weiter ausbauen.
+- Gemeinsame, versionierte Prüfnachweise und explizite prüfungsübergreifende Wiederverwendung.
+- Risikomanagement und POA&M-Workflows.
+- Verbesserte OSCAL-Interoperabilität, portable Dokumentworkflows und Reporting.
+- Feinere Autorisierung, Prüfzuständigkeiten und formale Freigaben.
+- Präzisere semantische Validierung von Prüfziel, Methode, Prüfschritten und geprüftem Umfang.
+- Weitergehende Profile Resolution und Parameterbearbeitung.
 
-Schema-valide OSCAL-Dokumente belegen weder regulatorische Konformität noch garantieren sie die Interoperabilität mit
-jedem OSCAL-Werkzeug. Sie beschreiben Daten und Prüfungskontexte und bestimmen nicht das unabhängige Prüfurteil einer
-Organisation.
-Siehe [Katalogimport](docs/catalog-import.md), [Entscheidung zur Profilauflösung](docs/adr/0016-defer-profile-resolution.md)
-und [Interoperabilitätsbefunde zur AI-Governance-Demo](docs/architecture/ai-governance-demo-interoperability-findings-2026-11-17.md).
+Schema-valide OSCAL-Dokumente beweisen weder regulatorische Konformität noch garantieren sie Interoperabilität mit jedem OSCAL-Werkzeug. Siehe [Katalogimport](docs/catalog-import.md), [Entscheidung zur Profilauflösung](docs/adr/0016-defer-profile-resolution.md) und [Interoperabilitätsbefunde zur AI-Governance-Demo](docs/architecture/ai-governance-demo-interoperability-findings-2026-11-17.md).
+
+### Weg zur Beta
+
+Vor einer Beta-Veröffentlichung ist eine **umfangreichere Phase zur Code-Konsolidierung, zum Refactoring und zur Überprüfung der Wartbarkeit vorgesehen**. Ihr Umfang soll von dokumentierten technischen Schulden, gezielten Architektur- und Security-Befunden, Testnachweisen, manuellen Akzeptanzergebnissen und Rückmeldungen von Contributorn abhängen. Daraus folgt weder eine Festlegung auf einen Backend-Neubau noch eine Abkehr vom nativen OSCAL-Modell. Unabhängige Reviews sicherheitskritischer und Python-spezifischer Implementierungspfade sind besonders willkommen.
 
 ## Entwicklung und Qualitätssicherung
 
-Die Entwicklung wird vom Menschen geführt und durch KI unterstützt; dabei kommt Agentic Software Engineering in
-erheblichem Umfang zum Einsatz. Der Gründer und Maintainer des Projekts trifft die Produkt- und
-Architekturentscheidungen; KI-Werkzeuge unterstützen Implementierung, Spezifikation und technische Prüfung. Reviews
-werden vom Gründer und Maintainer des Projekts zusammen mit KI-gestützten Reviews durchgeführt. Die Verantwortung für
-Annahmeentscheidungen und Releases bleibt beim Gründer und Maintainer des Projekts. Automatisierte Tests und
-Architecture Decision Records unterstützen die Verifikation; es wird nicht behauptet, dass sämtlicher generierter Code
-manuell geprüft oder unabhängig auditiert wurde.
+Die Entwicklung ist **menschlich geführt und in erheblichem Umfang KI-unterstützt**, einschließlich Agentic Coding Tools. Der Gründer und Maintainer bringt Erfahrung in der **Backend-Entwicklung mit Java und C**, in Softwarearchitektur und Governance mit, beansprucht jedoch **keine umfassende praktische Python-Erfahrung**. Python wurde aus Ökosystem- und Wiederverwendungsgründen bewusst gewählt, wie oben erläutert; KI-Unterstützung ist Teil des Implementierungsprozesses, nicht der Grund für die Sprachwahl.
 
-Das Repository enthält Backend- und Frontend-Tests, PostgreSQL-Integrationstests, eine CI-Konfiguration sowie
-Kompatibilitäts- und Regressionstests.
-Die [Kompatibilitätsnotizen zu Prüfergebnissen](docs/architecture/assessment-results-compatibility-probes-2026-11-17.md)
-dokumentieren weitere während der Entwicklung durchgeführte Prüfungen. Testergebnisse früherer Entwicklungsstände
-stellen keine Release-Zertifizierung dar; die aktuellen Testsuiten und manuellen Workflows sollten entsprechend
-dem [Entwicklerleitfaden](docs/development.md) ausgeführt werden.
+Die Verantwortung für Produktausrichtung, Architektur, Abnahmen und Releases bleibt beim Maintainer. KI-Werkzeuge unterstützen Spezifikation, Implementierung, Analyse und Reviews. Änderungen werden mittels menschlich verantworteter Prüfung, gezielter automatisierter Tests und dokumentierter Architekturentscheidungen bewertet; **nicht sämtlicher generierter Code wurde unabhängig oder vollständig manuell auditiert**. Weder grüne Tests noch KI-Reviews ersetzen unabhängige Code- und Sicherheitsaudits. Beiträge und unabhängige Reviews erfahrener Python-Entwickler sind ausdrücklich willkommen.
+
+Das Repository enthält Backend- und Frontend-Testsuiten, PostgreSQL-Integrationstests, CI-Konfiguration und reproduzierbare Entwicklungsabläufe. Die [Kompatibilitätsnotizen zu Prüfergebnissen](docs/architecture/assessment-results-compatibility-probes-2026-11-17.md) dokumentieren zusätzliche Entwicklungsprüfungen. Historische Testberichte sind keine Release-Zertifizierung; die aktuellen Tests und manuellen Abläufe sind im [Entwicklerleitfaden](docs/development.md) beschrieben. Weitere Regeln zur KI-Nutzung stehen in [AI_USAGE.md](AI_USAGE.md).
 
 ## Projektbeiträge und Governance
 
-Siehe [CONTRIBUTING.md](CONTRIBUTING.md) für Beitragsrichtlinien, [MAINTAINERS.md](MAINTAINERS.md) für
-Verantwortlichkeiten der Maintainer und [SECURITY.md](SECURITY.md) für die koordinierte Meldung von Sicherheitslücken.
-Transparenz bei der Entwicklung und Erwartungen für KI-Unterstützung sind in [AI_USAGE.md](AI_USAGE.md) dokumentiert.
+Siehe [CONTRIBUTING.md](CONTRIBUTING.md) für Beitragsrichtlinien, [MAINTAINERS.md](MAINTAINERS.md) für Maintainer-Verantwortlichkeiten und [SECURITY.md](SECURITY.md) für koordinierte Meldungen von Sicherheitslücken. Transparenz über KI-Nutzung und Erwartungen an Contributors sind in [AI_USAGE.md](AI_USAGE.md) dokumentiert.
 
 ## Danksagung
 
-Collaborative OSCAL baut auf der Arbeit verschiedener Open-Source-Projekte und Communities auf:
+Collaborative OSCAL baut auf der Arbeit vieler Open-Source-Projekte und Communities auf:
 
-- [NIST OSCAL](https://pages.nist.gov/OSCAL/) – der offene Standard, auf dem dieses Projekt basiert.
-- [OSCAL Compass](https://github.com/oscal-compass) – ein Ökosystem von Werkzeugen und Ressourcen für OSCAL-basiertes
-  Compliance-Management.
-- [Compliance Trestle](https://github.com/oscal-compass/compliance-trestle) – Verarbeitung und Validierung von
-  OSCAL-Dokumenten.
-- [OSCAL Compass Content](https://github.com/oscal-compass/oscal-content) – wiederverwendbare OSCAL-Inhalte, darunter
-  der in unserer Demo verwendete NIST AI RMF Generative AI-Katalog.
-- Unser Dank gilt den Maintainern und Contributors dieser Projekte sowie der zahlreichen Open-Source-Bibliotheken, die
-  Collaborative OSCAL ermöglichen.
-- Das Projekt profitiert außerdem vom fachlichen Austausch innerhalb der LF AI & Data Security & Compliance Working
-  Group.
-- Collaborative OSCAL ist ein unabhängiges Projekt und weder offiziell mit NIST, OSCAL Compass oder der Linux Foundation
-  verbunden noch von diesen Organisationen offiziell unterstützt.
+- [NIST OSCAL](https://pages.nist.gov/OSCAL/) – der zugrunde liegende offene Standard.
+- [OSCAL Compass](https://github.com/oscal-compass) – Werkzeuge und Ressourcen für OSCAL-basierte Compliance-Workflows.
+- [Compliance Trestle](https://github.com/oscal-compass/compliance-trestle) – Verarbeitung und Validierung von OSCAL-Dokumenten.
+- [OSCAL Compass Content](https://github.com/oscal-compass/oscal-content) – wiederverwendbare Inhalte, darunter der NIST AI RMF Generative AI-Katalog der Demo.
+- Den Maintainern, Contributors und weiteren Open-Source-Bibliotheken, die das Projekt ermöglichen.
+- Dem fachlichen Austausch in der LF AI & Data Security & Compliance Working Group.
+
+Collaborative OSCAL ist unabhängig und weder offiziell mit NIST, OSCAL Compass, CNCF oder der Linux Foundation verbunden noch von diesen Organisationen offiziell unterstützt.
 
 ## Lizenz
 
-Die selbst entwickelte Software steht unter der [Apache License 2.0](LICENSE). Hinweise zur Projektzuordnung stehen in
-der Datei [NOTICE](NOTICE).
+Die selbst entwickelte Software steht unter der [Apache License 2.0](LICENSE). Hinweise zur Projektzuordnung stehen in [NOTICE](NOTICE).
 
-Für Kataloge Dritter, Schemas, Test-Fixtures, Abhängigkeiten und Container-Inhalte gelten weiterhin deren jeweilige
-Lizenz- und Namensnennungspflichten; die Softwarelizenz lizenziert diese Inhalte nicht um. Siehe:
+Für Kataloge, Schemas, Fixtures, Dependencies und Container-Inhalte Dritter gelten weiterhin deren jeweilige Lizenzen und Namensnennungspflichten. Die Softwarelizenz lizenziert solche Inhalte **nicht** um. Siehe:
 
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 - [docs/license-compliance-assessment.md](docs/license-compliance-assessment.md)
 - [docs/npm-license-inventory.json](docs/npm-license-inventory.json)
 - [docs/python-license-inventory.runtime.json](docs/python-license-inventory.runtime.json)
 
-Projekt-eigene Dokumentation steht unter [Creative Commons Attribution 4.0 International](LICENSES/CC-BY-4.0.txt) (
-CC-BY-4.0).
+Projekteigene Dokumentation steht unter [Creative Commons Attribution 4.0 International](LICENSES/CC-BY-4.0.txt) (CC-BY-4.0), darunter die Root-Dateien `README.md`, `README.de.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `MAINTAINERS.md`, `AI_USAGE.md` sowie eigene Markdown-Dateien unter `docs/`, soweit nicht anders gekennzeichnet.
 
-CC-BY-4.0-Geltungsbereich in diesem Repository:
-
-- Root-Dokumentation: `README.md`, `README.de.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`,
-  `MAINTAINERS.md` und `AI_USAGE.md`
-- Projekt-eigene Markdown-Dateien unter `docs/`, sofern eine Datei nicht eindeutig Rechte Dritter oder abweichende
-  Lizenzbedingungen ausweist
-
-Vom CC-BY-4.0-Geltungsbereich ausgenommen:
-
-- Software-Quellcode und Skripte (Apache-2.0)
-- Drittanbieter-Artefakte, übernommene normative Inhalte, Schemas, Fixtures und Provenance-Dateien (ursprüngliche
-  Lizenzen bleiben gültig)
-- Maschinen-generierte Abhängigkeitsinventare in `docs/`
+Von dieser Dokumentationslizenz ausgenommen sind Software und Skripte (Apache-2.0), Inhalte Dritter und übernommene normative Texte (mit deren jeweiligen Lizenzen), Schemas, Fixtures, Provenienzdateien und maschinell erzeugte Abhängigkeitsinventare unter `docs/`.
 
 ## Weiterführende Informationen
 
