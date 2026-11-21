@@ -8,6 +8,7 @@
     "npm": ">=10 <11"
   },
   "devDependencies": {
+    "@vitejs/plugin-react": "^5.2.0",
     "jsdom": "27.0.1"
   },
   "overrides": {
