@@ -20,13 +20,13 @@ export default async function TenantLayout({
 }) {
   const { t } = await getI18n();
   const { tenantId } = await params;
-  const session = await requireSession(`/t/${tenantId}/catalogs`);
+  const session = await requireSession(`/t/${tenantId}`);
   const userName = session.name ?? session.email ?? t("auth.signedIn");
   const demoMode = "kind" in session && session.kind === "demo";
 
   let tenants;
   try {
-    tenants = (await listTenants(`/t/${tenantId}/catalogs`)).items;
+    tenants = (await listTenants(`/t/${tenantId}`)).items;
   } catch (error) {
     return (
       <AppShell userName={userName} tenants={[]} demoMode={demoMode}>

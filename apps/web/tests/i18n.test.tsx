@@ -49,6 +49,8 @@ describe("translation resources", () => {
     expect(resolveLocale("fr")).toBe("en");
     expect(resolveLocale("de")).toBe("de");
     expect(createI18n("en").t("nav.catalogs")).toBe("Catalogs");
+    expect(createI18n("en").t("nav.overview")).toBe("Overview");
+    expect(createI18n("de").t("workspaceOverview.systemSummary.title")).toBe("Systemueberblick");
   });
 
   it("falls back to English if a German entry is unavailable", () => {
@@ -98,6 +100,7 @@ describe("locale preference", () => {
     });
     const html = renderToStaticMarkup(root);
     expect(html).toContain('<html lang="de">');
+    expect(html).toContain("Uebersicht");
     expect(html).toContain("Anforderungskataloge");
     expect(html).toContain("Unsere Maßnahmen");
     expect(html).toContain("Demomodus");
