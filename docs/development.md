@@ -236,10 +236,9 @@ npm --workspace apps/web run typecheck
 npm --workspace apps/web run test
 ```
 
-GitHub Actions runs linting and non-integration API tests on pushes and pull requests.
-PostgreSQL integration tests run only on pull requests, against a dedicated PostgreSQL
-service. Changes pushed directly to a branch without a pull request do not run the
-integration tests.
+GitHub Actions runs linting, non-integration API tests, and PostgreSQL integration
+API tests on pushes and pull requests (using a dedicated PostgreSQL service
+container in CI).
 
 ### Verified integration baseline (2026-11-17)
 
