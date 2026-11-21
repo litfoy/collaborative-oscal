@@ -4,8 +4,8 @@ This guide defines the reusable implementation and verification contract for agg
 
 - Architectural decision: `docs/adr/0022-aggregate-optimistic-concurrency.md`
 - Original Assessment Plan decision (kept unchanged): `docs/adr/0021-assessment-plan-optimistic-concurrency.md`
-- **Implemented aggregate coverage:** Assessment Plans, Assessment Results, SSPs, Profiles, and Mapping Collections
-- **Review and verification:** currently established as a strong contention/reference model for Assessment Plans, Assessment Results, and SSPs (reviewed by the maintainer with AI-assisted analysis; no external audit); Profiles and Mapping Collections are implemented but pending review
+- **Implemented aggregate coverage:** Assessment Plans, Assessment Results, System Security Plans (SSPs), Profiles, Mapping Collections, Component Definitions, Information Systems, Individual System Components, and Control Implementations (including Responsibilities)
+- **Review and verification:** implementation and repository verification references for these nine aggregates are maintained through maintainer-led, AI-assisted analysis; independent external audit has not been performed
 
 ## Implementation Contract
 
@@ -14,19 +14,19 @@ The following behaviors are required for mutable aggregate implementations that 
 1. **Mapper-backed concurrency token**
    - Use SQLAlchemy mapper versioning with `version_id_col` bound to aggregate `concurrency_version`.
    - Keep `concurrency_version` as a non-null integer initialized to `1`.
-   - Reference: `apps/api/app/persistence/models.py` (`AssessmentPlanRecord`, `AssessmentResultRecord`).
+   - Reference: `apps/api/app/persistence/models.py` (`AssessmentPlanRecord`, `AssessmentResultRecord`, `SystemSecurityPlanRecord`, `ProfileRecord`, `MappingCollectionRecord`, `ComponentDefinitionRecord`, `InformationSystemRecord`, `SystemComponentRecord`, `ControlImplementationRecord`).
    - Migration pattern reference: `migrations/versions/e1f2a3b4c5d6_assessment_plan_concurrency.py`, `migrations/versions/f7a1c9e2d4b3_assessment_result_concurrency.py`.
 
 2. **Required expected version for existing-aggregate mutations**
    - Require `expected_version` for all applicable mutations of existing aggregates.
    - Where supported by aggregate behavior, this includes update, publication, and deletion mutations.
    - Missing required token must fail contract validation (`422`).
-   - Reference: `apps/api/app/api/assessment_plan_schemas.py`, `apps/api/app/api/assessment_result_schemas.py`.
+   - Reference: `apps/api/app/api/assessment_plan_schemas.py`, `apps/api/app/api/assessment_result_schemas.py`, `apps/api/app/api/system_security_plan_schemas.py`, `apps/api/app/api/profile_schemas.py`, `apps/api/app/api/mapping_schemas.py`, `apps/api/app/api/component_definition_schemas.py`, `apps/api/app/api/implementation_schemas.py`.
 
 3. **Explicit token comparison plus mapper stale detection**
    - Compare `expected_version` to persisted `concurrency_version` before mutation.
    - Also treat failed flush stale-row detection (`StaleDataError`) as stale update and translate consistently.
-   - Reference: `apps/api/app/application/assessment_plans.py` (`update_plan`, `create_version`), `apps/api/app/application/assessment_results.py` (`update_result`, `create_version`).
+   - Reference: `apps/api/app/application/assessment_plans.py` (`update_plan`, `create_version`), `apps/api/app/application/assessment_results.py` (`update_result`, `create_version`), `apps/api/app/application/system_security_plans.py` (SSP, information-system, and system-component mutations), `apps/api/app/application/component_definitions.py` (update/publish/delete mutations), `apps/api/app/application/implementations.py` (control implementation and responsibility mutations).
 
 4. **Aggregate-level protection, including nested-only mutations**
    - Protect the whole aggregate working state (including nested JSON/relational payloads), not only top-level scalar fields.
@@ -39,8 +39,8 @@ The following behaviors are required for mutable aggregate implementations that 
    - Return HTTP `409` with stable `detail.code == "stale_update"` and expected/current version details.
    - Return HTTP `422` when required version token is missing.
    - References:
-     - Routes: `apps/api/app/api/assessment_plan_routes.py`, `apps/api/app/api/assessment_result_routes.py`
-     - API tests: `apps/api/tests/test_assessment_plan_api_concurrency.py`, `apps/api/tests/test_assessment_result_api_concurrency.py`
+      - Routes: `apps/api/app/api/assessment_plan_routes.py`, `apps/api/app/api/assessment_result_routes.py`, `apps/api/app/api/system_security_plan_routes.py`, `apps/api/app/api/component_definition_routes.py`, `apps/api/app/api/implementation_routes.py`
+      - API tests: `apps/api/tests/test_assessment_plan_api_concurrency.py`, `apps/api/tests/test_assessment_result_api_concurrency.py`, `apps/api/tests/test_component_definition_api_concurrency.py`
 
 6. **Atomic publication and token propagation**
    - Publication is atomic with aggregate version advancement where publication exists.
@@ -186,9 +186,27 @@ Apply these guarantees only to aggregates that expose the corresponding operatio
      - `apps/web/tests/assessment-plan-workspace.test.tsx`
      - `apps/web/tests/assessment-result-workspace.test.tsx`
 
-7. **Full acceptance procedure**
-   - Use locked dependencies and the established PostgreSQL + frontend procedures documented in `docs/development.md`.
-   - Concurrency acceptance is incomplete if these suites are not run in their intended environments.
+### Additional aggregate coverage references (Tasks 09d-09g)
+
+These references supplement the AP/AR baseline techniques above with aggregate-specific coverage introduced later in the ADR 0022 rollout.
+
+1. **Component Definitions**
+   - Service contention and stale-translation coverage: `apps/api/tests/test_component_definition_service_concurrency.py`
+   - API `409 stale_update` and required-token `422` coverage: `apps/api/tests/test_component_definition_api_concurrency.py`
+   - Migration backfill/constraint coverage: `apps/api/tests/test_component_definition_concurrency_migration.py`
+
+2. **Information Systems + Individual System Components**
+   - Service-level token independence, nested-only updates, stale translation, and concurrent blocking coverage: `apps/api/tests/test_system_component_concurrency.py`
+   - Migration backfill/constraint coverage: `apps/api/tests/test_system_component_concurrency_migration.py`
+
+3. **Control Implementations (including Responsibilities)**
+   - Service-level stale detection, contention winner assertions, responsibility-only token advancement, and association rollback coverage: `apps/api/tests/test_system_security_plan_concurrency.py`
+   - Implementation service mutation paths: `apps/api/app/application/implementations.py`
+
+### Full acceptance procedure
+
+- Use locked dependencies and the established PostgreSQL + frontend procedures documented in `docs/development.md`.
+- Concurrency acceptance is incomplete if these suites are not run in their intended environments.
 
 ### Why weaker evidence is insufficient
 
