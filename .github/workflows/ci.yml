@@ -30,7 +30,6 @@ jobs:
         working-directory: apps/api
 
   api-integration:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     env:
       TEST_DATABASE_URL: postgresql+psycopg://collaborative_oscal:ci-only-password@localhost:5432/collaborative_oscal_test
