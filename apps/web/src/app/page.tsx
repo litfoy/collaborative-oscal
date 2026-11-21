@@ -63,7 +63,7 @@ export default async function HomePage({
   }
 
   if (tenants.length === 1) {
-    redirect(`/t/${tenants[0].id}/catalogs`);
+    redirect(`/t/${tenants[0].id}`);
   }
 
   return (
@@ -79,7 +79,7 @@ export default async function HomePage({
           {tenants.map((tenant) => (
             <li key={tenant.id} className="card">
               <h2>
-                <a href={`/t/${tenant.id}/catalogs`}>{tenant.name}</a>
+                <a href={`/t/${tenant.id}`}>{tenant.name}</a>
               </h2>
               <p className="muted">{t("auth.yourRole")} {enumLabel(tenant.role)}</p>
             </li>

@@ -38,6 +38,7 @@ export function AppShell({
           </Link>
           {current ? (
             <>
+              <a href={`/t/${current.id}`}>{t("nav.overview")}</a>
               <a href={`/t/${current.id}/catalogs`}>{t("nav.catalogs")}</a>
               <a href={`/t/${current.id}/measures`}>{t("nav.measures")}</a>
               <a href={`/t/${current.id}/mappings`}>{t("nav.mappings")}</a>
