@@ -28,17 +28,25 @@ The repository now needs one architectural standard for optimistic concurrency a
 
 ## Scope and implementation coverage
 
+- **Implementation status note (2026-11-21):** aggregate rollout is complete for the currently in-scope mutable aggregates listed below.
 - **Implemented aggregates:**
   - Assessment Plans
   - Assessment Results
   - System Security Plans (SSPs)
   - Profiles
   - Mapping Collections
+  - Component Definitions
+  - Information Systems
+  - Individual System Components
+  - Control Implementations (including Responsibilities)
+- **Architectural acceptance vs implementation coverage:**
+  - ADR acceptance (`Accepted`, 2026-11-18) establishes the normative aggregate-level concurrency contract.
+  - Current implementation coverage applies that unchanged contract across the nine aggregates above.
 - **Implementation review and verification status:**
-  - Assessment Plans, Assessment Results, and SSPs have established review and verified contention/reference coverage (reviewed by the maintainer with AI-assisted analysis; no external audit).
-  - Profiles and Mapping Collections have implemented concurrency paths, but do not yet have the same review and verification status.
+  - Repository implementation and verification references for the nine covered aggregates have been reviewed by the maintainer with AI-assisted analysis.
+  - Independent external audit has not been performed.
 - Operation-specific requirements apply only where those operations exist for an aggregate (for example: publication, idempotent publication, immutable snapshots, deletion endpoints, or nested authored structures).
-- This ADR defines the standard now; rollout remains explicit per aggregate.
+- This ADR defines the standard and the current covered set; future mutable aggregates still require explicit rollout and verification.
 
 ## Consequences
 
