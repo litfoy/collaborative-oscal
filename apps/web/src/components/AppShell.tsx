@@ -24,33 +24,41 @@ type NavKey =
   | "componentDefinitions"
   | "mappings";
 
-function resolveActiveNav(pathname: string | null, tenantId: string): NavKey | null {
+type ActiveNav = {
+  key: NavKey;
+  current: "page" | "location";
+};
+
+function resolveActiveNav(pathname: string | null, tenantId: string): ActiveNav | null {
   if (!pathname) return null;
   const base = `/t/${tenantId}`;
   if (pathname === base || pathname === `${base}/`) {
-    return "overview";
+    return { key: "overview", current: "page" };
   }
   if (!pathname.startsWith(`${base}/`)) {
     return null;
   }
-  const firstSegment = pathname.slice(base.length + 1).split("/")[0];
+  const [firstSegment, ...rest] = pathname.slice(base.length + 1).split("/");
+  const current = rest.length === 0 || (rest.length === 1 && rest[0] === "")
+    ? "page"
+    : "location";
   switch (firstSegment) {
     case "systems":
-      return "systems";
+      return { key: "systems", current };
     case "compliance-explorer":
-      return "requirementsMeasures";
+      return { key: "requirementsMeasures", current };
     case "assessment-plans":
-      return "assessmentPlans";
+      return { key: "assessmentPlans", current };
     case "assessment-results":
-      return "assessmentResults";
+      return { key: "assessmentResults", current };
     case "catalogs":
-      return "catalogs";
+      return { key: "catalogs", current };
     case "profiles":
-      return "profiles";
+      return { key: "profiles", current };
     case "measures":
-      return "componentDefinitions";
+      return { key: "componentDefinitions", current };
     case "mappings":
-      return "mappings";
+      return { key: "mappings", current };
     default:
       return null;
   }
@@ -83,7 +91,7 @@ export function AppShell({
     <Link
       href={href}
       className="shell-nav-link"
-      aria-current={activeNav === key ? "page" : undefined}
+      aria-current={activeNav?.key === key ? activeNav.current : undefined}
       onClick={() => setMobileNavExpanded(false)}
     >
       {label}
