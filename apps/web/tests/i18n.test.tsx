@@ -20,15 +20,25 @@ import type { Profile } from "@/lib/types";
 
 import { CATALOG, REVISION, TENANT, control, page } from "./fixtures";
 
-const mocks = vi.hoisted(() => ({ cookie: undefined as string | undefined, refresh: vi.fn(), bffGet: vi.fn(), bffWrite: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  cookie: undefined as string | undefined,
+  pathname: "/",
+  refresh: vi.fn(),
+  bffGet: vi.fn(),
+  bffWrite: vi.fn(),
+}));
 vi.mock("next/headers", () => ({
   cookies: async () => ({ get: (name: string) => name === "co_locale" && mocks.cookie !== undefined ? { value: mocks.cookie } : undefined }),
 }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: mocks.refresh, replace: vi.fn() }) }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => mocks.pathname,
+  useRouter: () => ({ refresh: mocks.refresh, replace: vi.fn() }),
+}));
 vi.mock("@/lib/bff-client", () => ({ bffGet: mocks.bffGet, bffWrite: mocks.bffWrite }));
 
 afterEach(() => {
   mocks.cookie = undefined;
+  mocks.pathname = "/";
   document.cookie = `${LOCALE_COOKIE}=; Path=/; Max-Age=0`;
   document.documentElement.lang = "en";
   vi.clearAllMocks();
@@ -105,7 +115,8 @@ describe("locale preference", () => {
     expect(html).toContain('<html lang="de">');
     expect(html).toContain("Übersicht");
     expect(html).toContain("Anforderungskataloge");
-    expect(html).toContain("Unsere Maßnahmen");
+    expect(html).toContain("Anforderungen &amp; Maßnahmen");
+    expect(html).toContain("Komponentendefinitionen");
     expect(html).toContain("Demomodus");
     expect(html).toContain("Original Workspace");
     expect(html).toContain("Original User");

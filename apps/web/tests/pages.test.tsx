@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   getRevision: vi.fn(),
   getOutline: vi.fn(),
   getControl: vi.fn(),
+  usePathname: vi.fn(),
   redirect: vi.fn((target: string) => {
     throw new Error(`REDIRECT:${target}`);
   }),
@@ -39,6 +40,7 @@ vi.mock("@/lib/api", () => ({
 vi.mock("next/navigation", () => ({
   redirect: mocks.redirect,
   useRouter: () => ({ refresh: vi.fn(), replace: vi.fn() }),
+  usePathname: mocks.usePathname,
 }));
 
 import HomePage from "@/app/page";
@@ -68,6 +70,7 @@ const system = (id: string, name: string, description: string | null = null): In
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.usePathname.mockReturnValue(`/t/${TENANT}`);
   mocks.getSession.mockResolvedValue(session);
   mocks.requireSession.mockResolvedValue(session);
   mocks.listTenants.mockResolvedValue({ items: [tenant(TENANT, "Alpha")] });
@@ -131,6 +134,7 @@ describe("tenant layout", () => {
     render(await TenantLayout({ children: <p>SECRET</p>, params: Promise.resolve({ tenantId: TENANT }) }));
     expect(screen.getByRole("alert")).toHaveTextContent(/do not have access/i);
     expect(screen.queryByText("SECRET")).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Workspace navigation" })).toBeNull();
   });
 
   it("renders the shell with sign-out and tenant switching for authorized tenants", async () => {
