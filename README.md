@@ -4,9 +4,9 @@
 
 [Deutsch](README.de.md) · [Architecture](docs/architecture/overview.md) · [AI Governance demo](docs/architecture/ai-governance-demo-seed.md)
 
-Collaborative OSCAL is an independent, self-hosted, open-source platform for collaborative governance, risk and compliance (GRC). The project is in **alpha development** and uses [NIST OSCAL (Open Security Controls Assessment Language)](https://pages.nist.gov/OSCAL/) as its native information model—not merely as an import/export format.
+Collaborative OSCAL is an independent, self-hosted, open-source platform for collaborative governance, risk and compliance (GRC). The project is in an **alpha development state** and uses [NIST OSCAL (Open Security Controls Assessment Language)](https://pages.nist.gov/OSCAL/) as its native information model—not merely as an import/export format.
 
-Its purpose is to reduce redundant work across data protection, information security, AI safety, AI governance and other governance domains, as well as providing an API for Compliance Automation. Information about systems, safeguards and implementation can be reused where appropriate, while requirements, responsibilities and assessment judgments remain distinct.
+Its purpose is to reduce redundant work across data protection, information security, AI safety, AI governance and other governance domains, as well as to provide an API for Compliance Automation. Information about systems, safeguards and implementation can be reused where appropriate, while requirements, responsibilities and assessment judgments remain distinct.
 
 **Document an implementation once where appropriate; reuse relevant information across frameworks; assess each requirement independently in its own context.**
 
@@ -26,7 +26,7 @@ Collaborative OSCAL keeps three concerns separate:
 - **Implementation:** Reusable component definitions, concrete system components and control-specific implementations are distinct. One safeguard may support several controls without automatically satisfying any of them.
 - **Assessment:** Assessment Plans and Results retain their own scope, observations, findings and historical references. A documented implementation is not proof of effectiveness, and one assessment cannot automatically decide another's outcome.
 
-The longer-term goal is a common information foundation with explicit reuse of suitable evidence, clear responsibilities and independent assessment authority.
+The long term goal is a common information foundation with explicit reuse of suitable evidence, clear responsibilities and independent assessment authority.
 
 Potential use cases include BSI IT-Grundschutz++, GDPR, ISO/IEC 27001 and 27002, NIST SP 800-53, NIST AI RMF, ISO/IEC 42001, the EU AI Act and internal policies—subject to suitable OSCAL content and permission to use it. This is **not** a claim of complete framework coverage or regulatory compliance.
 
@@ -46,7 +46,7 @@ docker compose up --build -d
 
 Open [http://localhost:3000](http://localhost:3000). Local demo startup initializes the Acme workspace, imports the NIST SP 800-53 baseline catalog and applies the AI Governance / Governance Coverage seed before the API and web app start. The seed includes NIST GenAI and EU AI Act catalogs, demonstration mappings and fictional systems. No external identity provider is needed in local demo mode.
 
-**Local demo only:** Anyone who can reach the demo frontend acts as the same demo user. Do not expose this mode publicly or use real, production or confidential data. The UI supports English and German; changing the language does not translate imported OSCAL material or user-authored content.
+**Local demo only:** Anyone who can reach the demo frontend has the privileges of the same demo user. Do not expose this mode publicly or use real, production or confidential data. The UI supports English and German. Changing the language does not translate imported OSCAL material or user-authored content.
 
 The Compliance Explorer can be opened from the application navigation. It requires an information system and **one to five existing Profiles** to explore. The default governance seed does not automatically create Explorer-ready Profiles; create or select Profiles first. Choosing a Profile for exploration does not establish that it is applicable to the selected system.
 
