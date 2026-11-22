@@ -79,15 +79,27 @@ describe("app shell navigation", () => {
   });
 
   it("uses active state from the current path without confusing nested system routes", () => {
-    mocks.pathname = `/t/${TENANT}/systems/sys-1/assessment-plans/plan-1`;
-    const { unmount } = renderShell({});
+    mocks.pathname = `/t/${TENANT}/systems`;
+    let view = renderShell({});
     expect(screen.getByRole("link", { name: "Systems" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Assessment plans" })).not.toHaveAttribute("aria-current");
 
-    unmount();
+    view.unmount();
+    mocks.pathname = `/t/${TENANT}/systems/sys-1/assessment-plans/plan-1`;
+    view = renderShell({});
+    expect(screen.getByRole("link", { name: "Systems" })).toHaveAttribute("aria-current", "location");
+    expect(screen.getByRole("link", { name: "Assessment plans" })).not.toHaveAttribute("aria-current");
+
+    view.unmount();
     mocks.pathname = `/t/${TENANT}/assessment-plans`;
-    renderShell({});
+    view = renderShell({});
+    expect(screen.getByRole("link", { name: "Systems" })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("link", { name: "Assessment plans" })).toHaveAttribute("aria-current", "page");
+
+    view.unmount();
+    mocks.pathname = `/t/${TENANT}/assessment-plans/plan-1`;
+    renderShell({});
+    expect(screen.getByRole("link", { name: "Assessment plans" })).toHaveAttribute("aria-current", "location");
   });
 
   it("keeps content mounted while mobile navigation toggles", async () => {
@@ -138,8 +150,13 @@ describe("app shell navigation", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Bibliotheken & Modellierung" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Anforderungen & Maßnahmen" })).toHaveAttribute("href", `/t/${TENANT}/compliance-explorer`);
     expect(screen.getByRole("link", { name: "Komponentendefinitionen" })).toHaveAttribute("href", `/t/${TENANT}/measures`);
+    expect(screen.getByRole("link", { name: "Prüfpläne" })).toHaveAttribute("href", `/t/${TENANT}/assessment-plans`);
+    expect(screen.getByRole("link", { name: "Prüfergebnisse" })).toHaveAttribute("href", `/t/${TENANT}/assessment-results`);
   });
 });
+
+
+
 
 
 

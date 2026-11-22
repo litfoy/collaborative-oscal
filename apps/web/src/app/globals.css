@@ -114,7 +114,8 @@ a {
 .shell-nav-link:hover {
   background: #eef2f7;
 }
-.shell-nav-link[aria-current="page"] {
+.shell-nav-link[aria-current="page"],
+.shell-nav-link[aria-current="location"] {
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: 600;
