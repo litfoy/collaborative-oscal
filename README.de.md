@@ -150,7 +150,10 @@ Schema-valide OSCAL-Dokumente beweisen weder regulatorische Konformität noch ga
 
 ### Weg zur Beta
 
-Vor einer Beta-Veröffentlichung ist eine **umfangreichere Phase zur Code-Konsolidierung, zum Refactoring und zur Überprüfung der Wartbarkeit vorgesehen**. Ihr Umfang soll von dokumentierten technischen Schulden, gezielten Architektur- und Security-Befunden, Testnachweisen, manuellen Akzeptanzergebnissen und Rückmeldungen von Contributorn abhängen. Daraus folgt weder eine Festlegung auf einen Backend-Neubau noch eine Abkehr vom nativen OSCAL-Modell. Unabhängige Reviews sicherheitskritischer und Python-spezifischer Implementierungspfade sind besonders willkommen.
+**Beta-Gate:** Es wird keine Beta-Version veröffentlicht, bevor
+(1) eine dokumentierte Konsolidierung und Refaktorierung stattgefunden hat(KI-gestützte Arbeit ist zulässig, aber Umfang, Erkenntnisse und
+Entscheidungen werden schriftlich festgehalten), und
+(2) eine menschliche Prüfung des Ergebnisses durch eine erfahrene Python-/Sicherheitsexpertin oder einen erfahrenen Python-/Sicherheitsexperten außerhalb der Maintainer-Rolle erfolgt ist, wobei die Befunde und die Reaktionen darauf veröffentlicht werden.
 
 ## Entwicklung und Qualitätssicherung
 

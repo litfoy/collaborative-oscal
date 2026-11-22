@@ -150,7 +150,9 @@ Schema-valid OSCAL documents do not by themselves establish regulatory complianc
 
 ### Path to beta
 
-A **substantial code consolidation, refactoring and maintainability review is planned before any beta release**. Its scope will be driven by documented technical debt, focused architecture and security findings, test evidence, manual acceptance results and contributor feedback. This is not a commitment to rewrite the backend or replace its OSCAL-native model. Independent review of security-critical and Python-specific implementation paths is particularly welcome.
+**Beta gate:** There will be no beta release before
+(1) a documented consolidation and refactoring pass (AI-assisted work is allowed, but its scope, findings and decisions are written down), and
+(2) a human review of the result by an experienced Python/security reviewer other than the maintainer, with findings and responses published.
 
 ## Development and verification
 
