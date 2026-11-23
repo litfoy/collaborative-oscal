@@ -123,6 +123,8 @@ it("groups the current page by explicit component identity without merging ident
   );
 
   expect(screen.getByText(/Measures grouping covers the current page only: 4 of 21/)).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Linked System Components" })).toBeVisible();
+  expect(screen.getByText("2 Component groups on this page")).toBeVisible();
 
   const sharedTitleGroups = screen.getAllByRole("region", { name: "System Component: Shared title" });
   expect(sharedTitleGroups).toHaveLength(2);
@@ -138,8 +140,10 @@ it("groups the current page by explicit component identity without merging ident
   expect(within(other!).getByText(/impl-other/)).toBeVisible();
 
   expect(screen.getByRole("region", { name: "Implementations without an assigned System Component" })).toBeVisible();
+  expect(screen.getByText(/not explicitly linked to a reusable System Component/)).toBeVisible();
   expect(screen.getByText("impl-unlinked")).toBeVisible();
   expect(screen.getByRole("region", { name: "Selected Controls without documented system Implementations" })).toBeVisible();
+  expect(screen.getByText(/have no documented implementation records on this page/)).toBeVisible();
   expect(screen.getByText("ac-4")).toBeVisible();
 });
 
@@ -163,10 +167,13 @@ it("switches views without another API request and keeps shared pagination state
   await user.click(screen.getByLabelText("Security baseline"));
   await user.click(screen.getByRole("button", { name: "Apply selection" }));
   await screen.findByRole("table", { name: "Compliance explorer requirements" });
+  expect(screen.getByText("ac-1")).toBeVisible();
 
   expect(mocks.bffGet).toHaveBeenCalledTimes(1);
   await user.click(screen.getByRole("button", { name: "Measures" }));
   expect(mocks.bffGet).toHaveBeenCalledTimes(1);
+  expect(screen.getByText("ac-1")).toBeVisible();
+  expect(screen.getAllByText(new RegExp(`${catalogId} / ${revisionId}`)).length).toBeGreaterThan(0);
   const measuresButton = screen.getByRole("button", { name: "Measures" });
   expect(measuresButton).toHaveAttribute("aria-pressed", "true");
 
@@ -244,6 +251,7 @@ it("preserves individual traceability for two Implementations sharing a Control 
   expect(scoped.getByText("Partially implemented")).toBeVisible();
   expect(scoped.getByText("Partial release in test")).toBeVisible();
   expect(scoped.getByText("profile-a / import-a")).toBeVisible();
+  expect(scoped.getByText(new RegExp(`${catalogId} / ${revisionId}`))).toBeVisible();
 
   const implB = scoped.getByText("impl-b").closest("li");
   expect(implB).not.toBeNull();

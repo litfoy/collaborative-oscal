@@ -81,37 +81,49 @@ export function ComplianceExplorerMeasuresView({ page }: { page: ComplianceExplo
 
   return (
     <section aria-label={t("complianceExplorer.measuresTableLabel")}>
-      <p className="panel muted" role="status">
+      <p className="panel ce-page-scope-notice" role="status">
         {t("complianceExplorer.currentPageMeasuresNotice", {
           shown: number(page.items.length),
           total: number(page.total),
         })}
       </p>
 
-      {groups.map((group) => (
-        <section className="panel" key={group.id} aria-label={
-          group.title
-            ? t("complianceExplorer.measureComponentTitle", { title: group.title })
-            : t("complianceExplorer.measureComponentUnnamed")
-        }>
-          <h2>{group.title ?? t("complianceExplorer.measureComponentUnnamed")}</h2>
-          <p className="muted mono">{t("complianceExplorer.componentId")}: {group.id}</p>
-          <ul className="stack">
-            {group.controls.map((association) => (
-              <li key={controlKey(association.control)} className="panel">
-                {renderControlAssociation(association, t, enumLabel)}
-              </li>
-            ))}
-          </ul>
+      {groups.length > 0 ? (
+        <section className="panel" aria-label={t("complianceExplorer.linkedComponents")}>
+          <h2>{t("complianceExplorer.linkedComponents")}</h2>
+          <p className="muted">
+            {t("complianceExplorer.linkedComponentsCount", {
+              count: number(groups.length),
+            })}
+          </p>
+
+          {groups.map((group) => (
+            <section className="panel ce-component-group" key={group.id} aria-label={
+              group.title
+                ? t("complianceExplorer.measureComponentTitle", { title: group.title })
+                : t("complianceExplorer.measureComponentUnnamed")
+            }>
+              <h3>{group.title ?? t("complianceExplorer.measureComponentUnnamed")}</h3>
+              <p className="muted mono">{t("complianceExplorer.componentId")}: {group.id}</p>
+              <ul className="stack ce-control-associations">
+                {group.controls.map((association) => (
+                  <li key={controlKey(association.control)} className="panel ce-control-association">
+                    {renderControlAssociation(association, t, enumLabel)}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
         </section>
-      ))}
+      ) : null}
 
       {unlinked.length > 0 ? (
         <section className="panel" aria-label={t("complianceExplorer.unlinkedImplementations")}>
           <h2>{t("complianceExplorer.unlinkedImplementations")}</h2>
-          <ul className="stack">
+          <p className="muted">{t("complianceExplorer.unlinkedImplementationsHint")}</p>
+          <ul className="stack ce-control-associations">
             {unlinked.map((association) => (
-              <li key={controlKey(association.control)} className="panel">
+              <li key={controlKey(association.control)} className="panel ce-control-association">
                 {renderControlAssociation(association, t, enumLabel)}
               </li>
             ))}
@@ -122,10 +134,14 @@ export function ComplianceExplorerMeasuresView({ page }: { page: ComplianceExplo
       {controlsWithoutImplementations.length > 0 ? (
         <section className="panel" aria-label={t("complianceExplorer.controlsWithoutImplementations")}>
           <h2>{t("complianceExplorer.controlsWithoutImplementations")}</h2>
+          <p className="muted">{t("complianceExplorer.controlsWithoutImplementationsHint")}</p>
           <ul className="stack">
             {controlsWithoutImplementations.map((control) => (
-              <li key={controlKey(control)}>
-                <strong>{control.reference.oscal_control_id}</strong> - {control.title}
+              <li key={controlKey(control)} className="panel ce-undocumented-control">
+                <p className="ce-control-heading">
+                  <strong className="mono">{control.reference.oscal_control_id}</strong>
+                  <span>{control.title}</span>
+                </p>
                 <div className="muted mono">
                   {t("complianceExplorer.source")}: {control.reference.catalog_id} / {control.reference.revision_id}
                 </div>
@@ -157,16 +173,19 @@ function renderControlAssociation(
   const { control } = association;
   return (
     <>
-      <strong>{control.reference.oscal_control_id}</strong> - {control.title}
+      <p className="ce-control-heading">
+        <strong className="mono">{control.reference.oscal_control_id}</strong>
+        <span>{control.title}</span>
+      </p>
       <div className="muted mono">
         {t("complianceExplorer.source")}: {control.reference.catalog_id} / {control.reference.revision_id}
       </div>
       <div className="muted">
         {t("complianceExplorer.memberships")}: {control.memberships.map((membership) => membership.profile_title).join(", ")}
       </div>
-      <ul className="stack" aria-label={t("complianceExplorer.implementations")}>
+      <ul className="stack ce-implementation-list" aria-label={t("complianceExplorer.implementations")}>
         {association.implementations.map((implementation) => (
-          <li className="panel" key={implementation.id}>
+          <li className="panel ce-implementation-card" key={implementation.id}>
             <dl className="meta-list">
               <dt>{t("complianceExplorer.implementationId")}</dt>
               <dd className="mono">{implementation.id}</dd>

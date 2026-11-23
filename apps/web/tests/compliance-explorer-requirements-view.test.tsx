@@ -164,6 +164,7 @@ it("applies system/profile selection and renders shared memberships with impleme
   await user.selectOptions(screen.getByLabelText("System"), systemId);
   await user.click(screen.getByLabelText("Security baseline"));
   await user.click(screen.getByLabelText("Privacy baseline"));
+  expect(screen.getByText("Selected Profiles: 2/5")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Apply selection" }));
 
   await waitFor(() =>
@@ -178,15 +179,57 @@ it("applies system/profile selection and renders shared memberships with impleme
   );
 
   expect(await screen.findByRole("table", { name: "Compliance explorer requirements" })).toBeVisible();
+  expect(screen.getByRole("status", { name: "Applied results context" })).toBeVisible();
+  expect(screen.getByText("Applied Profile count")).toBeVisible();
   expect(screen.getByText("ac-1")).toBeVisible();
   const requirementsTable = screen.getByRole("table", { name: "Compliance explorer requirements" });
   expect(within(requirementsTable).getByText("Security baseline, Privacy baseline")).toBeVisible();
+  expect(within(requirementsTable).getByText("Workflow statuses")).toBeVisible();
+  expect(within(requirementsTable).getByText("OSCAL implementation statuses")).toBeVisible();
   expect(screen.getByText("No system implementation documented")).toBeVisible();
 
   await user.click(screen.getByRole("button", { name: "Toggle details for ac-1" }));
   expect(await screen.findByText("99999999-9999-4999-8999-999999999999")).toBeVisible();
   expect(screen.getByText("Gateway (aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa)")).toBeVisible();
   expect(screen.getByText("Not explicitly linked")).toBeVisible();
+});
+
+it("rejects invalid draft selection and enforces the 1 to 5 profile limit", async () => {
+  const user = userEvent.setup();
+  const manyProfiles: Profile[] = Array.from({ length: 6 }, (_entry, index) => ({
+    id: `66666666-6666-4666-8666-66666666666${index}`,
+    tenant_id: tenantId,
+    catalog_id: "44444444-4444-4444-8444-444444444444",
+    revision_id: "55555555-5555-4555-8555-555555555555",
+    title: `Profile ${index + 1}`,
+    control_ids: [`ac-${index + 1}`],
+    created_at: "",
+    updated_at: "",
+    concurrency_version: 1,
+  }));
+
+  render(
+    <LocaleProvider locale="en">
+      <ComplianceExplorerRequirementsView tenantId={tenantId} systems={systems} profiles={manyProfiles} />
+    </LocaleProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Apply selection" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("Select one System and between 1 and 5 Profiles, then apply.");
+
+  await user.selectOptions(screen.getByLabelText("System"), systemId);
+  await user.click(screen.getByRole("button", { name: "Apply selection" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("Select between 1 and 5 Profiles.");
+
+  for (let index = 1; index <= 6; index += 1) {
+    await user.click(screen.getByLabelText(`Profile ${index}`));
+  }
+
+  const selected = manyProfiles
+    .map((profile) => screen.getByLabelText(profile.title) as HTMLInputElement)
+    .filter((checkbox) => checkbox.checked);
+  expect(selected).toHaveLength(5);
+  expect(screen.getByText("Selected Profiles: 5/5")).toBeVisible();
 });
 
 it("supports server-side pagination and empty states", async () => {
@@ -246,7 +289,7 @@ it("renders German labels and supports keyboard interaction", async () => {
 
   expect(screen.getByRole("heading", { name: "Konformitäts-Explorer" })).toBeVisible();
   expect(screen.getByRole("button", { name: "Auswahl anwenden" })).toBeVisible();
-  expect(screen.getByText("1 bis 5 Anforderungsprofile auswählen (0/5)")).toBeVisible();
+  expect(screen.getByText("Ausgewählte Anforderungsprofile: 0/5")).toBeVisible();
 
   const profileBox = screen.getByLabelText("Security baseline");
   profileBox.focus();

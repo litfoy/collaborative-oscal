@@ -104,6 +104,10 @@ export function ComplianceExplorerRequirementsView({
   const draftDiffers = applied
     ? applied.systemId !== selectedSystemId || profileSelectionDiffers
     : false;
+  const draftSystem = sortedSystems.find((system) => system.id === selectedSystemId);
+  const draftProfiles = sortedProfiles
+    .filter((profile) => selectedProfileIds.includes(profile.id))
+    .map((profile) => profile.title);
 
   return (
     <div className="workspace">
@@ -111,49 +115,71 @@ export function ComplianceExplorerRequirementsView({
       <p className="muted">{t("complianceExplorer.intro")}</p>
       <p className="muted">{t("complianceExplorer.scopeNote")}</p>
 
-      <section className="panel stack" aria-label={t("complianceExplorer.title")}>
-        <label className="field">
-          {t("complianceExplorer.system")}
-          <select
-            value={selectedSystemId}
-            onChange={(event) => setSelectedSystemId(event.target.value)}
-            disabled={loading || sortedSystems.length === 0}
-          >
-            <option value="">{t("complianceExplorer.selectSystem")}</option>
-            {sortedSystems.map((system) => (
-              <option key={system.id} value={system.id}>
-                {system.name}
-              </option>
-            ))}
-          </select>
-        </label>
+      <section className="panel stack ce-selection-panel" aria-label={t("complianceExplorer.selectionTitle")}>
+        <h2>{t("complianceExplorer.selectionTitle")}</h2>
+        <p className="muted">{t("complianceExplorer.profileHelp")}</p>
 
-        <fieldset>
-          <legend>{t("complianceExplorer.profiles")}</legend>
-          <p className="muted">{t("complianceExplorer.profileHelp")}</p>
-          <p className="muted">
-            {t("complianceExplorer.selectProfiles")} ({number(selectedProfileIds.length)}/5)
-          </p>
-          <div className="stack">
-            {sortedProfiles.map((profile) => {
-              const checked = selectedProfileIds.includes(profile.id);
-              const disabled = loading || (!checked && selectedProfileIds.length >= 5);
-              return (
-                <label key={profile.id} className="selection-row">
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    disabled={disabled}
-                    onChange={() => toggleProfile(profile.id)}
-                  />
-                  <span>{profile.title}</span>
-                </label>
-              );
-            })}
-          </div>
-        </fieldset>
+        <div className="ce-selection-grid">
+          <label className="field">
+            {t("complianceExplorer.system")}
+            <select
+              value={selectedSystemId}
+              onChange={(event) => setSelectedSystemId(event.target.value)}
+              disabled={loading || sortedSystems.length === 0}
+            >
+              <option value="">{t("complianceExplorer.selectSystem")}</option>
+              {sortedSystems.map((system) => (
+                <option key={system.id} value={system.id}>
+                  {system.name}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <div className="workspace-actions">
+          <fieldset className="ce-profile-fieldset">
+            <legend>{t("complianceExplorer.profiles")}</legend>
+            <p className="muted">{t("complianceExplorer.selectProfiles")}</p>
+            <p className="muted" role="status" aria-live="polite">
+              {t("complianceExplorer.selectedProfilesCount", {
+                count: number(selectedProfileIds.length),
+                max: number(5),
+              })}
+            </p>
+            <div className="ce-profile-list" role="group" aria-label={t("complianceExplorer.profiles")}>
+              {sortedProfiles.map((profile) => {
+                const checked = selectedProfileIds.includes(profile.id);
+                const disabled = loading || (!checked && selectedProfileIds.length >= 5);
+                return (
+                  <label key={profile.id} className="selection-row">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={disabled}
+                      onChange={() => toggleProfile(profile.id)}
+                    />
+                    <span>{profile.title}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+        </div>
+
+        <section className="panel" aria-label={t("complianceExplorer.draftContext")}>
+          <h3>{t("complianceExplorer.draftContext")}</h3>
+          <dl className="meta-list">
+            <dt>{t("complianceExplorer.draftSystem")}</dt>
+            <dd>{draftSystem?.name ?? t("complianceExplorer.noneSelected")}</dd>
+            <dt>{t("complianceExplorer.draftProfiles")}</dt>
+            <dd>
+              {draftProfiles.length > 0
+                ? draftProfiles.join(", ")
+                : t("complianceExplorer.noneSelected")}
+            </dd>
+          </dl>
+        </section>
+
+        <div className="workspace-actions ce-selection-actions">
           <button
             type="button"
             onClick={() => void applySelection()}
@@ -173,22 +199,25 @@ export function ComplianceExplorerRequirementsView({
       ) : null}
 
       {applied && page ? (
-        <section className="panel" role="status" aria-label={t("complianceExplorer.appliedContext")}>
+        <section className="panel ce-applied-context" role="status" aria-label={t("complianceExplorer.appliedContext")}>
           <h2>{t("complianceExplorer.appliedContext")}</h2>
           <dl className="meta-list">
             <dt>{t("complianceExplorer.appliedSystem")}</dt>
             <dd>{page.system.name}</dd>
             <dt>{t("complianceExplorer.appliedProfiles")}</dt>
             <dd>{page.profiles.map((profile) => profile.title).join(", ")}</dd>
+            <dt>{t("complianceExplorer.selectedProfilesCountLabel")}</dt>
+            <dd>{number(page.profiles.length)}</dd>
           </dl>
           {draftDiffers ? <p className="muted">{t("complianceExplorer.draftDiffers")}</p> : null}
         </section>
       ) : null}
 
       {applied && page ? (
-        <div className="workspace-actions" role="group" aria-label={t("complianceExplorer.viewSwitch")}>
+        <div className="workspace-actions ce-view-switch" role="group" aria-label={t("complianceExplorer.viewSwitch")}>
           <button
             type="button"
+            className={viewMode === "requirements" ? "" : "secondary"}
             aria-pressed={viewMode === "requirements"}
             onClick={() => setViewMode("requirements")}
           >
@@ -196,6 +225,7 @@ export function ComplianceExplorerRequirementsView({
           </button>
           <button
             type="button"
+            className={viewMode === "measures" ? "" : "secondary"}
             aria-pressed={viewMode === "measures"}
             onClick={() => setViewMode("measures")}
           >
@@ -216,13 +246,14 @@ export function ComplianceExplorerRequirementsView({
               total: number(page.total),
             })}
           </p>
-          <table id="compliance-explorer-results" aria-label={t("complianceExplorer.tableLabel")}>
+          <table id="compliance-explorer-results" className="ce-requirements-table" aria-label={t("complianceExplorer.tableLabel")}>
             <thead>
               <tr>
                 <th>{t("complianceExplorer.control")}</th>
                 <th>{t("complianceExplorer.memberships")}</th>
                 <th>{t("complianceExplorer.implementations")}</th>
-                <th>{t("complianceExplorer.statuses")}</th>
+                <th>{t("complianceExplorer.workflowStatuses")}</th>
+                <th>{t("complianceExplorer.oscalStatuses")}</th>
                 <th>{t("complianceExplorer.details")}</th>
               </tr>
             </thead>
@@ -234,27 +265,20 @@ export function ComplianceExplorerRequirementsView({
                   <Fragment key={key}>
                     <tr>
                       <td>
-                        <strong>{item.reference.oscal_control_id}</strong> - {item.title}
+                        <p className="ce-control-heading">
+                          <strong className="mono">{item.reference.oscal_control_id}</strong>
+                          <span>{item.title}</span>
+                        </p>
                         <div className="muted mono">
                           {t("complianceExplorer.source")}: {item.reference.catalog_id} / {item.reference.revision_id}
                         </div>
                       </td>
-                      <td>{item.memberships.map((membership) => membership.profile_title).join(", ")}</td>
-                      <td>{number(item.implementations.length)}</td>
                       <td>
-                        {item.implementations.length === 0 ? (
-                          <span>{t("complianceExplorer.noImplementation")}</span>
-                        ) : (
-                          item.implementations.map((implementation) => (
-                            <div key={implementation.id}>
-                              {enumLabel(implementation.status)}
-                              {implementation.oscal_implementation_status
-                                ? ` / ${enumLabel(implementation.oscal_implementation_status)}`
-                                : ""}
-                            </div>
-                          ))
-                        )}
+                        {item.memberships.map((membership) => membership.profile_title).join(", ")}
                       </td>
+                      <td>{number(item.implementations.length)}</td>
+                      <td>{summarizeWorkflowStatuses(item, t, enumLabel)}</td>
+                      <td>{summarizeOscalStatuses(item, t, enumLabel)}</td>
                       <td>
                         <button
                           type="button"
@@ -271,7 +295,7 @@ export function ComplianceExplorerRequirementsView({
                     </tr>
                     {expanded ? (
                       <tr id={`ce-details-${key}`}>
-                        <td colSpan={5}>{renderDetails(item, t, enumLabel)}</td>
+                        <td colSpan={6}>{renderDetails(item, t, enumLabel)}</td>
                       </tr>
                     ) : null}
                   </Fragment>
@@ -329,6 +353,14 @@ function renderDetails(
   }
   return (
     <div className="stack">
+      <dl className="meta-list">
+        <dt>{t("complianceExplorer.source")}</dt>
+        <dd className="mono">
+          {item.reference.catalog_id} / {item.reference.revision_id} / {item.reference.oscal_control_id}
+        </dd>
+        <dt>{t("complianceExplorer.memberships")}</dt>
+        <dd>{item.memberships.map((membership) => membership.profile_title).join(", ")}</dd>
+      </dl>
       {item.implementations.map((implementation) => (
         <div key={implementation.id} className="panel">
           <dl className="meta-list">
@@ -360,4 +392,30 @@ function renderDetails(
       ))}
     </div>
   );
+}
+
+function summarizeWorkflowStatuses(
+  item: ComplianceExplorerControlItem,
+  t: Translate,
+  enumLabel: (value: string) => string,
+) {
+  if (item.implementations.length === 0) {
+    return t("complianceExplorer.noImplementation");
+  }
+  return [...new Set(item.implementations.map((implementation) => enumLabel(implementation.status)))].join(", ");
+}
+
+function summarizeOscalStatuses(
+  item: ComplianceExplorerControlItem,
+  t: Translate,
+  enumLabel: (value: string) => string,
+) {
+  if (item.implementations.length === 0) {
+    return t("complianceExplorer.na");
+  }
+  return [...new Set(item.implementations.map((implementation) => (
+    implementation.oscal_implementation_status
+      ? enumLabel(implementation.oscal_implementation_status)
+      : t("complianceExplorer.na")
+  )))].join(", ");
 }

@@ -1175,6 +1175,78 @@ summary {
   align-items: center;
 }
 
+.ce-selection-panel {
+  gap: 0.75rem;
+}
+.ce-selection-panel h2 {
+  margin: 0;
+}
+.ce-selection-grid {
+  display: grid;
+  grid-template-columns: minmax(15rem, 24rem) minmax(0, 1fr);
+  gap: 0.75rem 1rem;
+}
+.ce-profile-fieldset {
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  padding: 0.5rem 0.65rem 0.65rem;
+  min-width: 0;
+}
+.ce-profile-fieldset legend {
+  font-weight: 600;
+}
+.ce-profile-list {
+  display: grid;
+  gap: 0.3rem;
+  max-height: 14rem;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+}
+.ce-selection-actions {
+  margin-top: 0.25rem;
+}
+.ce-applied-context {
+  border-left: 4px solid var(--accent);
+}
+.ce-view-switch button[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 2px #0f3faf;
+}
+.ce-requirements-table td {
+  vertical-align: top;
+}
+.ce-control-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0;
+}
+.ce-page-scope-notice {
+  background: var(--warn-soft);
+}
+.ce-component-group {
+  margin-top: 0.75rem;
+}
+.ce-component-group h3 {
+  margin-top: 0;
+}
+.ce-control-associations {
+  margin-top: 0.25rem;
+}
+.ce-control-association,
+.ce-undocumented-control {
+  display: grid;
+  gap: 0.45rem;
+}
+.ce-implementation-list {
+  margin: 0.15rem 0 0;
+  padding-left: 0;
+  list-style: none;
+}
+.ce-implementation-card {
+  margin-top: 0.35rem;
+}
+
 .explorer {
   display: grid;
   gap: 1.25rem;
@@ -1182,6 +1254,9 @@ summary {
   align-items: start;
 }
 @media (max-width: 52rem) {
+  .ce-selection-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .explorer {
     grid-template-columns: 1fr;
   }
