@@ -62,7 +62,7 @@ export const en = {
   "complianceExplorer.componentId": "System Component ID",
   "complianceExplorer.implementationIds": "Implementation IDs",
   "complianceExplorer.unlinkedImplementations": "Implementations without an assigned System Component",
-  "complianceExplorer.unlinkedImplementationsHint": "These implementation records are documented but not explicitly linked to a reusable System Component.",
+  "complianceExplorer.unlinkedImplementationsHint": "These implementation records are documented but are not assigned to a System Component.",
   "complianceExplorer.controlsWithoutImplementations": "Selected Controls without documented system Implementations",
   "complianceExplorer.controlsWithoutImplementationsHint": "These selected Controls have no documented implementation records on this page.",
 } as const;
@@ -128,7 +128,7 @@ export const de: Record<keyof typeof en, string> = {
   "complianceExplorer.componentId": "Systemkomponenten-ID",
   "complianceExplorer.implementationIds": "Umsetzungs-IDs",
   "complianceExplorer.unlinkedImplementations": "Umsetzungen ohne zugeordnete Systemkomponente",
-  "complianceExplorer.unlinkedImplementationsHint": "Diese Umsetzungen sind dokumentiert, aber keiner wiederverwendbaren Systemkomponente explizit zugeordnet.",
+  "complianceExplorer.unlinkedImplementationsHint": "Diese Umsetzungen sind dokumentiert, aber keiner Systemkomponente zugeordnet.",
   "complianceExplorer.controlsWithoutImplementations": "Ausgewählte Kontrollen ohne dokumentierte Systemumsetzungen",
   "complianceExplorer.controlsWithoutImplementationsHint": "Für diese ausgewählten Kontrollen gibt es auf dieser Seite keine dokumentierten Umsetzungsdatensätze.",
 };

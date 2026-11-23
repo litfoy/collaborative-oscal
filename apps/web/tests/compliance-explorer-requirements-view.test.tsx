@@ -186,6 +186,8 @@ it("applies system/profile selection and renders shared memberships with impleme
   expect(within(requirementsTable).getByText("Security baseline, Privacy baseline")).toBeVisible();
   expect(within(requirementsTable).getByText("Workflow statuses")).toBeVisible();
   expect(within(requirementsTable).getByText("OSCAL implementation statuses")).toBeVisible();
+  expect(within(requirementsTable).getByText("Implemented, In progress")).toBeVisible();
+  expect(within(requirementsTable).getByText("Implemented, Partially implemented")).toBeVisible();
   expect(screen.getByText("No system implementation documented")).toBeVisible();
 
   await user.click(screen.getByRole("button", { name: "Toggle details for ac-1" }));
