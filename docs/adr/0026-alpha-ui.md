@@ -1,4 +1,4 @@
-# ADR 0025: Explorer-Centered Frontend Information Architecture and Incremental UX Evolution
+# ADR 0026: Explorer-Centered Frontend Information Architecture and Incremental UX Evolution
 
 - **Status:** Proposed
 - **Date:** 2026-11-22
