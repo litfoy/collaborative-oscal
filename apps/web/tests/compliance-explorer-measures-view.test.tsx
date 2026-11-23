@@ -140,7 +140,7 @@ it("groups the current page by explicit component identity without merging ident
   expect(within(other!).getByText(/impl-other/)).toBeVisible();
 
   expect(screen.getByRole("region", { name: "Implementations without an assigned System Component" })).toBeVisible();
-  expect(screen.getByText(/not explicitly linked to a reusable System Component/)).toBeVisible();
+  expect(screen.getByText(/are not assigned to a System Component/)).toBeVisible();
   expect(screen.getByText("impl-unlinked")).toBeVisible();
   expect(screen.getByRole("region", { name: "Selected Controls without documented system Implementations" })).toBeVisible();
   expect(screen.getByText(/have no documented implementation records on this page/)).toBeVisible();
