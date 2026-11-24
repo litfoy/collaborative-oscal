@@ -1,7 +1,7 @@
 # ADR 0029: Resource Authorization, Assessment Types, Provenance, and Personal SoD for Alpha
 
 - Status: Proposed — not approved or implemented
-- Date: 2026-11-24 (revision 2, consolidating the independent architecture review of 2026-11-23)
+- Date: 2026-11-24 (revision 3; incorporates PO/architect decisions D1–D12 following independent review)
 - Scope: Collaborative OSCAL Alpha
 - Principle: **Shared compliance data. Independent assessments. Verifiable decisions.**
 
@@ -36,14 +36,14 @@ they never grant application access.
    the business transaction, governs all entry points (§1).
 2. Explicit, persisted resource grants replace `catalog:write` for system-scoped work. Assessor grants bind to one
    published AP version. Grants are issued only by an authenticated provisioning operator through a CLI (§2, §3).
-3. Every AP has an immutable `self_assessment` or `independence_claimed` type, exported as a namespaced OSCAL
+3. Every newly created AP has an immutable `self_assessment` or `independence_claimed` type, exported as a namespaced OSCAL
    property (§4, §5).
 4. SOD-ALPHA-01 v1 is a conservative, system-wide personal conflict check, evaluated at each independent AR
    publication with results `verified`, `conflict` or `unverifiable` (§6).
-5. A minimal, database-enforced participation journal makes provenance capture fail closed for every writer (§7).
+5. PostgreSQL captures effective protected changes atomically, attributed to the actor asserted by the trusted writer (§7–8).
 6. Separate database roles distinguish schema ownership, runtime writes and grant provisioning (§8).
-7. Relational invariants, a deterministic lock order and transactional journal positions make the decision race-safe
-   (§9, §10).
+7. Supported commands serialize relevant work through one installation-wide transaction gate. Constraints,
+   per-System positions and immutable decision evidence remain database protections, not effects of the gate (§9–10).
 
 ## 1. Authentication, authorization and OSCAL responsibility
 
@@ -52,7 +52,7 @@ they never grant application access.
 - The service receives its principal from the authentication adapter only — never from a caller-selected user ID,
   tenant header, role claim, OSCAL party or CLI argument.
 - Authorization is re-evaluated in the **same SQLAlchemy session and PostgreSQL transaction** as the mutation, with
-  the locks in §10. Route dependencies may reject early but cannot authorize. BFF affordances are hints (§12).
+  the gate in §10. Route dependencies may reject early but cannot authorize. BFF affordances are hints (§12).
 - Deny by default. Every lookup is tenant-qualified. A request's system ID never routes an unrelated record.
 - OSCAL parties, roles, `responsible-parties` and `responsible-roles` remain documentary. An internal-user-to-party
   association may be kept, but it never grants API access. Governance disciplines (data protection, information
@@ -65,17 +65,23 @@ they never grant application access.
 - `human`: resolved from a configured OIDC issuer or a reserved demo persona.
 - `technical`: reserved issuer `urn:collaborative-oscal:technical` and a fixed subject per purpose (for example
   `demo-seed`, `demo-provisioner`). Technical identities cannot authenticate through the API, cannot be resolved from
-  an OIDC token, cannot hold resource grants and cannot appear in an independent assessment actor set. A database
+  an OIDC token or hold resource grants. A checked set containing one cannot qualify as independent. A database
   CHECK ties `actor_kind = 'technical'` to the reserved issuer.
 
-The seed CLI no longer accepts `--actor-id`. Seeds write as the technical seed actor and may only write in tenants
-listed for that actor in an owner-managed allowlist (§8). Seeds never create human actions, confirmations or
-decisions on behalf of personas. They may create self-assessment or legacy demo content, never an
-`independence_claimed` publication.
+**Controlled initialization (D9).** Remove `--actor-id`, including the local CLI's implicit human actor. Only the
+fixed `demo-seed` command may initialize owner-authorized demo tenants and reserved fixture targets. Its positive
+list is fixture library/catalog setup, System/component creation and adoption, implementation/SSP authoring and
+binding, SSP publication, self-assessment AP/AR creation, editing and publication, and seed markers. No independent
+AP/AR work, creation of legacy classifications, human impersonation, personal confirmations or grant writes. This
+is command-specific authorization, not authority conferred by technical kind or tenant allowlisting alone.
+Keep the atomic multi-System seed and replay markers: nested services inherit its outer transaction (§10).
+Apply demo grants separately after seed commit as `demo-provisioner`, never with the seed's runtime credential.
 
 **Identity assurance.** Each human identity has `identity_assurance` (`distinct` by default, or `ambiguous`). The
 provisioning operator may mark known aliases, replacement accounts or unresolved issuer transitions as `ambiguous`.
-Accounts are never joined by e-mail or display name.
+Accounts are never joined by e-mail or display name. Assurance is installation-wide: changes require explicit
+owner authorization for global assurance administration, not merely authority to provision one tenant. Use the same
+gate as publication (§10); preserve the value used for each checked actor in the determination.
 
 **Provisioning authority.**
 
@@ -93,15 +99,17 @@ Accounts are never joined by e-mail or display name.
 - Assessor issuance for an `independence_claimed` AP version runs SOD-ALPHA-01 for the beneficiary alone and is
   denied on `conflict`. An `unverifiable` result is reported but does not block issuance; publication decides.
 - Grants are never reactivated. Revocation is terminal and records the authenticated revoker. Re-issuing creates a
-  new grant row. Replaying a manifest never recreates a grant whose manifest entry was revoked.
+  new grant row and a new issuance intent. Persist a tenant-qualified stable manifest entry key, even after
+  revocation. Identical replay is a no-op; reject changed payload under the same key. Replay never recreates a
+  revoked entry. Inactive membership prevents use; reactivation permits use only if the grant was never revoked.
 - **Alpha limitation:** grant provisioning is CLI-only. A System or AP version created in the GUI is unusable for
   system-scoped work until an operator provisions it. There is no grant-management UI.
 
 ## 3. Resource capabilities and operation matrix
 
 Resource capabilities are a separate type and never members of the tenant `Permission` enumeration. A resource check
-neither falls back to nor additionally requires `catalog:write`. Active membership in the resource tenant is always
-required.
+never falls back to `catalog:write`; first binding explicitly needs both authorities. Active tenant membership is
+required for human resource use. Technical commands have only the enumerated §2 authorities.
 
 | Capability | Target | Purpose |
 |---|---|---|
@@ -112,12 +120,12 @@ required.
 
 | Operation | Required authority | Notes |
 |---|---|---|
-| Browse, validate without saving, list or export versions | Existing tenant read policy (`catalog:read`) | No mutation |
+| Browse, validate without saving, list or export versions | Existing tenant read policy (`catalog:read`) | No participation; locking validation still takes the gate |
 | Catalog import, Profiles, Mapping Collections, Component Definition library | Existing `catalog:write`/`catalog:import` | Library authorship is not system participation |
 | Create System | `catalog:write` (pre-resource exception) | Grants no rights on the new System; starts complete coverage (§7) |
 | Edit System (characteristics, boundary, status) | `system:implement` | Journaled participation (§6) |
 | Create/edit system component; adopt component definition | `system:implement` | |
-| Create/edit **unbound** implementation and its responsibilities | `catalog:write` | Unbound status checked under the implementation lock (§10) |
+| Create/edit **unbound** implementation and its responsibilities | `catalog:write` | Resolve actual binding after taking the gate (§10) |
 | Edit **bound** implementation or its responsibilities, through any route | `system:implement` on the bound System | Includes the generic `/implementations/{id}` route |
 | Create/edit SSP, publish SSP version | `system:implement` on the SSP System | |
 | Attach implementation to SSP | `system:implement` on the SSP System; first binding additionally requires `catalog:write` | ADR 0017 baseline, component and organization checks retained |
@@ -126,7 +134,9 @@ required.
 | Create typed AP, edit AP, publish AP version | `system:plan_assessment` | For `independence_claimed`, a known `conflict` of the acting planner is rejected early |
 | Create, edit, import or publish AR, including import replay | `assessment:assessor` on the AR's exact pinned AP version | Self/legacy pins also need `system:self_assess`; independent publication also needs `verified` (§6) |
 | Issue or revoke a grant; mark identity assurance | Provisioning authority (§2) | CLI only |
-| Tenant and membership bootstrap | Existing operator CLI | Unchanged; `tenant_admin` receives no resource capabilities |
+| Tenant and membership administration | Administrative operator CLI (§8) | Gated; `tenant_admin` receives no resource capabilities |
+| Resolve identity / refresh display attributes | Trusted identity adapter | Gate before upsert; not membership or assurance authority |
+| Initialize demo fixtures / apply demo grants | Separate technical commands and credentials (§2) | No human grants |
 
 No protected mutation is permitted by implication. There is no `assessment:reviewer` grant.
 
@@ -207,7 +217,17 @@ The following are **not** personal implementation activity:
 
 Documentary OSCAL responsibilities are exported unchanged regardless of confirmation state.
 
-**Unconfirmed assignments (PO decision D1).** While an actor in the checked set is the named assignee of an active,
+**Assignment lifecycle (D1).** Diff assignments; do not replace unchanged siblings. Each ID fixes tenant,
+implementation, kind, role and optional assignee; substitution means remove + new ID. Third-party personal
+assignment starts pending; human self-assignment starts confirmed. Only the named active human may move pending
+to confirmed or declined. Neither state resets. Removal ends any assignment; reassignment has a fresh ID. Role-only
+has no personal state. New named assignments require active membership; retaining an unchanged inactive assignee
+does not block other edits. Confirm/decline requires the implementation's expected token; one effective command
+advances it once. Repeating an unchanged decision creates no participation. Adding/removing a named assignment
+is an edit by its author, not work by a pending assignee. Role-only transitions have no personal SoD effect;
+decline is recorded but is not implementation participation by the decliner.
+
+While an actor in the checked set is the named assignee of an active,
 unconfirmed responsibility on an implementation bound to S, the result is `unverifiable`, not `conflict`. Removal or
 the assignee's own decline clears this effect, because no personal participation was ever recorded. A third party
 therefore cannot permanently disqualify an assessor. Confirmation is permanent participation. Assignments, decisions
@@ -242,15 +262,16 @@ The same rule evaluates early rejections: independent AP creation or edit by a c
 issuance. The decisive evaluation is repeated on every independent AR publish request. Self-assessment and legacy
 paths do not evaluate it.
 
-**Determination record.** Each successful independent AR publication stores an immutable determination:
+**Determination record.** Each newly published independent AR version stores exactly one immutable determination:
 
 - result `verified` and rule `SOD-ALPHA-01 v1`;
 - System, cut-off position and coverage origin;
-- checked actor IDs;
+- checked actor IDs with their kinds and assurance as evaluated, including former contributors;
 - AP version, new AR version and publisher;
 - server time and authentication mode.
 
-Later mutations affect only later publications.
+Record the complete-coverage and no-blocking-assignment basis at that cut-off. No self/legacy version has a
+determination. Later mutations never change it; reuse returns it unchanged (§10).
 
 ## 7. Database-enforced participation journal (fail closed)
 
@@ -263,32 +284,46 @@ CLI, seed and nested savepoint writers alike.
 
 **Guard triggers.** BEFORE INSERT/UPDATE/DELETE triggers on the protected tables raise an error when:
 
-- the actor context is missing;
+- context is missing, empty or malformed;
 - the actor is unknown;
-- the context tenant differs from the row tenant;
+- the context tenant differs from OLD on delete, NEW on insert or either on update;
 - a `human` actor lacks an active membership in that tenant;
 - a `technical` actor writes outside its owner-managed tenant allowlist.
 
 Protected tables: `information_systems`, `system_components`, `control_implementations`,
 `implementation_responsibilities`, `system_security_plans`, `system_security_plan_implementations`,
-`assessment_plans`, `assessment_results`, the three `*_versions` tables, `resource_grants` and the decision table.
+`assessment_plans`, `assessment_results`, the three `*_versions` tables and `resource_grants`. The determination
+is protected within the immutable AR version (§9). Administrative writes use the restricted interfaces in §8.
 
 Code that does not set the context — including pre-cut-over API instances, old CLIs and forgotten paths — therefore
 fails closed. The guard is completeness and defence in depth; authorization remains the service's job (§1).
 
 **Capture triggers.** AFTER ROW triggers, `SECURITY DEFINER` and owned by `oscal_owner` with a fixed `search_path`,
-append one `provenance_events` row per effective row change. Each row records:
+append facts in the same transaction according to the following routing contract. Capture structural changes, not
+the service's interpretation of them. Each event records:
 
 - tenant, System (nullable) and implementation (nullable);
 - subject table, row ID and operation;
 - changed content columns;
 - actor, actor kind and operation label;
-- for responsibilities: the assignee, kind and confirmation state;
+- for responsibilities: stable assignment ID, assignee, kind, role and old/new decision state;
 - `clock_timestamp()`.
 
-Bookkeeping-only changes (`updated_at`, `updated_by`, `concurrency_version`) produce no event. Rolled-back
-transactions leave no events. Classification into SoD categories happens in versioned application code (§6) from the
-captured facts, so domain rules stay out of the database.
+| Mutation | Durable route and captured fact |
+|---|---|
+| System / component / SSP create or edit | NEW tenant and immutable System key, distinct content columns; adoption records the component write, not library authorship. |
+| Implementation create/edit | Stable tenant and implementation ID; no System until bound. On first NULL→S record the unique binding and its System position. Component completion within S is an edit, not a second binding. |
+| Assignment create, confirm, decline, remove | Route through the retained implementation. Compare OLD/NEW transition; deletion uses OLD. Record the actual actor separately from the assignee. Never infer assent from assignment by someone else. |
+| SSP attach/detach | Association contains tenant, System, SSP and implementation; capture INSERT from NEW and DELETE from OLD. Removing it never removes binding, participation or a gap. |
+| AP/AR draft create, import or edit | Route by immutable System and parent pin. Record creator, actual submitter and effective editors; a reverted edit remains participation. Import replay is not an edit. |
+| SSP/AP/AR version insert | Resolve immutable parent to System and version ID. This insert's capture produces the **one authoritative publication event** for that version. Neither token update nor decision produces another. |
+| Grant issuance/revocation | Resolve exact System or AP version to tenant/System; administrative fact, not personal work. Library, membership and assurance writes take the gate but are not System content edits. |
+
+Compare actual content null-safely (including JSON values), not the UPDATE column list. Exclude bookkeeping-only
+`updated_at`, `updated_by`, `concurrency_version`, validation and ineffective writes. Classify new columns explicitly
+when changing schema. The versioned §6 classifier consumes these facts, not free-form operation labels. Do not keep
+complete old/new documents or reconstruct historical state. Disallow unsupported protected deletes, cascades,
+identity reuse and reparenting; retain assignment identity on removal (tombstone or immutable removal fact).
 
 **Positions and coverage.**
 
@@ -297,13 +332,13 @@ captured facts, so domain rules stay out of the database.
 - An event with a System takes the next position by updating that head row. The head row lock is held to commit, so
   positions are gapless and follow commit order within a System. A unique index on `(system_id, position)` enforces
   this.
-- Events on unbound implementations have no System. They are ordered under the implementation row lock and keyed by
-  implementation ID.
-- Each implementation stores an immutable `provenance_complete` flag: true when inserted after activation, false for
+- Events on unbound implementations have no System position. Retain them by immutable tenant/implementation ID;
+  a cut-off includes them **iff** the durable first-binding position is at or before it, never by a current SSP join.
+- The database supplies the immutable `provenance_complete` flag: true when inserted after activation, false for
   pre-existing rows.
-- **Binding** (write-once `system_id` NULL→S) records a binding event at a System position. That implementation's
-  earlier unbound events become part of S's history through that position. Binding an implementation with
-  `provenance_complete = false` records a permanent coverage-gap event on S.
+- **Binding** (write-once `system_id` NULL→S) records a binding event at a System position. Earlier unbound events
+  count from that position onward. If `provenance_complete = false`, that same binding fact marks a permanent
+  coverage gap effective at the binding position; no cut-off can include the binding but exclude its gap.
 - Nothing — removal, reseed, revocation, a later marker or a fresh System — clears a gap or recorded participation.
 - Pre-existing Systems receive `coverage_origin = legacy_gap` and can never yield `verified` in Alpha.
 
@@ -311,97 +346,123 @@ captured facts, so domain rules stay out of the database.
 
 - `published_by`, filled by trigger from the actor context and NOT NULL for new rows. Legacy rows stay NULL; no
   publishers are invented.
-- `document_sha256`: canonical JSON SHA-256 of the entire stored document, including UUID, version and last-modified.
-  It identifies JSON content, not transmitted bytes.
+- `document_sha256`: hash the final Trestle-serialized JSON value that is stored, with UUID, version and last-modified
+  intact. Use `packages/oscal`'s `canonical_json_sha256`: recursively sorted object keys, preserved array order,
+  compact comma/colon separators, unescaped Unicode, no NaN/infinity, UTF-8, SHA-256 hex. Recompute on JSON
+  read-back for verification; neither transmitted bytes nor PostgreSQL's JSONB display text is the input.
+  This is a content identifier, not a signature or proof of independence.
 
-The existing normalized `content_sha256` stays for deduplication only. AP versions additionally store their
-immutable AP-side actor set (§6 (a)).
+The existing normalized `content_sha256` stays for deduplication only. Typed AP versions additionally store their
+immutable AP-side actor set (§6 (a)); legacy contributors are unknown, never presented as a complete set.
 
 ## 8. Database trust boundary and privileges
 
-| Role | Used by | Privileges |
+**Three guarantees (D6).** Trusted adapters authenticate the actor; trusted application services authorize commands
+and evaluate SoD. PostgreSQL enforces structural integrity, atomic capture and protected history. A transaction-local
+setting is a trusted assertion, not independent evidence of a token or person. Runtime credentials can assert a false
+actor or submit a structurally valid but dishonest decision. Provisioner credentials can likewise assert an allowed
+operator without proving token validation. Neither credential is supported for ad hoc SQL. Owners, infrastructure
+administrators, superusers and backup operators are trusted. This is not external tamper evidence.
+
+| Effective role | Positive operations | Exclusions |
 |---|---|---|
-| `oscal_owner` | Alembic migrations, owner-only administration (operator and technical-actor allowlists) | Owns schema, functions and triggers; never used by the API, business CLIs or seeds |
-| `oscal_runtime` | API, business CLI, seeds | DML on working tables; INSERT only on version and decision tables; no direct privileges on `provenance_events`, journal heads, `resource_grants` writes or allowlists; column-limited UPDATE on `user_identities` (no `actor_kind`, `identity_assurance`); not owner, so it cannot disable triggers or TRUNCATE |
-| `oscal_provisioner` | Provisioning CLI and demo grant manifest | INSERT and terminal revocation UPDATE on `resource_grants`; UPDATE of `identity_assurance`; SELECT where needed |
+| `oscal_owner` | Own schema, tables, sequences and functions; install triggers via Alembic; maintain allowlists, reserved identities and administrative bootstrap. Online membership/allowlist administration participates in §10. | No owner credentials in API, BFF, seed or provisioning CLI. |
+| `oscal_runtime` | Tenant-qualified business reads (including version list/export, digest lookup and RETURNING); only required working-table DML and supported deletes; INSERT new versions with decision basis where applicable. Human identity upsert permits identity keys on INSERT and display/email/timestamp on conflict UPDATE. | No membership/grant/allowlist administration, reserved identity insertion, identity key/kind/assurance changes, direct journal/head writes, version UPDATE/DELETE or caller-defined coverage/publisher. |
+| `oscal_provisioner` | Resolve the authenticated operator by existing issuer/subject; read exact memberships, grants and targets. Execute only scoped issue/revoke and assurance procedures; grant operations check allowlist, shape and beneficiary and stamp context actor. | No arbitrary grant INSERT/UPDATE/DELETE, business DML, human impersonation through CLI inputs, membership or allowlist administration. |
 
-Append-only protection of events, versions, decisions and grant history comes from privileges plus triggers.
+Both business roles can take the gate. Provide tenant-qualified read interfaces for journal facts, binding, coverage,
+heads, eligibility inputs and permitted allowlist checks; no direct journal/head access. Grant/membership checks
+use ordinary SELECT **after the gate**, not locking SELECT needing UPDATE privileges. Supply SELECT/UPDATE for
+remaining working-row locks only where independently needed; otherwise remove the lock or use a narrow fixed-query
+interface. Never broaden grants on read-only sources just to allow `FOR UPDATE`. Administrative bootstrap is a
+separate credential/job, not an API membership upsert. Restrict runtime identity INSERT columns/defaults and
+enforce immutable issuer/subject and the reserved issuer/kind pairing in the database.
 
-**Deployment implications.**
-
-- Compose and development setups must create the three roles.
-- Migrations run with owner credentials. The API and seeds receive runtime credentials. The provisioning CLI receives
-  provisioner credentials.
-- No runtime component holds owner credentials.
-- Integration tests run business operations as `oscal_runtime` to prove the privilege limits.
-
-**Limits.**
-
-- `oscal_owner`, superusers, database administrators and backups are inside the trust boundary and can rewrite
-  history.
-- A compromised runtime process can set a false actor context. The journal guarantees completeness and attribution as
-  asserted by the trusted application, not tamper evidence.
-- External tamper-evident audit is out of scope for Alpha.
+Grant CONNECT and schema USAGE, not CREATE in any trusted schema. Grant sequence USAGE only for actual generated
+keys. No table-wide privilege defeats column limits. Audit effective privileges via PUBLIC, inheritance, assumable
+roles and grant options: neither business role owns objects, can assume the owner/other credential, administer roles,
+disable triggers, bypass replication triggers, TRUNCATE protected tables or replace functions. Owner-defined capture,
+read and provision routines use qualified objects, fixed trusted `search_path` with `pg_temp` last, and no dynamic
+caller SQL. Revoke default PUBLIC EXECUTE; grant only required entry points, never internal trigger helpers. Apply
+ACLs to existing objects and default privileges for future objects of the actual creating owner. Separate secrets,
+connections, mounts and jobs in Compose, development, Alembic, CLI and tests (§13).
 
 ## 9. Relational invariants
 
 Composite FKs (with the supporting unique keys where missing), CHECKs or triggers enforce:
 
-1. AP: `(tenant, ssp_id, system_id)` → SSP; `(tenant, ssp_id, ssp_version_id)` → SSP version.
+1. AP: `(tenant, ssp_id, system_id)` → SSP; `(tenant, ssp_id, ssp_version_id)` → SSP version. The SSP version's
+   catalog/revision must match its SSP baseline. Provide exact non-partial parent unique keys for all composite FKs.
 2. AP version: `(tenant, ap_id, ssp_version_id, assessment_type)` → AP.
 3. AR: `(tenant, ap_id, system_id)` → AP; `(tenant, ap_id, ap_version_id)` → AP version.
-4. AR version: `(tenant, ar_id, ap_version_id)` → AR.
-5. Implementation `system_id` and `system_component_id` are write-once (NULL→value) and immutable afterwards.
-6. AP type: immutable, and non-legacy for inserts after activation.
+4. AR version: `(tenant, ar_id, ap_version_id)` → AR. Keep AR import source identity, digest and submission facts
+   immutable after creation; retain the ADR 0023 tenant/source UUID unique key and completeness check.
+5. Implementation `system_id` and `system_component_id` each permit NULL→value once, never clearing or substitution.
+   Component requires matching System. Preserve tenant/context FKs and ADR 0017 baseline/organization checks;
+   binding does not require a continuing SSP association. Stable subject IDs and tenant cannot move.
+6. AP type: closed, non-null, immutable and non-legacy for new APs after activation. A new version of an existing
+   legacy AP must copy its legacy type; it is not a new AP.
 7. Grants: capability-to-target shape CHECK; `(tenant, system_id)` → System; `(tenant, ap_id, ap_version_id)` → AP
-   version; `(tenant, beneficiary)` → membership; grantor ≠ beneficiary; a partial unique index allows one active
-   grant per capability, target and beneficiary; revocation is terminal.
-8. Responsibility assignee `(tenant, user_id)` → membership (existing). Confirmation may be set only by the assignee
-   actor (trigger compares with the actor context).
-9. Determination: unique per AR version; references consistent with rule 4.
+   version; `(tenant, beneficiary)` → membership; grantor ≠ beneficiary. Require the selected target columns non-null
+   and all alternatives null; separate active unique indexes per target shape include tenant/capability/beneficiary.
+   Issuance checks active human membership under the gate. Target, grantor and beneficiary are immutable; revocation
+   changes only active→revoked with actor/time together, never deletion or clearing. Preserve manifest identity (§2).
+8. Responsibility assignee `(tenant, user_id)` → membership. Enforce §6 transitions for INSERT as well as UPDATE,
+   including actor match, no technical confirmation, no personal state for role-only and NULL-safe uniqueness of
+   active logical assignments. A removed assignment's ID cannot be reused.
+9. Co-locate the determination with the immutable AR version (one set of decision fields, not a second mutable
+   aggregate). Constrain the version's relational type to the exact AP pin by composite FK. Require a complete
+   `verified` basis (§6) for independent type, absent for self/legacy, with explicit non-null checks; a unique FK
+   alone cannot require presence. Derive tenant/System/AP and publisher from the version chain and stamped publisher,
+   not independently supplied IDs. Validate the basis shape, distinct checked IDs with frozen assurance values,
+   rule, mode and cut-off against this System's head at insert. The service, not a CHECK, establishes policy truth.
 
-The migration preflight lists existing rows that violate rules 1–5. The migration fails rather than auto-repairing.
+Preflight reports current violations and fails rather than auto-repairing. Current rows cannot establish past
+binding transitions, contributors or publishers. The immutable publication guard applies to metadata as well as JSON.
 
-## 10. Transactions, lock order, positions and publication
+## 10. Command transaction, installation gate and publication
 
-One PostgreSQL transaction (READ COMMITTED) covers authorization, mutation, journal capture, snapshot and decision.
-Nested services, seed savepoints and CLIs share the caller's connection. Route lookups, grant caches and ADR 0022
-tokens are not serialization boundaries. A transaction touches at most one System.
+**Supported writer contract (D7).** One installation uses one PostgreSQL application database. Reserve the single
+bigint advisory key **8188815197680786** (the existing demo seed key) as its installation-wide write gate. Every
+participating transaction takes `pg_advisory_xact_lock` on that exact key, on its business connection, before any
+conflicting lock, DML, flush or decision read. Never use a process mutex, session lock, per-tenant key or second
+seed lock. The gate spans all Systems, tenants and shared resources until outer commit/rollback.
 
-**Lock order.** Acquire every explicit lock before the first DML statement, in this order, sorting rows of one class
-by ID:
+Participants include REST/direct-service writes, business and administrative CLIs, seeds, provisioning, grant
+replay/revocation, global identity assurance, membership/role and allowlist changes, identity upserts (including on
+read requests), catalog/profile/mapping/component-library writers and any validator/reader using locking SELECT.
+Treat FK checks, catalog-revision triggers, unique indexes and ORM autoflush as lock takers too. Pure non-locking
+reads remain parallel; a read path may instead stop taking unnecessary row locks. The BFF does not take the gate.
+The gate is **cooperative**: arbitrary SQL need not honor it. It does not replace constraints, ACLs, guards, head
+updates or token checks, nor make administrative/DDL deadlocks impossible. Inventory and test entry points;
+unsupported direct writes are not covered by the serialization claim. Maintenance instead fences all writers (§13).
 
-1. Membership rows of the acting actor, named assignees and the grant beneficiary: `FOR SHARE`, with the query
-   filtering on `status = 'active'`. Deactivation takes `FOR UPDATE` on that row only.
-2. Relevant grant rows: `FOR SHARE`, filtering on active status. Revocation takes `FOR UPDATE` on that row only.
-3. The `information_systems` row: `FOR UPDATE`. This is the system fence for every write with a System, including AP
-   and AR edits and publications.
-4. Aggregates parent before child: SSP → AP → AR.
-5. Profile → catalog revision, `FOR UPDATE`, taken explicitly whenever the transaction will fire a trigger that locks
-   `catalog_revisions` (SSP, implementation, mapping member and component-definition source triggers). The trigger's
-   re-lock is then a no-op.
-6. System component and component-definition snapshot.
-7. Implementations.
-8. Association and responsibility rows.
-9. Journal head row: taken implicitly by the capture trigger on the first DML, always last.
+**Command ownership (D8).** Use a small application command boundary, not a general transaction framework:
 
-This order replaces the existing SSP-before-System path in association and SSP publication; it is not layered on top
-of it.
+1. Authenticate via the appropriate adapter; perform external I/O and input-only checks outside the gate. Start a
+   fresh READ COMMITTED Session/transaction with no pending objects. Acquire the gate as a separate first database
+   statement with autoflush suppressed. Resolve identity after it (identity-only upsert requires no prior internal
+   actor); never use pre-gate ORM objects or a route's tenant decision as authoritative.
+2. Before any protected flush, set actor/tenant/operation on this connection using parameterized transaction-local
+   settings (§7). No session defaults. Resolve actual resource/pin and re-read membership, grants, assurance,
+   bindings and relevant journal facts in subsequent statements. Authorize, then check the **original** ADR 0022
+   expected token(s), including both on binding. Refresh/expire previously loaded rows after waits; do not trust the
+   identity map. No-op/stale semantics, mapper checks and 409 responses remain; positions do not bump System tokens.
+3. Nested services inherit the outer principal, tenant, connection and gate; no independent commit or new engine.
+   Savepoints may isolate local work, not switch principals. Set context before savepoint creation can flush;
+   explicitly restore operation labels on successful release, and on rollback use the restored outer context.
+   Only the boundary commits. Rollback removes changes, positions and versions together. Pool check-in must leave
+   no open transaction or actor defaults; initialize context afresh on every checkout/transaction.
+4. Bound acquisition time, transaction duration, batch sizes and retry count. Keep network calls/user interaction
+   outside. On a known rollback from deadlock/serialization failure, retry the whole command with a fresh Session,
+   gate, authorization and unchanged expected tokens. Never retry a stale response, denial, validation failure or
+   uncertain commit as success. A source-UUID uniqueness recovery is a fresh gated, reauthorized ADR 0023 lookup,
+   not an unconditional insert retry. Expose exhaustion; record waits and retries before considering finer locks.
 
-**Restarts.**
-
-- An unbound implementation edit locks the implementation, then re-checks `system_id IS NULL`. If the implementation
-  has meanwhile been bound, the transaction rolls back and restarts with the system fence first.
-- Binding locks the System before the implementation.
-- After any lock wait, re-read bindings, membership, grants, coverage and history. Do not reuse stale ORM state.
-- Deadlocks, serialization failures and routing changes restart the whole transaction, including reauthorization,
-  with a bounded retry count.
-- ADR 0022 expected-version checks, stale responses, no-op semantics and token behaviour are preserved. Journal
-  positions do not bump the System editing token.
-
-**Cut-off.** While holding the system fence, independent AR publication evaluates S's journal through `last_position`
-(the last committed position before its own publication event) plus the pending publisher. It then inserts the
-snapshot, the determination and the publication event in the same commit.
+**Cut-off.** Flush earlier effective writes in the command before evaluating. Under the gate the System head now
+includes committed history and any preceding events of this same transaction. Evaluate through that position with
+the requesting publisher; exclude the publication's own event. The immutable version insert captures that next
+position, its publisher and determination in one commit. Missing head or incomplete evidence cannot yield `verified`.
 
 - If a conflicting mutation commits first, the publication sees it.
 - If the publication commits first, a later conflict does not invalidate the historical decision.
@@ -452,49 +513,54 @@ This amends ADR 0015 in three points:
 
 1. multiple reserved identities instead of one;
 2. reserved roles other than `catalog_editor`;
-3. the demo seed may apply grants through the technical provisioner.
+3. a separate technical provisioning command may apply the demo grant manifest after initialization.
 
 ADR 0015's loopback, protected-network, dedicated-database and server-only-secret constraints remain. Demo mode still
 provides no per-person accountability: it demonstrates different accounts, not different humans. Determinations made
 in demo mode record `auth_mode = demo`.
 
-## 13. OIDC transition
+## 13. Coordinated installation and OIDC transition (D12)
 
-1. **Preflight (read-only):** inventory identities, memberships, Systems, APs, legacy classification, coverage gaps
-   and rule-1–5 violations (§9).
-2. **Prepare roles:** create the three database roles and credentials. The operator-allowlist entries are added by
-   the owner.
-3. **Migrate:** run the migration as `oscal_owner`. It adds the schema and triggers, classifies legacy rows and marks
-   coverage gaps. From this point the guard triggers reject writes without actor context, so un-upgraded API
-   instances, CLIs and jobs fail closed. This is an availability impact, not a security bypass. No separate fencing
-   protocol or mixed-mode fallback exists.
-4. **Deploy:** deploy the API and BFF with runtime credentials. Resource grants start empty, so system-scoped writes
-   are denied and never auto-elevated from `catalog_editor` or `tenant_admin`.
-5. **Provision:** the authenticated operator applies an approved manifest of individual grants with the provisioning
-   CLI. The manifest is validated against current identities, active memberships, targets and duplicates, and is
-   applied in a single transaction.
-6. **Verify:** check allowed and denied OIDC users, historical reads and exports, and unchanged library operations.
-7. **Rollback:** restore the pre-migration backup. Downgrading to unprotected writers on migrated data is not
-   supported.
+1. Inventory current identities, memberships, pins, baselines, legacy data and detectable §9 violations. Schedule
+   downtime. Stop API, CLIs, seed and operator jobs; block reconnects and drain/terminate old privileged sessions.
+   The advisory gate is not a fence against old binaries. Take and verify a restorable final backup; repeat preflight
+   under the maintenance fence. Abort on inconsistent data rather than invent history.
+2. Bootstrap the three roles, transfer existing object ownership and install effective/default ACLs. Separate owner
+   migration/bootstrap, runtime/seed and provisioner jobs and secrets; the BFF has no DB credential. Withdraw old
+   privileged credentials and access paths, including shared mounts. Verify effective roles on actual connections.
+3. As owner prepare additive schema and exact parent keys, classify legacy APs and pins in relational metadata,
+   mark old Systems/implementations incomplete and existing personal assignments unconfirmed (not inferred assent).
+   Historical actor sets are unknown, not empty. No historical JSON rewrite or synthetic participation. Validate
+   constraints and install protected reads, immutable metadata, guard/capture and coverage initialization before
+   reopening. Schema preparation is **not** the start of complete coverage.
+4. Deploy only compatible gated writers, including operator and seed tools. Activate authorization and capture
+   together. Grants start empty; no tenant-role elevation. Apply authorized tenant manifests in bounded atomic
+   commands after checking current targets and memberships. Only Systems created under active protection can start
+   complete. Never bridge an unprotected interval. Independent publication stays disabled until its full contract
+   is implemented, independently verified against the acceptance criteria and explicitly accepted.
+5. **Go/no-go before reopening:** verify allow/deny paths, old credential rejection, historical exports and library
+   operations on clean and upgraded installations. Before release to users, rollback means restore the fenced
+   backup and compatible deployment/credentials in isolation. After live writes resume, restore would lose them:
+   stop writes and obtain an explicit recovery/data-loss decision. No downgrade to unprotected writers on live data.
 
 ## Consequences and boundaries
 
 **Benefits:**
 
 - real per-resource backend authorization;
-- one meaningful, race-safe personal SoD guarantee;
+- one personal SoD decision serialized with supported writers;
 - legitimate self-assessment;
 - an OSCAL-valid, portable type annotation;
-- fail-closed provenance capture for all writers;
+- database-enforced capture of effective protected DML within the stated trust boundary;
 - least-privilege database roles;
 - the same policy in demo and OIDC modes.
 
 **Costs and limits:**
 
-- grant, journal, head and decision tables;
+- grant, journal and head tables and immutable version/decision metadata;
 - guard and capture triggers;
 - three database roles and the corresponding deployment changes;
-- serialization of all writes within one System;
+- installation-wide write contention, including identity upserts and locking reads; accepted for Alpha, with bounded commands;
 - CLI-only provisioning per System and AP version;
 - type-aware import and export;
 - multi-session PostgreSQL tests.
@@ -516,24 +582,29 @@ can temporarily block `verified` (they are attributable and can be declined).
 
 A self-assessment may inform remediation but must not be presented as independent verification.
 
+After full acceptance, independent human review and preferably human-led consolidation/major refactoring under an
+experienced Python developer with OSCAL expertise are intended. Do not anticipate that work or add Beta architecture.
+Defer finer write serialization until measured contention justifies it; control-scoped and organizational SoD stay deferred.
+
 ## Acceptance criteria (required evidence)
 
-All database criteria run on the real PostgreSQL harness (`TEST_DATABASE_URL` targeting a `_test` database), with
-business operations executed as `oscal_runtime`. Concurrency tests use independent sessions synchronized with
-barriers or advisory locks and bounded lock timeouts. They assert final rows, positions, events, grants, snapshots and
-decisions, not merely the absence of deadlock.
+Use real PostgreSQL, one `_test` database and separate credentials/connections: owner for migration/setup, runtime
+for business/seed, provisioner for provisioning. Assert effective role, ownership and inherited/assumable privileges;
+owner-run business tests do not count. Synchronize independent transactions with barriers and bounded timeouts.
+Assert final rows, positions, grants, snapshots and decision evidence, not merely absence of deadlock.
 
-1. **Authorization matrix (positive and negative).** For every row of §3, exercised through REST, direct service, CLI
-   and nested seed:
+1. **Authorization matrix (positive and negative).** Exercise every §3 row through its supported entry points,
+   covering REST, direct service, CLI and nested seed. For human resource writes:
    - a viewer holding the required resource grant succeeds without `catalog:write`;
    - `tenant_admin` and `catalog_editor` without it get 403;
    - wrong tenant, same-tenant wrong System/AP/version, and a generic `/implementations/{id}` edit of a bound
      implementation without `system:implement` are denied;
    - first binding without `catalog:write` is denied.
-2. **No self-authorization.** A planner cannot issue grants or write ARs. The API role cannot INSERT into
+2. **No self-authorization.** A planner grant alone permits neither grant issuance nor AR writes. The API role cannot INSERT into
    `resource_grants`. The provisioning CLI rejects missing, invalid or non-allowlisted operator tokens, any supplied
    grantor, a self-grant, a technical beneficiary and a wrong tenant. A revoked grant is never reactivated; manifest
-   replay does not recreate it. The issuer and revoker are recorded.
+   replay does not recreate it. The issuer and revoker are recorded. Test changed manifest payload, explicit reissue,
+   NULL target shapes, duplicate active targets, denial of direct provisioner DML and unauthorized assurance changes.
 3. **Version-bound grants.** A grant on V1 allows AR work on V1 and denies AR create, edit, import and publish on V2
    until a V2 grant is issued. Revoking the V1 grant denies further V1 work while leaving earlier versions and
    determinations unchanged.
@@ -547,43 +618,60 @@ decisions, not merely the absence of deadlock.
    reverted AP edits before V1, and a publisher with implementation activity. A V2-only AP editor does not affect V1.
 6. **Unconfirmed assignments.** A third-party assignment yields `unverifiable` while active. After removal or the
    assignee's decline, the next publication is `verified`. After confirmation it is permanently `conflict`. A
-   role-only responsibility has no effect. Only the assignee can confirm.
+   role-only responsibility has no personal effect. Only the assignee can confirm/decline. Change a sibling and
+   verify stable ID/state/token behavior; reject assignee substitution, resetting a decision and duplicate role-only rows.
 7. **Unknown stays unknown.** `verified` is denied for a `legacy_gap` System, a bound `provenance_complete = false`
    implementation, `ambiguous` or `technical` actors, and import provenance. Removal, reseed, revocation and later
-   markers do not clear these conditions.
+   markers never clear a historical gap or confirmed participation. Compare cut-offs before/after binding, including
+   detach and attempted delete/reinsert; do not rewrite earlier decisions when assurance changes.
 8. **Fail-closed journal.** Each protected-table write without actor context fails. This is tested with raw SQL as
    `oscal_runtime`, a simulated old-version service path, the CLI and a seed savepoint. Bookkeeping-only and no-op
    updates create no event. A failure injected after the mutation and before the snapshot or decision leaves no
    event, snapshot or decision. `oscal_runtime` cannot UPDATE, DELETE or TRUNCATE events, versions, decisions or grant
-   history, and cannot disable triggers.
+   history, and cannot disable triggers. Test invalid/empty context, OLD tenant on removal, pool reuse after commit
+   and rollback, autoflush, released/rolled-back savepoints and restored sibling labels. Exercise permitted identity
+   upsert, reads/export, gate, publish and provision; deny owner assumption, trigger/function replacement, reserved
+   identity insertion, allowlist and protected-column writes. Valid context does not independently authenticate raw SQL.
 9. **Invariants.** Each rule in §9 rejects crossed same-tenant IDs, rebinding, type change and post-activation legacy
-   inserts. The migration fails on preflight violations.
+   AP inserts. Test SSP baseline mismatch, immutable import provenance, old AP publishing a legacy version, and
+   rejection of missing, duplicate, malformed, wrong-pin or self/legacy determinations. Preflight fails on violations.
 10. **Concurrency (both commit orders each).** Cover:
     - conflicting implementation edit vs independent publication;
-    - unbound edit vs binding (restart path);
+    - unbound edit vs binding (resolve actual authority after the wait);
     - grant revocation vs publication;
     - membership deactivation vs publication;
     - unconfirmed assignment vs publication;
     - two parallel publications of the same AR (one creates, one reuses or gets stale);
-    - parallel writes to two Systems sharing a catalog revision.
+    - two Systems sharing a catalog revision, old/new source replacement, component adoption and locking validation;
+    - global assurance change vs publication involving a historical actor; identity upsert, membership/bootstrap,
+      provisioning, library CLI and nested seed each wait on the same gate before relevant reads, locks or DML.
 
     Assert gapless, commit-ordered positions per System, determinations consistent with the visible history, and no
     unhandled deadlocks. Retried deadlocks are counted and reported. ADR 0022 stale and idempotent responses are
-    preserved.
+    preserved. Use a held gate to verify supported entry points wait and pure reads proceed. Check rollback of
+    allocated positions, preceding writes in the same transaction, fresh Session/authorization on bounded retries,
+    and exhaustion without duplicate effects. The gate is not protection against non-cooperating SQL.
 11. **Publication and idempotence.** `published_by` and `document_sha256` are present on new SSP/AP/AR versions and
     NULL publishers are kept for legacy rows. An A→B→A digest hit is reused without a new event, determination or
     token change. A now-conflicted request with an existing digest is denied. A different authorized caller receives
-    the original publisher and determination.
+    the original publisher and determination. Recompute the full canonical digest from stored JSON; distinguish it
+    from normalized content. Assert one publication event per new version, exactly one frozen independent basis
+    (including assurance and cut-off), none on self/legacy; later edits/assurance changes do not alter the evidence.
 12. **OSCAL and import.** Typed AP/AR candidates and exports contain exactly one matching property and pass Trestle,
     official 1.2.1 schema validation and application checks; legacy outputs are untyped. Historical exports are
     unchanged. Import cases: absent, matching, contradictory, duplicate, malformed and foreign properties; legacy pin
     with a property; `independence_claimed` pin rejected. The ADR 0023 replay contract, unauthorized replay and the
-    uniqueness-race retry are tested.
+    uniqueness-race recovery are tested, including reauthorization after rollback, 201/200/409 for authorized users,
+    unchanged original submitter and no participation on replay.
 13. **Identity and demo.** Technical identities cannot authenticate or be resolved from OIDC. The seed rejects
     `--actor-id` and tenants outside its allowlist. Two real browser sessions switch personas independently with
     correct backend allow/deny decisions and attribution. Cross-site switches, tampered cookies, unknown personas,
-    persona keys in OIDC mode and secret fallbacks are rejected. Existing seed history is unchanged.
-14. **OIDC transition.** Run the preflight report and migration from a legacy-state database. An un-upgraded writer
+    persona keys in OIDC mode and secret fallbacks are rejected. Existing seed history is unchanged. Test atomic
+    multi-System seed failure and rerun, allowed self fixtures, denial of non-fixture targets, human confirmation,
+    grant writes and independent publication. Apply/replay grants separately with provisioner credentials.
+14. **OIDC transition.** Rehearse §13 on a clean install and an existing volume, including backup restore, fencing,
+    role ownership/secret isolation, no uncovered writes, rollback decision point and disabled independent publication
+    before full verification. Run the preflight report and migration from a legacy-state database. An un-upgraded writer
     fails after migration. There are no grants before provisioning. Manifest apply and replay work; inactive or
     changed membership after preflight and an unauthorized operator are rejected. Later provisioning works for a new
     AP version. Legitimate actions are confirmed through the GUI without tenant elevation.
@@ -592,16 +680,22 @@ decisions, not merely the absence of deadlock.
 
 ## Implementation guidance (not implementation approval)
 
-1. Database roles, actor kinds, actor-context helper, guard and capture triggers, journal heads, coverage flags and
-   §9 invariants, with all writers (API, CLI, seed) setting context.
-2. Resource grants, provisioning CLI with operator authentication, shared in-transaction policy, lock-order
-   refactoring and the available-actions endpoint.
-3. Immutable AP type, version-bound assessor grants, OSCAL property emission and the narrowed import changes.
-4. SOD-ALPHA-01 v1 evaluation, determinations, publication and idempotence behaviour, plus the concurrency tests.
-5. Demo personas, BFF switching and OIDC transition tooling, then GUI verification.
+1. **Database Security & Provenance Foundation.** Prepare roles/ACLs, separate-role harness, gate/command contract,
+   actor context, stable assignments, routing, coverage schema, trigger and preflight tests. No coverage claim or
+   production guard activation on incompatible writers.
+2. **Resource Authorization & Provenance Activation.** Integrate every supported participant, membership/assurance
+   administration, explicit grants, authenticated provisioning, technical seed limits, available-actions policy and
+   capture. Test coherent activation under the maintenance fence; run real concurrency tests from this package.
+3. **Assessment Types & OSCAL Interoperability.** Add immutable AP type, exact pin/type keys, version-bound
+   assessor checks, OSCAL property, self/legacy workflows and narrow native import/replay contract.
+4. **Personal SoD & Immutable Determinations.** Implement versioned classification, frozen actor sets and assurance,
+   early checks, publication cut-off, immutable decision cardinality, canonical hash, reuse and contention tests.
+5. **Multi-User Demo, Migration & Full Acceptance.** Persona switching, separate technical manifest, clean/upgrade
+   rehearsal, credential withdrawal/rollback exercise, GUI and all 15 acceptance criteria together.
 
-Slices are planning aids, not independently accepted security milestones. SoD must not be advertised until all
-criteria pass together.
+Packages are sequential development boundaries, not independently deployable releases. §13 controls installation:
+prepare schema, activate compatible writers and protection together, then permit independent publication and
+advertise verified independence only after full verification and explicit acceptance. No mixed-mode fallback.
 
 ## Related decisions
 
@@ -610,16 +704,11 @@ criteria pass together.
   part of this repository and do not affect this decision.
 - NIST OSCAL 1.2.1 Assessment Plan and Assessment Results JSON references.
 
-## PO decisions outstanding
+## Decision status
 
-- **D1:** An active unconfirmed third-party assignment makes the result `unverifiable` (not `conflict`); decline or
-  removal clears it; confirmation is permanent; role-only responsibilities have no effect (§6).
-- **D2:** v1 counts every effective content write to System-scoped artifacts, including System boundary/status and
-  SSP title edits, but not version publication without content change. This supersedes the earlier provisional
-  field-level exceptions in favour of a simpler conservative rule (§6).
-- **D3:** Native AR import against `independence_claimed` pins is rejected in Alpha (§5).
-- **D4:** The three-role database deployment, including Compose changes, is accepted for Alpha (§8).
-- **D5:** CLI-only provisioning per System and per AP version is accepted as an Alpha limitation (§2).
-
-Architect review of §7–§10 and PO acceptance remain outstanding. No implementation is authorized by this proposal.
+D1 personal responsibilities and D2 System-wide SoD (§6), D3 independent import exclusion (§5), D4 role separation
+and D6 trust boundary (§8), D5 CLI provisioning and D9 technical fixtures (§2–3), D7 installation serialization and
+D8 command ownership (§10), D10 durable participation (§7, §9), D11 immutable publication (§6–7, §9–10) and D12
+coordinated activation (§13) are agreed design inputs. Revision 3 remains **Proposed** pending independent
+architecture review and explicit PO acceptance. No implementation is authorized.
 
