@@ -1,6 +1,6 @@
 # ADR 0029: Resource Authorization, Assessment Types, Provenance, and Personal SoD for Alpha
 
-- Status: Proposed — not approved or implemented
+- Status: Approved
 - Date: 2026-11-24 (revision 4; incorporates PO/architect decisions D1–D12 and the final independent review corrections)
 - Scope: Collaborative OSCAL Alpha
 - Principle: **Shared compliance data. Independent assessments. Verifiable decisions.**
