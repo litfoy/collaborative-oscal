@@ -1,7 +1,7 @@
 # ADR 0029: Resource Authorization, Assessment Types, Provenance, and Personal SoD for Alpha
 
 - Status: Proposed — not approved or implemented
-- Date: 2026-11-24 (revision 3; incorporates PO/architect decisions D1–D12 following independent review)
+- Date: 2026-11-24 (revision 4; incorporates PO/architect decisions D1–D12 and the final independent review corrections)
 - Scope: Collaborative OSCAL Alpha
 - Principle: **Shared compliance data. Independent assessments. Verifiable decisions.**
 
@@ -77,11 +77,18 @@ is command-specific authorization, not authority conferred by technical kind or 
 Keep the atomic multi-System seed and replay markers: nested services inherit its outer transaction (§10).
 Apply demo grants separately after seed commit as `demo-provisioner`, never with the seed's runtime credential.
 
-**Identity assurance.** Each human identity has `identity_assurance` (`distinct` by default, or `ambiguous`). The
-provisioning operator may mark known aliases, replacement accounts or unresolved issuer transitions as `ambiguous`.
-Accounts are never joined by e-mail or display name. Assurance is installation-wide: changes require explicit
-owner authorization for global assurance administration, not merely authority to provision one tenant. Use the same
-gate as publication (§10); preserve the value used for each checked actor in the determination.
+**Identity assurance.** `human` means a non-technical account; it is not proof that a natural person is behind it. A
+valid OIDC access token may identify a service account or client-credentials principal (for example ADR 0023
+automation). Each human identity therefore has `identity_assurance`: `unattested` (database default for every
+OIDC-resolved identity and every pre-existing identity), `distinct` or `ambiguous`. Only an operator holding global
+assurance administration may set `distinct`, attesting that the account is the personal account of one natural
+person under the installation's IdP contract: tokens for the API audience must not be obtainable through
+client-credentials or service accounts for accounts that are attested. Known aliases, replacement accounts or
+unresolved issuer transitions are marked `ambiguous`. `unattested` identities may hold grants and do self-assessment
+work, but never qualify as independent. Accounts are never joined by e-mail or display name. Assurance is
+installation-wide: changes require explicit owner authorization for global assurance administration (an
+owner-managed global allowlist), not merely authority to provision one tenant. Use the same gate as publication
+(§10); preserve the value used for each checked actor in the determination.
 
 **Provisioning authority.**
 
@@ -135,7 +142,7 @@ required for human resource use. Technical commands have only the enumerated §2
 | Create, edit, import or publish AR, including import replay | `assessment:assessor` on the AR's exact pinned AP version | Self/legacy pins also need `system:self_assess`; independent publication also needs `verified` (§6) |
 | Issue or revoke a grant; mark identity assurance | Provisioning authority (§2) | CLI only |
 | Tenant and membership administration | Administrative operator CLI (§8) | Gated; `tenant_admin` receives no resource capabilities |
-| Resolve identity / refresh display attributes | Trusted identity adapter | Gate before upsert; not membership or assurance authority |
+| Resolve identity / refresh display attributes | Trusted identity adapter | Non-locking lookup; insert or display-attribute update only when needed, outside the gate (§10); not membership or assurance authority |
 | Initialize demo fixtures / apply demo grants | Separate technical commands and credentials (§2) | No human grants |
 
 No protected mutation is permitted by implication. There is no `assessment:reviewer` grant.
@@ -235,20 +242,22 @@ to confirm or decline, and their actors are journaled separately.
 
 **Checked actor set** for a new version of an AR pinned to AP version V:
 
-- (a) the AP-side actor set stored immutably at V's original publication: the AP creator and every actor with an
-  effective AP edit before that publication, including reverted edits. Later AP editors never join V's set.
+- (a) the AP-side actor set stored immutably at V's original publication: the AP creator, every actor with an
+  effective AP edit before that publication, including reverted edits, and V's original publisher. Later AP editors
+  and publishers of reused digests never join V's set.
 - (b) the AR creator, the import submitter and every actor with an effective AR edit through this request, including
   actors whose grants were later revoked.
 - (c) the requesting publisher.
 
-An unused grant, a documentary party or publication alone is not assessment work.
+An unused grant or a documentary party is not assessment work. Publication is not implementation activity, but
+the AP version publisher and the AR publisher are checked actors under (a) and (c).
 
 **Result.** Evaluated over System S's journal through the cut-off (§10):
 
 | Result | Meaning | Independent AR publication |
 |---|---|---|
 | `conflict` | A checked actor has recorded personal implementation activity on S | Denied |
-| `unverifiable` | Coverage of S is incomplete (legacy start, bound pre-instrumentation implementation, recorded gap); a checked actor is `technical` or `ambiguous`; an active unconfirmed assignment names a checked actor; or the AR carries import provenance | Denied |
+| `unverifiable` | Coverage of S is incomplete (legacy start, bound pre-instrumentation implementation, recorded gap); a checked actor is `technical`, `unattested` or `ambiguous`; an active unconfirmed assignment names a checked actor; or the AR carries import provenance | Denied |
 | `verified` | Coverage is complete to the cut-off and none of the above applies | Permitted if all other checks pass |
 
 `conflict` takes precedence over `unverifiable`. Missing history never yields `verified`.
@@ -258,8 +267,8 @@ certify organizational independence, absence of collusion or aliases, off-platfo
 correctness of findings, or any review or approval. UI and reports use wording such as “Personal independence check
 passed (recorded history)”. In demo mode they add “demo accounts”.
 
-The same rule evaluates early rejections: independent AP creation or edit by a conflicted planner, and assessor
-issuance. The decisive evaluation is repeated on every independent AR publish request. Self-assessment and legacy
+The same rule evaluates early rejections: independent AP creation, edit or version publication by a conflicted
+planner, and assessor issuance. The decisive evaluation is repeated on every independent AR publish request. Self-assessment and legacy
 paths do not evaluate it.
 
 **Determination record.** Each newly published independent AR version stores exactly one immutable determination:
@@ -429,10 +438,14 @@ conflicting lock, DML, flush or decision read. Never use a process mutex, sessio
 seed lock. The gate spans all Systems, tenants and shared resources until outer commit/rollback.
 
 Participants include REST/direct-service writes, business and administrative CLIs, seeds, provisioning, grant
-replay/revocation, global identity assurance, membership/role and allowlist changes, identity upserts (including on
-read requests), catalog/profile/mapping/component-library writers and any validator/reader using locking SELECT.
+replay/revocation, global identity assurance, membership/role and allowlist changes,
+catalog/profile/mapping/component-library writers and any validator/reader using locking SELECT.
 Treat FK checks, catalog-revision triggers, unique indexes and ORM autoflush as lock takers too. Pure non-locking
 reads remain parallel; a read path may instead stop taking unnecessary row locks. The BFF does not take the gate.
+Identity resolution is not a participant: it uses a non-locking lookup by issuer/subject and inserts a missing
+identity or updates changed display attributes in a short, ungated transaction. Display attributes are not SoD
+inputs; issuer, subject, kind and assurance are immutable to the runtime role, and a new identity cannot be in a
+checked set. Commands re-read kind, assurance and membership under the gate.
 The gate is **cooperative**: arbitrary SQL need not honor it. It does not replace constraints, ACLs, guards, head
 updates or token checks, nor make administrative/DDL deadlocks impossible. Inventory and test entry points;
 unsupported direct writes are not covered by the serialization claim. Maintenance instead fences all writers (§13).
@@ -441,8 +454,8 @@ unsupported direct writes are not covered by the serialization claim. Maintenanc
 
 1. Authenticate via the appropriate adapter; perform external I/O and input-only checks outside the gate. Start a
    fresh READ COMMITTED Session/transaction with no pending objects. Acquire the gate as a separate first database
-   statement with autoflush suppressed. Resolve identity after it (identity-only upsert requires no prior internal
-   actor); never use pre-gate ORM objects or a route's tenant decision as authoritative.
+   statement with autoflush suppressed. Use only the stable identity ID from identity resolution; never use pre-gate
+   ORM objects or a route's tenant decision as authoritative.
 2. Before any protected flush, set actor/tenant/operation on this connection using parameterized transaction-local
    settings (§7). No session defaults. Resolve actual resource/pin and re-read membership, grants, assurance,
    bindings and relevant journal facts in subsequent statements. Authorize, then check the **original** ADR 0022
@@ -481,10 +494,13 @@ position, its publisher and determination in one commit. Missing head or incompl
 - Pre-existing APs become `legacy_unclassified`, which is not selectable for new APs and is not a retroactive claim of
   self-assessment. Legacy APs and ARs follow the self-assessment authorization path, never gain an independence badge
   and can never become `independence_claimed` by mutation, import or administration.
-- Historical SSP/AP/AR snapshots and exports remain byte-for-byte unchanged in stored JSON. No type properties,
-  publishers or contributors are backfilled.
+- Historical SSP/AP/AR snapshot values are never updated, and their exports are generated from those unchanged
+  stored values. Stored JSONB does not preserve original serialized bytes (key order, whitespace); "unchanged" means
+  an equal `canonical_json_sha256` before and after migration. No type properties, publishers or contributors are
+  backfilled; legacy `document_sha256` stays NULL.
 - Pre-existing Systems are `legacy_gap`, and pre-existing implementations are `provenance_complete = false`. History
   before activation is unknown, not conflict-free.
+- Pre-existing identities are `unattested` (§2) until explicitly attested.
 - Existing seed history is not reassigned. The Alpha showcase uses a newly created, fully covered System.
 - An attributable operator attestation of earlier history is out of scope for Alpha.
 
@@ -496,8 +512,9 @@ SoD pre-check for independent AR publication. For the current actor it returns r
 `sod_conflict` or `sod_unverifiable`. These are hints only. The BFF replaces its `catalog:write`-based write
 affordances with this endpoint for system-scoped resources.
 
-**Demo personas.** Seven to ten reserved fictional `human` identities with fixed memberships and roles, and grants
-applied from the checked-in demo manifest by `demo-provisioner`.
+**Demo personas.** Seven to ten reserved fictional `human` identities with fixed memberships and roles, seeded as
+`distinct` (fictional accounts; determinations record `auth_mode = demo`), and grants applied from the checked-in demo
+manifest by `demo-provisioner`.
 
 - The BFF keeps the persona choice in an integrity-protected, HttpOnly, browser-scoped cookie, changed only by a
   CSRF-protected same-origin POST. Switching refreshes the actor and available actions and discards pending actions
@@ -529,7 +546,8 @@ in demo mode record `auth_mode = demo`.
    migration/bootstrap, runtime/seed and provisioner jobs and secrets; the BFF has no DB credential. Withdraw old
    privileged credentials and access paths, including shared mounts. Verify effective roles on actual connections.
 3. As owner prepare additive schema and exact parent keys, classify legacy APs and pins in relational metadata,
-   mark old Systems/implementations incomplete and existing personal assignments unconfirmed (not inferred assent).
+   mark old Systems/implementations incomplete, existing identities `unattested` and existing personal assignments
+   unconfirmed (not inferred assent).
    Historical actor sets are unknown, not empty. No historical JSON rewrite or synthetic participation. Validate
    constraints and install protected reads, immutable metadata, guard/capture and coverage initialization before
    reopening. Schema preparation is **not** the start of complete coverage.
@@ -560,7 +578,7 @@ in demo mode record `auth_mode = demo`.
 - grant, journal and head tables and immutable version/decision metadata;
 - guard and capture triggers;
 - three database roles and the corresponding deployment changes;
-- installation-wide write contention, including identity upserts and locking reads; accepted for Alpha, with bounded commands;
+- installation-wide write contention, including locking reads; accepted for Alpha, with bounded commands;
 - CLI-only provisioning per System and AP version;
 - type-aware import and export;
 - multi-session PostgreSQL tests.
@@ -615,13 +633,16 @@ Assert final rows, positions, grants, snapshots and decision evidence, not merel
    boundary/status edits, component create/adopt/change, bound implementation edits, pre-binding edits of a later
    bound implementation, binding, association attach/remove, SSP edits, confirmed and self-assigned
    responsibilities, an unrelated control in the same System, an earlier AR contributor whose grant was revoked,
-   reverted AP edits before V1, and a publisher with implementation activity. A V2-only AP editor does not affect V1.
+   reverted AP edits before V1, an AP V1 publisher without AP edits who later confirms a responsibility or edits the
+   System, and an AR publisher with implementation activity. A V2-only AP editor does not affect V1.
 6. **Unconfirmed assignments.** A third-party assignment yields `unverifiable` while active. After removal or the
    assignee's decline, the next publication is `verified`. After confirmation it is permanently `conflict`. A
    role-only responsibility has no personal effect. Only the assignee can confirm/decline. Change a sibling and
    verify stable ID/state/token behavior; reject assignee substitution, resetting a decision and duplicate role-only rows.
 7. **Unknown stays unknown.** `verified` is denied for a `legacy_gap` System, a bound `provenance_complete = false`
-   implementation, `ambiguous` or `technical` actors, and import provenance. Removal, reseed, revocation and later
+   implementation, `unattested`, `ambiguous` or `technical` actors, and import provenance. New OIDC identities and
+   migrated identities are `unattested`; only a global assurance administrator can set `distinct`. Removal, reseed,
+   revocation and later
    markers never clear a historical gap or confirmed participation. Compare cut-offs before/after binding, including
    detach and attempted delete/reinsert; do not rewrite earlier decisions when assurance changes.
 8. **Fail-closed journal.** Each protected-table write without actor context fails. This is tested with raw SQL as
@@ -643,12 +664,13 @@ Assert final rows, positions, grants, snapshots and decision evidence, not merel
     - unconfirmed assignment vs publication;
     - two parallel publications of the same AR (one creates, one reuses or gets stale);
     - two Systems sharing a catalog revision, old/new source replacement, component adoption and locking validation;
-    - global assurance change vs publication involving a historical actor; identity upsert, membership/bootstrap,
+    - global assurance change vs publication involving a historical actor; membership/bootstrap,
       provisioning, library CLI and nested seed each wait on the same gate before relevant reads, locks or DML.
 
     Assert gapless, commit-ordered positions per System, determinations consistent with the visible history, and no
     unhandled deadlocks. Retried deadlocks are counted and reported. ADR 0022 stale and idempotent responses are
-    preserved. Use a held gate to verify supported entry points wait and pure reads proceed. Check rollback of
+    preserved. Use a held gate to verify supported entry points wait and pure reads, including authenticated requests
+    with identity resolution, proceed. Check rollback of
     allocated positions, preceding writes in the same transaction, fresh Session/authorization on bounded retries,
     and exhaustion without duplicate effects. The gate is not protection against non-cooperating SQL.
 11. **Publication and idempotence.** `published_by` and `document_sha256` are present on new SSP/AP/AR versions and
@@ -659,7 +681,7 @@ Assert final rows, positions, grants, snapshots and decision evidence, not merel
     (including assurance and cut-off), none on self/legacy; later edits/assurance changes do not alter the evidence.
 12. **OSCAL and import.** Typed AP/AR candidates and exports contain exactly one matching property and pass Trestle,
     official 1.2.1 schema validation and application checks; legacy outputs are untyped. Historical exports are
-    unchanged. Import cases: absent, matching, contradictory, duplicate, malformed and foreign properties; legacy pin
+    unchanged (equal canonical digest of the stored value before and after migration). Import cases: absent, matching, contradictory, duplicate, malformed and foreign properties; legacy pin
     with a property; `independence_claimed` pin rejected. The ADR 0023 replay contract, unauthorized replay and the
     uniqueness-race recovery are tested, including reauthorization after rollback, 201/200/409 for authorized users,
     unchanged original submitter and no participation on replay.
@@ -680,18 +702,23 @@ Assert final rows, positions, grants, snapshots and decision evidence, not merel
 
 ## Implementation guidance (not implementation approval)
 
-1. **Database Security & Provenance Foundation.** Prepare roles/ACLs, separate-role harness, gate/command contract,
-   actor context, stable assignments, routing, coverage schema, trigger and preflight tests. No coverage claim or
-   production guard activation on incompatible writers.
+1. **Database Security & Provenance Foundation.** Prepare roles/ACLs, separate owner/runtime/provisioner credentials
+   for development and tests, separate-role harness, gate/command contract, actor context, stable assignments,
+   immutable AP type column with exact pin/type keys, routing, coverage schema, trigger and preflight tests. No
+   coverage claim or production guard activation on incompatible writers.
 2. **Resource Authorization & Provenance Activation.** Integrate every supported participant, membership/assurance
-   administration, explicit grants, authenticated provisioning, technical seed limits, available-actions policy and
-   capture. Test coherent activation under the maintenance fence; run real concurrency tests from this package.
-3. **Assessment Types & OSCAL Interoperability.** Add immutable AP type, exact pin/type keys, version-bound
-   assessor checks, OSCAL property, self/legacy workflows and narrow native import/replay contract.
+   administration, explicit grants, authenticated provisioning, technical seed limits, separate Compose jobs and
+   secrets, available-actions policy without SoD reason codes and capture. Only `self_assessment` APs can be created;
+   `independence_claimed` AP creation is rejected in code (no runtime toggle) until package 4 is accepted. Test
+   coherent activation under the maintenance fence; run real concurrency tests from this package.
+3. **Assessment Types & OSCAL Interoperability.** Add version-bound assessor checks by type, OSCAL property,
+   self/legacy workflows and narrow native import/replay contract.
 4. **Personal SoD & Immutable Determinations.** Implement versioned classification, frozen actor sets and assurance,
-   early checks, publication cut-off, immutable decision cardinality, canonical hash, reuse and contention tests.
+   early checks, SoD reason codes in available actions, publication cut-off, immutable decision cardinality,
+   canonical hash, reuse and contention tests. Enable `independence_claimed` AP creation in code.
 5. **Multi-User Demo, Migration & Full Acceptance.** Persona switching, separate technical manifest, clean/upgrade
-   rehearsal, credential withdrawal/rollback exercise, GUI and all 15 acceptance criteria together.
+   rehearsal, credential withdrawal/rollback exercise, GUI and all 15 acceptance criteria together. Independent
+   publication is enabled on an installation only after this acceptance.
 
 Packages are sequential development boundaries, not independently deployable releases. §13 controls installation:
 prepare schema, activate compatible writers and protection together, then permit independent publication and
@@ -709,6 +736,7 @@ advertise verified independence only after full verification and explicit accept
 D1 personal responsibilities and D2 System-wide SoD (§6), D3 independent import exclusion (§5), D4 role separation
 and D6 trust boundary (§8), D5 CLI provisioning and D9 technical fixtures (§2–3), D7 installation serialization and
 D8 command ownership (§10), D10 durable participation (§7, §9), D11 immutable publication (§6–7, §9–10) and D12
-coordinated activation (§13) are agreed design inputs. Revision 3 remains **Proposed** pending independent
-architecture review and explicit PO acceptance. No implementation is authorized.
+coordinated activation (§13) are agreed design inputs. Revision 4 applies the final review corrections (identity
+attestation, ungated identity resolution, AP publisher in the frozen set, package allocation, snapshot immutability
+wording). It remains **Proposed** pending explicit PO acceptance. No implementation is authorized.
 
