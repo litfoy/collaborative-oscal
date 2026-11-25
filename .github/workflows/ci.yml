@@ -91,7 +91,7 @@ jobs:
           cache: npm
       - run: chmod +x scripts/generate_sboms.sh
       - run: scripts/generate_sboms.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ github.sha }}
           path: artifacts/sbom/
