@@ -15,6 +15,8 @@ Runs test suites for all applications in this repository:
 Behavior:
 - If TEST_DATABASE_URL is set, API PostgreSQL integration tests are included.
 - If TEST_DATABASE_URL is not set, integration tests are expected to be skipped.
+- If TEST_DATABASE_OWNER_URL, TEST_DATABASE_RUNTIME_URL and TEST_DATABASE_PROVISIONER_URL
+  are set, separate-role database tests run and are required (--require-database-roles).
 EOF
 }
 
@@ -68,6 +70,16 @@ if [[ -n "${TEST_DATABASE_URL:-}" ]]; then
   api_test_cmd="cd '$ROOT_DIR/apps/api' && TEST_DATABASE_URL='$TEST_DATABASE_URL' uv run --locked pytest -ra"
 else
   echo "TEST_DATABASE_URL is not set; API integration tests are expected to be skipped."
+fi
+
+# Separate-role PostgreSQL tests (ADR 0029 §8). When any role URL is configured, the run is an
+# explicit acceptance run: missing or inconsistent role configuration fails instead of skipping.
+if [[ -n "${TEST_DATABASE_OWNER_URL:-}${TEST_DATABASE_RUNTIME_URL:-}${TEST_DATABASE_PROVISIONER_URL:-}" ]]; then
+  echo "Detected separate-role database URLs; database role tests are required."
+  export TEST_DATABASE_OWNER_URL="${TEST_DATABASE_OWNER_URL:-}"
+  export TEST_DATABASE_RUNTIME_URL="${TEST_DATABASE_RUNTIME_URL:-}"
+  export TEST_DATABASE_PROVISIONER_URL="${TEST_DATABASE_PROVISIONER_URL:-}"
+  api_test_cmd="$api_test_cmd --require-database-roles"
 fi
 
 run_or_print "Running API tests (apps/api)" "$api_test_cmd" || status=1
