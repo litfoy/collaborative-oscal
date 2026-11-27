@@ -738,5 +738,6 @@ and D6 trust boundary (§8), D5 CLI provisioning and D9 technical fixtures (§2�
 D8 command ownership (§10), D10 durable participation (§7, §9), D11 immutable publication (§6–7, §9–10) and D12
 coordinated activation (§13) are agreed design inputs. Revision 4 applies the final review corrections (identity
 attestation, ungated identity resolution, AP publisher in the frozen set, package allocation, snapshot immutability
-wording). It remains **Proposed** pending explicit PO acceptance. No implementation is authorized.
+wording). Revision 4 is **Approved** by explicit PO acceptance. Implementation is authorized package by package;
+each milestone requires explicit PO/architect review before the next begins.
 

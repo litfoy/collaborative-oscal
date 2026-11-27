@@ -221,6 +221,39 @@ database to head; migration tests also exercise upgrade/downgrade sequences in
 transactional, isolated schemas and roll them back. Never point
 `TEST_DATABASE_URL` at a database containing data you need to retain.
 
+#### Separate-role PostgreSQL tests (ADR 0029 §8)
+
+The database-role tests use one `_test` database with three separate credentials
+(`oscal_owner`, `oscal_runtime`, `oscal_provisioner`) and require password
+authentication, because they verify that credentials are not interchangeable. See
+[Database roles](architecture/database-roles.md).
+
+```sh
+docker run --rm --name collaborative-oscal-role-test \
+  -e POSTGRES_PASSWORD=admin-test-only \
+  -e POSTGRES_INITDB_ARGS="--auth-host=scram-sha-256 --auth-local=scram-sha-256" \
+  -e POSTGRES_DB=collaborative_oscal_test \
+  -p 127.0.0.1:55439:5432 -d postgres:17.11
+cd apps/api
+DATABASE_ADMIN_URL=postgresql+psycopg://postgres:admin-test-only@127.0.0.1:55439/collaborative_oscal_test \
+OSCAL_OWNER_DB_PASSWORD=owner-test-only-0001 \
+OSCAL_RUNTIME_DB_PASSWORD=runtime-test-only-002 \
+OSCAL_PROVISIONER_DB_PASSWORD=provisioner-test-only-3 \
+  uv run --locked python -m app.persistence.database_roles bootstrap-roles
+DB=127.0.0.1:55439/collaborative_oscal_test
+export TEST_DATABASE_OWNER_URL=postgresql+psycopg://oscal_owner:owner-test-only-0001@$DB
+export TEST_DATABASE_RUNTIME_URL=postgresql+psycopg://oscal_runtime:runtime-test-only-002@$DB
+export TEST_DATABASE_PROVISIONER_URL=postgresql+psycopg://oscal_provisioner:provisioner-test-only-3@$DB
+export TEST_DATABASE_URL=$TEST_DATABASE_OWNER_URL   # transitional fixtures for existing tests
+uv run --locked pytest -ra --require-database-roles
+```
+
+With role URLs configured, migrations always run as `oscal_owner` and privileges are
+applied before any test. `--require-database-roles` turns missing role configuration
+into failures instead of skips; use it for every acceptance run. Existing integration
+tests still use the single transitional `TEST_DATABASE_URL` credential; only the
+`database_roles` tests provide runtime-role evidence.
+
 Run frontend lint and type checking from the repository root:
 
 ```sh
