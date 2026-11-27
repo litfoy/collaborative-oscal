@@ -7,15 +7,12 @@ overview, see the [English README](../README.md) or the
 The project is licensed under Apache-2.0. Its current product surface includes
 OIDC browser sign-in through a Next.js Backend-for-Frontend, a tenant-scoped
 **Catalog Explorer** with command-line catalog import, basic Profile authoring,
-and a revision-pinned Control Implementation Register. It also includes
-Assessment Plan authoring pinned to immutable SSP versions, with explicit
-assessment scope/objective/subject/activity/task planning and immutable
-OSCAL Assessment Plan exports. The API provides OIDC
+and a revision-pinned Control Implementation Register. The API provides OIDC
 bearer-token authentication, internal identities, tenant memberships, and
 tenant-scoped RBAC. Profiles select controls from exact catalog revisions; full
 Profile resolution is not implemented. Register status is self-reported, not an
-assessment outcome. Catalog editing, Assessment Results workflows, and evidence
-file storage are not implemented. See [Catalog Explorer](architecture/catalog-explorer.md)
+assessment. Catalog editing, assessment workflows, and evidence file storage
+are not implemented. See [Catalog Explorer](architecture/catalog-explorer.md)
 for setup and [ADR 0009](adr/0009-revision-safe-control-implementations.md) for
 register behavior and limitations.
 
@@ -41,14 +38,14 @@ docker compose up
 
 Once startup completes, open **http://localhost:3000**. The first run builds the
 application images, generates server-only credentials, starts PostgreSQL, applies
-the migrations, and creates the Acme Corp demo workspace. It then imports the
-official NIST SP 800-53 Rev. 5.2.0 baseline and runs `seed-ai-governance-demo-local`
-to initialize the AI Governance/Governance Coverage demo dataset. No `.env` file
-or Keycloak is needed. The bundled seeds are idempotent and use versioned markers;
-restarts do not create duplicate records. If initialization fails, `db-init` exits
-non-zero and `api`/`web` do not start, so incomplete demo startup stays visible.
-Use Catalog Explorer to browse the catalogs or import other OSCAL Catalog JSON
-files, for example `examples/catalogs/sample-data-handling.json`.
+the migrations, and creates the Acme Corp demo workspace. No `.env` file or
+Keycloak is needed. The workspace includes the official NIST SP 800-53 Rev. 5.2.0
+catalog; use Catalog Explorer to browse it or import other OSCAL Catalog JSON
+files, for example `examples/catalogs/sample-data-handling.json`. The bundled
+NIST catalog is imported once per demo database; restarts do not replace changes
+or re-import a catalog that was later removed. After updating an existing checkout,
+run `docker compose up --build` to rebuild its images; existing demo databases
+then acquire the seed unless they already contain that OSCAL document.
 
 This is **only a local demonstration**, not a production deployment. Anyone who
 can access the frontend can act as the demo user and make changes. Only the
@@ -190,10 +187,6 @@ Never pass imported Catalog content, OSCAL metadata, user-authored descriptions,
 or exports through translation lookup. See
 [ADR 0018](adr/0018-frontend-internationalization.md).
 
-For mutable aggregate concurrency behavior, follow [ADR 0022](adr/0022-aggregate-optimistic-concurrency.md)
-and the implementation/verification guide at
-[docs/architecture/optimistic-concurrency.md](architecture/optimistic-concurrency.md).
-
 ## Tests and checks
 
 Run backend unit tests and lint:
@@ -228,6 +221,39 @@ database to head; migration tests also exercise upgrade/downgrade sequences in
 transactional, isolated schemas and roll them back. Never point
 `TEST_DATABASE_URL` at a database containing data you need to retain.
 
+#### Separate-role PostgreSQL tests (ADR 0029 §8)
+
+The database-role tests use one `_test` database with three separate credentials
+(`oscal_owner`, `oscal_runtime`, `oscal_provisioner`) and require password
+authentication, because they verify that credentials are not interchangeable. See
+[Database roles](architecture/database-roles.md).
+
+```sh
+docker run --rm --name collaborative-oscal-role-test \
+  -e POSTGRES_PASSWORD=admin-test-only \
+  -e POSTGRES_INITDB_ARGS="--auth-host=scram-sha-256 --auth-local=scram-sha-256" \
+  -e POSTGRES_DB=collaborative_oscal_test \
+  -p 127.0.0.1:55439:5432 -d postgres:17.11
+cd apps/api
+DATABASE_ADMIN_URL=postgresql+psycopg://postgres:admin-test-only@127.0.0.1:55439/collaborative_oscal_test \
+OSCAL_OWNER_DB_PASSWORD=owner-test-only-0001 \
+OSCAL_RUNTIME_DB_PASSWORD=runtime-test-only-002 \
+OSCAL_PROVISIONER_DB_PASSWORD=provisioner-test-only-3 \
+  uv run --locked python -m app.persistence.database_roles bootstrap-roles
+DB=127.0.0.1:55439/collaborative_oscal_test
+export TEST_DATABASE_OWNER_URL=postgresql+psycopg://oscal_owner:owner-test-only-0001@$DB
+export TEST_DATABASE_RUNTIME_URL=postgresql+psycopg://oscal_runtime:runtime-test-only-002@$DB
+export TEST_DATABASE_PROVISIONER_URL=postgresql+psycopg://oscal_provisioner:provisioner-test-only-3@$DB
+export TEST_DATABASE_URL=$TEST_DATABASE_OWNER_URL   # transitional fixtures for existing tests
+uv run --locked pytest -ra --require-database-roles
+```
+
+With role URLs configured, migrations always run as `oscal_owner` and privileges are
+applied before any test. `--require-database-roles` turns missing role configuration
+into failures instead of skips; use it for every acceptance run. Existing integration
+tests still use the single transitional `TEST_DATABASE_URL` credential; only the
+`database_roles` tests provide runtime-role evidence.
+
 Run frontend lint and type checking from the repository root:
 
 ```sh
@@ -236,21 +262,17 @@ npm --workspace apps/web run typecheck
 npm --workspace apps/web run test
 ```
 
-GitHub Actions runs linting, non-integration API tests, and PostgreSQL integration
-API tests on pushes and pull requests (using a dedicated PostgreSQL service
-container in CI).
+GitHub Actions runs linting and non-integration API tests on pushes and pull requests.
+PostgreSQL integration tests run only on pull requests, against a dedicated PostgreSQL
+service. Changes pushed directly to a branch without a pull request do not run the
+integration tests.
 
-### Verified integration baseline (2026-11-17)
+### Verified integration baseline (2026-11-16)
 
 The complete API suite with a fresh, dedicated PostgreSQL 17 database passes:
-**289 passed, 0 failed, 0 errors, 0 skipped**. There are no remaining integration
+**262 passed, 0 failed, 0 errors, 0 skipped**. There are no remaining integration
 blockers or compatibility-policy exceptions. Frontend regression checks also pass:
-154 tests, ESLint, and TypeScript; API Ruff checks pass.
-
-Downgrading a populated database can intentionally stop before `base` to prevent
-data loss. In particular, migration `71bc92de4a10` raises a protective runtime
-error when Profile-import provenance rows exist, so full downgrade/re-upgrade
-verification should run against a fresh disposable database.
+143 tests, ESLint, and TypeScript; API Ruff checks pass.
 
 The unmodified authoring-consolidation commit `ae57eb4` reproduced 228 passed,
 7 failed, and 25 setup errors. Its predecessor `7f2598f`, run in a separate Git

@@ -28,7 +28,10 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-markers = ["integration: tests requiring a dedicated PostgreSQL database"]
+markers = [
+    "integration: tests requiring a dedicated PostgreSQL database",
+    "database_roles: separate-role PostgreSQL security tests (ADR 0029 §8)",
+]
 
 [tool.ruff]
 line-length = 100

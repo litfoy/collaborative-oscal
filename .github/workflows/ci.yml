@@ -32,7 +32,13 @@ jobs:
   api-integration:
     runs-on: ubuntu-latest
     env:
-      TEST_DATABASE_URL: postgresql+psycopg://collaborative_oscal:ci-only-password@localhost:5432/collaborative_oscal_test
+      # CI-only credentials for a disposable service database; never reuse elsewhere.
+      # Existing (transitional) integration tests use the owner credential; separate-role tests
+      # use the owner, runtime and provisioner credentials (ADR 0029 §8, milestone 29.1a).
+      TEST_DATABASE_URL: postgresql+psycopg://oscal_owner:ci-only-owner-password@localhost:5432/collaborative_oscal_test
+      TEST_DATABASE_OWNER_URL: postgresql+psycopg://oscal_owner:ci-only-owner-password@localhost:5432/collaborative_oscal_test
+      TEST_DATABASE_RUNTIME_URL: postgresql+psycopg://oscal_runtime:ci-only-runtime-password@localhost:5432/collaborative_oscal_test
+      TEST_DATABASE_PROVISIONER_URL: postgresql+psycopg://oscal_provisioner:ci-only-provisioner-password@localhost:5432/collaborative_oscal_test
     services:
       postgres:
         image: postgres:17.11
@@ -58,7 +64,15 @@ jobs:
           python-version: "3.12"
       - run: uv sync --locked
         working-directory: apps/api
-      - run: uv run pytest -m integration
+      - name: Bootstrap database roles (cluster-level, superuser)
+        run: uv run python -m app.persistence.database_roles bootstrap-roles
+        working-directory: apps/api
+        env:
+          DATABASE_ADMIN_URL: postgresql+psycopg://collaborative_oscal:ci-only-password@localhost:5432/collaborative_oscal_test
+          OSCAL_OWNER_DB_PASSWORD: ci-only-owner-password
+          OSCAL_RUNTIME_DB_PASSWORD: ci-only-runtime-password
+          OSCAL_PROVISIONER_DB_PASSWORD: ci-only-provisioner-password
+      - run: uv run pytest -m integration --require-database-roles
         working-directory: apps/api
 
   web:
